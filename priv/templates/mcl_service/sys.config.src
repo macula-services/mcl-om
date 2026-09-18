@@ -4,26 +4,51 @@
 %% looks exactly like a healthy node.
 [
     {mcl_om, [
-        {service_cert_path, "/etc/hecate/secrets/service-cert.pem"},
-        %% Without this, mcl_om_identity:load_keypair/0 returns `undefined`
-        %% forever and keypair/0 stays {error, no_keypair} -- a service that
-        %% declares a handler-bearing capability() then silently never
-        %% advertises it, on every republish tick, permanently ("an
+        %% Without this, mcl_om_identity:load_node_key/0 returns `undefined'
+        %% forever and identity_key/0 stays {error, no_identity_key} -- a
+        %% service that declares a handler-bearing capability() then silently
+        %% never advertises it, on every republish tick, permanently ("an
         %% ephemeral service cannot sign and is correctly not advertised",
         %% mcl_om_capabilities's own moduledoc). Confirmed live 2026-08-31
         %% on a service generated from an earlier copy of this template that
-        %% lacked this line. Point it at the same mounted secrets volume
-        %% service_cert_path already uses -- no new infrastructure needed.
-        {identity_key_path, "/etc/hecate/secrets/identity.key"},
-        {health_port,       ${HECATE_HEALTH_PORT}},
+        %% lacked this line. Point it at the mounted secrets volume.
+        {identity_key_path, "/etc/mcl/secrets/identity.key"},
+        {health_port,       ${MCL_HEALTH_PORT}},
         {capability_topic,  <<"_mesh.cap.">>},
         %% THE REALM IS AN APPLICATION ENV, NOT A SHELL VARIABLE, and this file
         %% is the only place the two meet. mcl_om_identity:realm() reads
-        %% application:get_env(mcl_om, realm); exporting HECATE_REALM in the
+        %% application:get_env(mcl_om, realm); exporting MCL_REALM in the
         %% shell and expecting that to be enough has cost a sibling service an
         %% hour, because nothing translates between the two by itself.
-        {realm,             <<"${HECATE_REALM}">>}
+        {realm,             <<"${MCL_REALM}">>}
     ]},
+    %% ==========================================================================
+    %% THE PQ CRYPTO PROFILE, WITHOUT WHICH THIS NODE DOES NOT PEER
+    %% ==========================================================================
+    %%
+    %% ⚠ MANDATORY. The macula app starts before the service reads anything,
+    %% and without this block it boots on the classical profile while every
+    %% PQ station closes the CONNECT/HELLO handshake as puzzle_invalid --
+    %% forever, silently. The 11.x client model: a puzzle-8 identity key
+    %% (generated and persisted by mcl_om_identity when the path above is
+    %% missing) and the pq_hybrid crypto profile every wire signature is
+    %% checked under. mcl_om is a library; each service's own release
+    %% carries this pair.
+    {macula, [
+        {crypto_profile, pq_hybrid},
+        {puzzle_difficulty, 8}
+    ]},
+    %% ==========================================================================
+    %% REALM TRUST, WHEN THIS SERVICE RESOLVES ORG-NAMESPACED CAPABILITIES
+    %% ==========================================================================
+    %%
+    %% The realm keys this pool pins for D25 (org-namespaced advertisement)
+    %% verification: one per realm id, each realm's public key as carried --
+    %% macula:connect/2's `realm_trust' opt. Set it only when this service
+    %% CALLS org-namespaced capabilities; a service that only publishes does
+    %% not need it. The realm's key comes from its own
+    %% `foundation_realm_trust_list' DHT record, not from this file.
+    %% {realm_trust, #{<<...32-byte realm id...>> => <<...carried realm key...>>}},
 <%#store%>
     %% ==========================================================================
     %% EVOQ'S ADAPTER, WITHOUT WHICH THIS NODE DOES NOT BOOT

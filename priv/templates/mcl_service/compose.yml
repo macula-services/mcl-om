@@ -3,7 +3,9 @@
 # Runnable as-is. It carries what the SERVICE knows about itself: its image, its
 # port, the environment variables its own code reads, and its health check.
 #
-#   HECATE_REALM=<64-hex> MACULA_STATION_SEEDS=https://station.example:4433 \
+#   MCL_REALM=<64-hex> \
+#     MACULA_STATION_SEEDS=station.example:4433 \
+#     MACULA_STATION_NODE_IDS=<64-hex node id of that station> \
 #     docker compose -p <%repo%> -f deploy/docker-compose.yml up -d
 #
 # IF YOU DEPLOY THROUGH SOMETHING ELSE, keep this file anyway and let the other
@@ -32,7 +34,7 @@ services:
       # ON A BULK DRIVE, NOT THE ROOT FILESYSTEM, on any fleet node. Those boot
       # from a small eMMC with a root partition measured in single-digit gigabytes
       # and keep application data on /bulk0.
-      - ${HECATE_DATA:-/bulk0/<%repo%>}:/data
+      - ${MCL_DATA:-/bulk0/<%repo%>}:/data
 <%/store%>
     labels:
       # Only meaningful if you run watchtower: it pulls a new :latest and
@@ -41,17 +43,21 @@ services:
     environment:
       # No default. A service that guesses its realm announces itself where
       # nobody can attribute it, and that looks exactly like a healthy node.
-      - HECATE_REALM=${HECATE_REALM:?set HECATE_REALM to the 64-hex realm tag}
+      - MCL_REALM=${MCL_REALM:?set MCL_REALM to the 64-hex realm tag}
       # No default either: naming a realm costs nothing, dialling somebody's
-      # production station from every dev clone does.
-      - MACULA_STATION_SEEDS=${MACULA_STATION_SEEDS:?set MACULA_STATION_SEEDS to a station URL}
-      - HECATE_NODE_NAME=<%name%>
-      - HECATE_NODE_HOST=127.0.0.1
-      - HECATE_COOKIE=<%name%>
+      # production station from every dev clone does. The 11.x dial is PINNED:
+      # every seed host pairs with its station's node id, index for index
+      # (D5) -- mcl_om refuses to boot a pool with an unpinned seed, since
+      # that dial could never connect anyway.
+      - MACULA_STATION_SEEDS=${MACULA_STATION_SEEDS:?set MACULA_STATION_SEEDS to "host[:port][,host[:port]...]"}
+      - MACULA_STATION_NODE_IDS=${MACULA_STATION_NODE_IDS:?set MACULA_STATION_NODE_IDS to the matching 64-hex node ids, comma-separated}
+      - MCL_NODE_NAME=<%name%>
+      - MCL_NODE_HOST=127.0.0.1
+      - MCL_COOKIE=<%name%>
       # Host networking means a port already bound on this host fails SILENTLY.
-      - HECATE_HEALTH_PORT=<%health_port%>
+      - MCL_HEALTH_PORT=<%health_port%>
 <%#store%>
       # Where the store lands, matching the volume above. `store_id/0' is
-      # appended by hecate_om, so the store itself is at /data/<%name%>_store.
-      - HECATE_DATA_DIR=/data
+      # appended by mcl_om, so the store itself is at /data/<%name%>_store.
+      - MCL_DATA_DIR=/data
 <%/store%>

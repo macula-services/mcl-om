@@ -141,39 +141,47 @@ unwrap_is_recursive_through_nested_lists_and_maps_test() ->
     ?assertEqual(#{a => <<"1">>, b => [<<"2">>, #{c => <<"3">>}]},
                  mcl_om_wire:unwrap(Wire)).
 
-%%% retryable/1 (piece G) -- real BOLT#4 codes from macula_bolt4:table/0,
-%%% not fabricated ones, so a real table edit is what would break these.
+%%% retryable/1 (piece G) -- the 11.x call outcomes: BINARY wire codes
+%%% (`temporary_relay_failure', `unauthorized', `unknown_error') or the
+%%% `unknown_next_peer' atom, per macula_station_link's own reply
+%%% taxonomy -- not fabricated ones, so a real table edit is what would
+%%% break these.
 
 retryable_is_false_on_success_test() ->
     ?assertEqual(false, mcl_om_wire:retryable({ok, #{}})).
 
-%% 16#02 temporary_relay_failure, retry => same_path_after_backoff.
+%% temporary_relay_failure, retry => same_path_after_backoff.
 retryable_true_for_a_backoff_coded_failure_test() ->
     ?assertEqual(true, mcl_om_wire:retryable(
-                          {error, {call_error, 16#02, temporary_relay_failure}})).
+                          {error, {call_error, <<"temporary_relay_failure">>, undefined}})).
 
-%% 16#05 target_realm_refused, retry => application (handler-level
-%% remedy, not a transport retry).
-retryable_false_for_an_application_coded_failure_test() ->
+%% unauthorized, retry => never -- a security refusal, not a transport
+%% blip; retrying it cannot help and may re-trigger the same gate.
+retryable_false_for_a_security_refusal_test() ->
     ?assertEqual(false, mcl_om_wire:retryable(
-                           {error, {call_error, 16#05, target_realm_refused}})).
+                           {error, {call_error, <<"unauthorized">>, undefined}})).
 
-%% 16#0A crypto_puzzle_invalid, retry => crypto_drop -- security-
-%% critical, must never be retried automatically.
-retryable_false_for_a_crypto_drop_coded_failure_test() ->
-    ?assertEqual(false, mcl_om_wire:retryable(
-                           {error, {call_error, 16#0A, crypto_puzzle_invalid}})).
-
-%% macula_bolt4:is_retryable/1 raises for a code its own table doesn't
-%% recognize (a real possibility across a protocol version skew, not a
-%% fabricated edge case) -- must resolve to retryable, not crash the
-%% caller over a code this build doesn't know yet.
-retryable_true_for_an_unrecognized_bolt4_code_test() ->
+%% unknown_next_peer -- a station that could not route; transient on a
+%% meshed fleet, worth retrying.
+retryable_true_for_an_unknown_next_peer_test() ->
     ?assertEqual(true, mcl_om_wire:retryable(
-                          {error, {call_error, 16#FE, some_future_code}})).
+                          {error, {call_error, unknown_next_peer, undefined}})).
+
+%% unknown_error -- the provider's own catch-all; nothing says the next
+%% attempt hits the same failure.
+retryable_true_for_an_unknown_error_test() ->
+    ?assertEqual(true, mcl_om_wire:retryable(
+                          {error, {call_error, <<"unknown_error">>, undefined}})).
+
+%% A code this build doesn't recognize (a real possibility across a
+%% protocol version skew, not a fabricated edge case) -- must resolve
+%% to retryable, not crash the caller over a code it doesn't know yet.
+retryable_true_for_an_unrecognized_code_test() ->
+    ?assertEqual(true, mcl_om_wire:retryable(
+                          {error, {call_error, <<"some_future_code">>, undefined}})).
 
 %% An error macula didn't code-classify at all (a raw catch, a
-%% timeout) -- nothing for the BOLT#4 table to say, decided directly.
+%% timeout) -- nothing for the code table to say, decided directly.
 retryable_true_for_an_unclassified_error_test() ->
     ?assertEqual(true, mcl_om_wire:retryable({error, timeout})),
     ?assertEqual(true, mcl_om_wire:retryable({'EXIT', some_reason})).

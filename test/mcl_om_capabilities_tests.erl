@@ -2,11 +2,15 @@
 %%% mcl_om_capabilities (direct-dial discovery, Slice 2). The mesh
 %%% I/O (put_record / find_records / links) is thin glue over macula,
 %%% covered by macula-station's DHT handler tests and macula's record
-%%% tests; here we prove hecate-om builds the right record, derives the
+%%% tests; here we prove mcl-om builds the right record, derives the
 %%% same key on both sides, and decodes/verifies what it reads back.
+%%%
+%%% The 11.x port: fixtures sign with real pq_hybrid node keys; the
+%%% procedure is the org-qualified string (no realm-hex prefix -- the
+%%% record names the realm in its own field); the cert-chain advertise
+%%% form is gone with the 10.x cert authorization.
 -module(mcl_om_capabilities_tests).
 -include_lib("eunit/include/eunit.hrl").
--include_lib("public_key/include/public_key.hrl").
 
 %% Placeholder macula_response AND macula_streamer callback module (piece
 %% B tests + the streamer-kind tests below) — referenced only by module
@@ -23,30 +27,49 @@ realm()      -> crypto:strong_rand_bytes(32).
 station()    -> crypto:strong_rand_bytes(32).
 cap(Name)    -> #{name => Name, version => 1}.
 
-%% Provider (advertising, from a capability map) and consumer (looking
-%% up, from a bare name) must derive the SAME URI so their storage keys
-%% match — otherwise a consumer could never find the provider.
-procedure_uri_agrees_and_is_realm_scoped_test() ->
-    R    = realm(),
-    Name = <<"hecate-rag.query">>,
-    FromCap  = mcl_om_capabilities:procedure_uri(R, <<"acme">>, cap(Name)),
-    FromName = mcl_om_capabilities:procedure_uri(R, <<"acme">>, Name),
-    ?assertEqual(FromName, FromCap),
-    ?assertEqual(<<(binary:encode_hex(R, uppercase))/binary, "/acme/", Name/binary>>, FromCap).
+profile() ->
+    {ok, P} = macula_crypto_profile:configured(),
+    P.
 
+%% A real pq_hybrid identity node key, generated at difficulty 0 (no
+%% puzzle grind) -- fixtures sign records with it, the same shape the
+%% service's own key has.
+node_key() ->
+    {ok, K} = macula_node_keys:generate(identity, profile(),
+                                        #{puzzle_difficulty => 0}),
+    K.
+
+node_id(Key) ->
+    {ok, Id} = macula_node_keys:node_id(Key),
+    Id.
+
+%% The signed record's {key, tbs, signature} projection -- the map form
+%% macula_record:verify/2 takes (the full decoded record trips its
+%% map_size =:= 3 guard).
+verified(Record) ->
+    macula_record:verify(maps:with([key, tbs, signature], Record), profile()).
+
+%% The record the provider publishes and the record the consumer
+%% resolves under must name the same realm, the org-qualified procedure,
+%% the advertiser's node id and the serving station -- the 11.x record
+%% carries the realm as its own field, no realm-hex prefix in the
+%% procedure string.
 build_advertisement_round_trips_test() ->
-    Kp = macula_identity:generate(),
-    R  = realm(),
-    St = station(),
-    Rec = mcl_om_capabilities:build_advertisement(Kp, R, <<"acme">>, cap(<<"svc.do">>), St),
+    Key = node_key(),
+    R   = realm(),
+    St  = station(),
+    Rec = mcl_om_capabilities:build_advertisement(Key, R, <<"acme">>,
+                                                  cap(<<"svc.do">>), St),
     #{advertiser_node := Adv,
       serving_station := Sta,
-      procedure_uri   := Uri} = macula_record:read_procedure_advertisement(Rec),
-    ?assertEqual(macula_identity:public(Kp), Adv),
+      realm_id        := RealmId,
+      procedure       := Proc} = macula_record:read_procedure_advertisement(Rec),
+    ?assertEqual(node_id(Key), Adv),
     ?assertEqual(St, Sta),
-    ?assertEqual(mcl_om_capabilities:procedure_uri(R, <<"acme">>, <<"svc.do">>), Uri),
+    ?assertEqual(R, RealmId),
+    ?assertEqual(<<"acme/svc.do">>, Proc),
     %% and the record verifies (it was signed by the advertiser)
-    ?assertMatch({ok, _}, macula_record:verify(Rec)).
+    ?assertMatch({ok, _}, verified(Rec)).
 
 %% The Slice-2 DONE-WHEN in pure form: two providers advertise one
 %% capability; decode_resolved recovers both as {advertiser, station}.
@@ -54,59 +77,55 @@ decode_resolved_returns_verified_providers_test() ->
     R   = realm(),
     St1 = station(),
     St2 = station(),
-    KpA = macula_identity:generate(),
-    KpB = macula_identity:generate(),
+    KpA = node_key(),
+    KpB = node_key(),
     A = mcl_om_capabilities:build_advertisement(KpA, R, <<"acme">>, cap(<<"c">>), St1),
     B = mcl_om_capabilities:build_advertisement(KpB, R, <<"acme">>, cap(<<"c">>), St2),
     Got = mcl_om_capabilities:decode_resolved([A, B]),
     ?assertEqual(2, length(Got)),
-    ?assert(lists:member(#{advertiser => macula_identity:public(KpA),
+    ?assert(lists:member(#{advertiser => node_id(KpA),
                            serving_station => St1}, Got)),
-    ?assert(lists:member(#{advertiser => macula_identity:public(KpB),
+    ?assert(lists:member(#{advertiser => node_id(KpB),
                            serving_station => St2}, Got)).
 
 decode_resolved_drops_tampered_and_foreign_records_test() ->
     R   = realm(),
     St  = station(),
-    Kp  = macula_identity:generate(),
+    Kp  = node_key(),
     Good     = mcl_om_capabilities:build_advertisement(Kp, R, <<"acme">>, cap(<<"c">>), St),
-    Tampered = Good#{signature := <<0:512>>},
+    Tampered = Good#{signature := binary:copy(<<255>>,
+                                              byte_size(maps:get(signature, Good)))},
     %% a node_record is not a procedure_advertisement
-    NodeKp = macula_identity:generate(),
+    NodeKp = node_key(),
     Node   = macula_record:sign(
-               macula_record:node_record(macula_identity:public(NodeKp), [], 0),
+               macula_record:node_record(node_id(NodeKp), [], 0),
                NodeKp),
     Got = mcl_om_capabilities:decode_resolved([Tampered, Node, Good]),
-    ?assertEqual([#{advertiser => macula_identity:public(Kp),
+    ?assertEqual([#{advertiser => node_id(Kp),
                     serving_station => St}], Got).
 
 %%% Org-scoped discovery — two orgs advertising the same bare capability
 %%% name must resolve to genuinely distinct DHT buckets, so a caller
 %%% targeting one org can never be silently answered by the other.
+%%% (The bare any-provider key is gone in 11.x: a procedure without an
+%%% org namespace is refused at the station, so every registration and
+%%% therefore every resolution is under Realm/Org/CapName.)
 
-%% The property the whole fix depends on: two different orgs (or an org
-%% vs. the bare/any-provider key) derive DIFFERENT storage keys for the
-%% identical capability name. Before this fix, Org was accepted by
-%% call_capability/5,7 but never reached key derivation at all — every
-%% org collided on the same bare key.
-discovery_key_org_is_distinct_per_org_and_from_bare_test() ->
+discovery_key_org_is_distinct_per_org_test() ->
     R    = realm(),
     Name = <<"svc.do">>,
-    Bare   = mcl_om_capabilities:discovery_key(R, Name),
-    Acme   = mcl_om_capabilities:discovery_key_org(R, <<"acme">>, Name),
+    Acme    = mcl_om_capabilities:discovery_key_org(R, <<"acme">>, Name),
     Contoso = mcl_om_capabilities:discovery_key_org(R, <<"contoso">>, Name),
-    ?assertNotEqual(Bare, Acme),
-    ?assertNotEqual(Bare, Contoso),
     ?assertNotEqual(Acme, Contoso).
 
 %% Read/write agreement: the key a consumer derives via discovery_key_org/3
 %% must be EXACTLY the key macula_record:storage_key/1 computes for a
 %% record built via build_advertisement/5 with the same (Realm, Org,
-%% Name) — otherwise the org-qualified record advertise_one/7 now
-%% publishes would be unfindable by the org-scoped lookup that's
-%% supposed to find it, and the fix would silently do nothing.
+%% Name) -- otherwise the org-qualified record advertise_one/7 publishes
+%% would be unfindable by the org-scoped lookup that's supposed to find
+%% it, and the scoping would silently do nothing.
 discovery_key_org_matches_what_gets_published_under_it_test() ->
-    Kp   = macula_identity:generate(),
+    Kp   = node_key(),
     R    = realm(),
     St   = station(),
     Org  = <<"acme">>,
@@ -114,33 +133,6 @@ discovery_key_org_matches_what_gets_published_under_it_test() ->
     Rec = mcl_om_capabilities:build_advertisement(Kp, R, Org, cap(Name), St),
     ?assertEqual(mcl_om_capabilities:discovery_key_org(R, Org, Name),
                  macula_record:storage_key(Rec)).
-
-%% Pure decision logic: a non-empty org-scoped result is returned as-is —
-%% the fallback branch (which would need a real find/2 mesh call) is
-%% never reached, matching Erlang's own clause selection, not something
-%% this test has to prove separately.
-org_scoped_or_any_prefers_org_scoped_when_present_test() ->
-    OrgScoped = [#{advertiser => <<1:256>>, serving_station => <<2:256>>}],
-    ?assertEqual(OrgScoped,
-                 mcl_om_capabilities:org_scoped_or_any(
-                   OrgScoped, unused_pool, unused_realm, unused_cap)).
-
-%% Empty org-scoped result: falls back to the bare-key resolution path
-%% rather than reporting "no provider" outright. Uses the same zero-seed
-%% real-pool technique as the live_pool_* tests above — proves the
-%% fallback branch reaches real code (discovery_key/2 + find/2 +
-%% resolve_records/1) and degrades to [] without crashing, rather than
-%% proving a non-empty result (which needs a real station).
-org_scoped_or_any_falls_back_when_org_scoped_is_empty_test_() ->
-    {timeout, 15,
-     fun() ->
-        {ok, _} = application:ensure_all_started(macula),
-        {ok, Pool} = macula_client:connect([], #{}),
-        Got = mcl_om_capabilities:org_scoped_or_any(
-                [], Pool, realm(), <<"svc.do">>),
-        ?assertEqual([], Got),
-        try macula_client:close(Pool) catch _:_ -> ok end
-     end}.
 
 %%% Org-scoped wire dispatch (2026-08-29) — the shared-station fix. Two
 %%% orgs advertising the same bare capability name from the SAME station
@@ -156,93 +148,42 @@ org_procedure_is_org_slash_name_test() ->
        mcl_om_capabilities:org_procedure(<<"acme">>, <<"svc.do">>),
        mcl_om_capabilities:org_procedure(<<"contoso">>, <<"svc.do">>)).
 
-%% The property advertise_one/7's dual-advertise depends on: publishing
-%% under org_procedure(Org, Name) as the wire-level Procedure lands the
-%% DHT record at EXACTLY discovery_key_org/3's key, because
-%% macula_direct_dial:discovery_uri/2 (RealmHex/Procedure) and
-%% procedure_uri/3 (RealmHex/Org/Name) produce the identical string when
-%% Procedure = org_procedure(Org, Name). If this ever stopped being true,
-%% the org-qualified advertise_direct call would publish somewhere the
-%% org-scoped resolver can never find.
-org_procedure_matches_procedure_uri_when_realm_prefixed_test() ->
-    R    = realm(),
-    Org  = <<"acme">>,
-    Name = <<"svc.do">>,
-    DiscoveryUriShape = <<(binary:encode_hex(R, uppercase))/binary, "/",
-                          (mcl_om_capabilities:org_procedure(Org, Name))/binary>>,
-    ?assertEqual(mcl_om_capabilities:procedure_uri(R, Org, Name),
-                 DiscoveryUriShape).
-
 %% org_scoped_full_or_any/5's whole job: tag each provider with the
-%% wire-level procedure the CALL must use. An org-scoped hit is tagged
+%% wire-level procedure the CALL must use. Every hit is tagged
 %% org_procedure(Org, CapName) -- never CapName alone -- so dial_provider
-%% can only ever reach that org's own registration.
-org_scoped_full_or_any_tags_org_scoped_hits_with_the_org_procedure_test() ->
+%% can only ever reach that org's own registration. (The 10.x bare-key
+%% fallback is gone: 11.x accepts no bare procedure at all.)
+org_scoped_full_or_any_tags_hits_with_the_org_procedure_test() ->
     OrgScoped = [#{advertiser => <<1:256>>, serving_station => <<2:256>>,
-                  record => ignored}],
+                   record => ignored}],
     Got = mcl_om_capabilities:org_scoped_full_or_any(
             OrgScoped, unused_pool, unused_realm, <<"acme">>, <<"svc.do">>),
     ?assertEqual([#{advertiser => <<1:256>>, serving_station => <<2:256>>,
                     record => ignored, procedure => <<"acme/svc.do">>}],
-                Got).
+                 Got).
 
-%% Empty org-scoped result falls back to bare-key resolution AND tags the
-%% fallback hits with the bare CapName, never org_procedure/2 -- a
-%% fallback hit's provider may not even be the targeted org (that's the
-%% point of the fallback), so tagging it org-qualified would target a
-%% registration that provider never made.
-org_scoped_full_or_any_falls_back_and_tags_with_bare_name_test_() ->
-    {timeout, 15,
-     fun() ->
-        {ok, _} = application:ensure_all_started(macula),
-        {ok, Pool} = macula_client:connect([], #{}),
-        Got = mcl_om_capabilities:org_scoped_full_or_any(
-                [], Pool, realm(), <<"acme">>, <<"svc.do">>),
-        ?assertEqual([], Got),
-        try macula_client:close(Pool) catch _:_ -> ok end
-     end}.
-
-%% advertise_opts/1 always carries ttl_ms proportioned to the republish
-%% interval, with or without a cert chain -- the property slice 6 (TTL
-%% fix) depends on: a dead service's advertisement should age out in
-%% minutes, not the ~48h envelope default.
+%% advertise_opts/0 always carries ttl_ms proportioned to the republish
+%% interval -- the property slice 6 (TTL fix) depends on: a dead
+%% service's advertisement should age out in minutes, not the ~48h
+%% envelope default. The 10.x cert-chain variant is gone with the cert
+%% authorization form.
 advertise_opts_always_carries_a_proportioned_ttl_test() ->
     ?assertMatch(#{ttl_ms := Ttl} when is_integer(Ttl) andalso Ttl > 0,
-                 mcl_om_capabilities:advertise_opts({error, no_chain})),
-    ?assertMatch(#{ttl_ms := _, cert_chain := <<"pem">>},
-                 mcl_om_capabilities:advertise_opts({ok, <<"pem">>})).
-
-%% End-to-end proof (pure, no mesh): the record-only path's ttl_ms
-%% actually reaches the signed record's expires_at -- this path builds
-%% via macula_record:procedure_advertisement/4 directly, so it is NOT
-%% affected by the macula_direct_dial:adv_opts/1 forwarding gap the
-%% handler-bearing path depends on macula shipping past 10.11.1 for.
-build_advertisement_honors_a_proportioned_ttl_test() ->
-    Kp   = macula_identity:generate(),
-    R    = realm(),
-    St   = station(),
-    Opts = mcl_om_capabilities:advertise_opts({error, no_chain}),
-    #{ttl_ms := TtlMs} = Opts,
-    Rec = mcl_om_capabilities:build_advertisement(
-            Kp, R, <<"acme">>, cap(<<"svc.do">>), St, Opts),
-    ?assertEqual(TtlMs,
-                 macula_record:expires_at(Rec) - macula_record:created_at(Rec)).
+                 mcl_om_capabilities:advertise_opts()).
 
 %%% Org capability browse (2026-08-29, slice 4) -- client-side filter
 %%% over find_records_by_type, matched via macula_topic_pattern.
 
-org_capability_pattern_is_realm_hex_org_star_test() ->
-    R = realm(),
-    ?assertEqual([binary:encode_hex(R, uppercase), <<"acme">>, <<"*">>],
-                 mcl_om_capabilities:org_capability_pattern(R, <<"acme">>)).
+org_capability_pattern_is_org_star_test() ->
+    ?assertEqual([<<"acme">>, <<"*">>],
+                 mcl_om_capabilities:org_capability_pattern(<<"acme">>)).
 
 matches_org_pattern_matches_any_name_under_the_org_test() ->
-    R = realm(),
-    Pattern = mcl_om_capabilities:org_capability_pattern(R, <<"acme">>),
-    AcmeUri = mcl_om_capabilities:procedure_uri(R, <<"acme">>, <<"svc.do">>),
-    ContosoUri = mcl_om_capabilities:procedure_uri(R, <<"contoso">>, <<"svc.do">>),
-    ?assert(mcl_om_capabilities:matches_org_pattern(Pattern, AcmeUri)),
-    ?assertNot(mcl_om_capabilities:matches_org_pattern(Pattern, ContosoUri)).
+    Pattern = mcl_om_capabilities:org_capability_pattern(<<"acme">>),
+    AcmeProc = mcl_om_capabilities:org_procedure(<<"acme">>, <<"svc.do">>),
+    ContosoProc = mcl_om_capabilities:org_procedure(<<"contoso">>, <<"svc.do">>),
+    ?assert(mcl_om_capabilities:matches_org_pattern(Pattern, AcmeProc)),
+    ?assertNot(mcl_om_capabilities:matches_org_pattern(Pattern, ContosoProc)).
 
 %% Pure proof (no mesh) that resolve_org_capabilities/3's actual filter
 %% (decode_if_org_matches -> matches_org_pattern) keeps the right
@@ -269,44 +210,6 @@ station_url_brackets_ipv6_only_test() ->
                  mcl_om_capabilities:station_url(<<"2001:db8::5">>, 9000)),
     ?assertEqual(<<"quic://10.0.0.7:4433">>,
                  mcl_om_capabilities:station_url(<<"10.0.0.7">>, 4433)).
-
-%%% Direct-dial dual-trust (Slice 7c Direction B) — the advertise side
-%%% embeds the service cert chain; the SDK verifies it to the realm CA.
-
-%% build_advertisement/6 embeds the cert chain so a verifying consumer
-%% can read it back off the record; /5 leaves it absent (open-mode).
-build_advertisement_embeds_cert_chain_test() ->
-    Kp    = macula_identity:generate(),
-    R     = realm(),
-    St    = station(),
-    Chain = <<"-----BEGIN CERTIFICATE-----\nLEAF\n-----END CERTIFICATE-----\n">>,
-    With  = mcl_om_capabilities:build_advertisement(
-              Kp, R, <<"acme">>, cap(<<"svc.do">>), St, #{cert_chain => Chain}),
-    Without = mcl_om_capabilities:build_advertisement(
-                Kp, R, <<"acme">>, cap(<<"svc.do">>), St),
-    ?assertMatch(#{cert_chain := Chain},
-                 macula_record:read_procedure_advertisement(With)),
-    ?assertMatch(#{cert_chain := undefined},
-                 macula_record:read_procedure_advertisement(Without)).
-
-%% An advertisement built with a REAL service-cert chain verifies to the
-%% realm CA via the SDK; the same capability advertised without a chain
-%% (a would-be squatter in verify-mode) is rejected as no_cert_chain.
-%% This proves the embed side produces records the verify side accepts.
-build_advertisement_chain_verifies_to_realm_ca_test() ->
-    Kp     = macula_identity:generate(),
-    AdvKey = macula_identity:public(Kp),
-    R      = realm(),
-    St     = station(),
-    #{realm_ca := RealmCa, chain := Chain} = issue_chain(AdvKey, <<"acme">>),
-    Good = mcl_om_capabilities:build_advertisement(
-             Kp, R, <<"acme">>, cap(<<"svc.do">>), St, #{cert_chain => Chain}),
-    NoChain = mcl_om_capabilities:build_advertisement(
-                Kp, R, <<"acme">>, cap(<<"svc.do">>), St),
-    ?assertEqual(ok,
-                 macula_record:verify_advertisement_cert_chain(RealmCa, Good, <<"acme">>)),
-    ?assertEqual({error, no_cert_chain},
-                 macula_record:verify_advertisement_cert_chain(RealmCa, NoChain, <<"acme">>)).
 
 %%% Piece B (PLAN_MCL_OM_MESH_WRAPPERS.md): a capability carrying
 %%% `handler => {Module, Args}' is advertised via
@@ -353,13 +256,6 @@ auth_opts_carries_a_ucan_required_policy_test() ->
                      handler => {my_mod, []},
                      auth => {ucan_required, Issuer}})).
 
-%% `macula_client:auth_policy/0' gained this variant after
-%% PLAN_UCAN_GATED_CAPABILITIES.md's own "Implemented" note was
-%% written (that plan explicitly called chain-walking-to-a-realm-root
-%% verification unbuilt "anywhere in macula today" -- no longer true).
-%% auth_opts/1 is policy-agnostic by design (see its own doc), so this
-%% pins that the THIRD variant round-trips identically to the other
-%% two, not just that the first two still do.
 auth_opts_carries_a_realm_member_required_policy_test() ->
     RealmDid = <<0:256>>,
     RequiredCan = <<"member/email-verified">>,
@@ -371,9 +267,7 @@ auth_opts_carries_a_realm_member_required_policy_test() ->
 
 %%% unguarded_capabilities/1: which of a service's own declared
 %%% capabilities have no explicit auth key at all -- register/1 logs
-%%% exactly this list at boot (see mcl_om_capabilities' own
-%%% moduledoc for why this can only see what capabilities/0 reports,
-%%% not a capability advertised out-of-band).
+%%% exactly this list at boot.
 
 unguarded_capabilities_is_empty_when_every_capability_sets_auth_test() ->
     ?assertEqual([],
@@ -453,7 +347,7 @@ republish_delay_ms_actually_varies_test() ->
     ?assert(sets:size(sets:from_list(Delays)) > 1).
 
 %%% gen_server + graceful degradation (no mesh) — this is the path that
-%%% actually runs at boot before a pool/keypair are present. Exercises
+%%% actually runs at boot before a pool/node key are present. Exercises
 %%% init, register/publish/lookup/list, and the no-op / empty degradation.
 
 gen_server_degrades_without_mesh_test_() ->
@@ -467,7 +361,7 @@ gen_server_degrades_without_mesh_test_() ->
                        handler => {?MODULE, []}},
         [
          %% register + publish must not crash when there is no pool /
-         %% keypair / realm — they no-op and the timer retries later.
+         %% node key / realm — they no-op and the timer retries later.
          ?_assertEqual(ok, mcl_om_capabilities:register([Cap, HandlerCap])),
          ?_assertEqual(ok, mcl_om_capabilities:publish()),
          %% own caps are still reported (used by /health + the SUITE)
@@ -475,7 +369,7 @@ gen_server_degrades_without_mesh_test_() ->
          %% resolution with no pool yields an empty set, not a crash
          ?_assertEqual({ok, []}, mcl_om_capabilities:lookup(<<"svc.do">>)),
          %% and identity reports the missing signing key cleanly
-         ?_assertEqual({error, no_keypair}, mcl_om_identity:keypair()),
+         ?_assertEqual({error, no_identity_key}, mcl_om_identity:identity_key()),
          %% call_capability with no pool degrades, does not crash
          ?_assertEqual({error, not_configured},
                        mcl_om_capabilities:call_capability(<<"acme">>,
@@ -535,7 +429,7 @@ handle_open(_StreamArgs, State) -> {ok, State}.
 
 %%%===================================================================
 %%% Same live-pool, zero-seeds technique as live_pool_handler_capability_test_/0,
-%%% for a `kind => streamer' capability: proves advertise_one/6 dispatches
+%%% for a `kind => streamer' capability: proves advertise_one/7 dispatches
 %%% to macula_streamer:advertise_direct (not macula_response) and reaches
 %%% the real SDK boundary, degrading the same way with no station.
 %%%===================================================================
@@ -595,7 +489,7 @@ advertise_one_timeout_test_() ->
               %% dependency build doesn't carry).
               ok = meck:new(macula_response, []),
               ok = meck:expect(macula_response, advertise_direct,
-                    fun(_Pool, _Realm, Proc, _Mod, _Args, _Kp, _Opts) ->
+                    fun(_Pool, _Realm, Proc, _Mod, _Args, _Key, _Opts) ->
                        advertise_direct_stub(Proc)
                     end),
               ?assertEqual(ok, mcl_om_capabilities:register([Ok, Boom])),
@@ -606,11 +500,10 @@ advertise_one_timeout_test_() ->
          ]
       end}}.
 
-%% `Proc' is `Name' or `org_procedure(Org, Name)' depending on which of
-%% advertise_one/7's two calls this is -- match on substring so either
-%% form triggers the same simulated timeout for the "boom" capability;
-%% the other capability gets a plain, valid-looking {ok, Sup} so the
-%% test proves it registers normally alongside the failing one.
+%% `Proc' is the org-qualified procedure -- match on substring so the
+%% "boom" capability triggers the same simulated timeout; the other
+%% capability gets a plain, valid-looking {ok, Sup} so the test proves
+%% it registers normally alongside the failing one.
 advertise_direct_stub(Proc) ->
     advertise_direct_stub(Proc, binary:match(Proc, <<"svc.ingest">>)).
 
@@ -624,15 +517,17 @@ start_live() ->
     {ok, _} = application:ensure_all_started(macula),
     {ok, Pool} = macula_client:connect([], #{}),
     Realm = crypto:strong_rand_bytes(32),
-    KeyPair = macula_identity:generate(),
-    %% A real mcl_om_identity too -- do_advertise/2 also calls org/0
-    %% and cert_chain/0, which passthrough would otherwise route to a
-    %% real gen_server:call with nothing registered to answer it.
-    {ok, I} = mcl_om_identity:start_link(),
+    Key = node_key(),
+    %% meck FIRST, so a setup failure below still leaves a cleanup-able
+    %% state (the teardown unloads meck regardless of how far this got).
     ok = meck:new(mcl_om_identity, [passthrough]),
     ok = meck:expect(mcl_om_identity, macula_client, fun() -> {ok, Pool} end),
     ok = meck:expect(mcl_om_identity, realm, fun() -> {ok, Realm} end),
-    ok = meck:expect(mcl_om_identity, keypair, fun() -> {ok, KeyPair} end),
+    ok = meck:expect(mcl_om_identity, identity_key, fun() -> {ok, Key} end),
+    %% A real mcl_om_identity too -- do_advertise/2 also calls org/0,
+    %% which passthrough would otherwise route to a real gen_server:call
+    %% with nothing registered to answer it.
+    {ok, I} = mcl_om_identity:start_link(),
     {ok, C} = mcl_om_capabilities:start_link(),
     {I, Pool, C}.
 
@@ -642,56 +537,3 @@ stop_live({I, Pool, C}) ->
     try gen_server:stop(I) catch _:_ -> ok end,
     try macula_client:close(Pool) catch _:_ -> ok end,
     ok.
-
-%%% Minimal in-process X.509 CA (realm CA -> org CA -> Ed25519 leaf
-%%% binding `LeafPub', O=`Org'). Returns the trusted realm CA PEM and the
-%%% leaf-first [leaf, org CA] PEM bundle a service embeds.
-issue_chain(LeafPub, Org) ->
-    {RealmPub, RealmPriv} = ca_key(),
-    {OrgPub, OrgPriv}     = ca_key(),
-    RealmSubj = subject(<<"io.macula">>, <<"io.macula">>),
-    OrgSubj   = subject(<<"io.macula.", Org/binary>>, Org),
-    LeafSubj  = subject(<<"mri:app:io.macula/", Org/binary, "/svc">>, Org),
-    RealmDer = sign_cert(RealmSubj, ed_spki(RealmPub), RealmSubj, RealmPriv, true),
-    OrgDer   = sign_cert(OrgSubj, ed_spki(OrgPub), RealmSubj, RealmPriv, true),
-    LeafDer  = sign_cert(LeafSubj, ed_spki(LeafPub), OrgSubj, OrgPriv, false),
-    #{realm_ca => pem([RealmDer]), chain => pem([LeafDer, OrgDer])}.
-
-ca_key() ->
-    {Pub, Priv} = crypto:generate_key(eddsa, ed25519),
-    {Pub, #'ECPrivateKey'{version = 1, privateKey = Priv,
-                          parameters = {namedCurve, ?'id-Ed25519'},
-                          publicKey = Pub}}.
-
-ed_spki(Pub) ->
-    #'OTPSubjectPublicKeyInfo'{
-       algorithm = #'PublicKeyAlgorithm'{algorithm = ?'id-Ed25519',
-                                         parameters = asn1_NOVALUE},
-       subjectPublicKey = #'ECPoint'{point = Pub}}.
-
-subject(CN, O) ->
-    {rdnSequence,
-     [[#'AttributeTypeAndValue'{type = {2, 5, 4, 3}, value = {utf8String, CN}}],
-      [#'AttributeTypeAndValue'{type = {2, 5, 4, 10}, value = {utf8String, O}}]]}.
-
-sign_cert(Subject, Spki, IssuerSubject, IssuerKey, IsCA) ->
-    TBS = #'OTPTBSCertificate'{
-             version = v3,
-             serialNumber = rand:uniform(1 bsl 60),
-             signature = #'SignatureAlgorithm'{algorithm = ?'id-Ed25519',
-                                               parameters = asn1_NOVALUE},
-             issuer = IssuerSubject,
-             validity = #'Validity'{notBefore = {utcTime, "230101000000Z"},
-                                    notAfter  = {utcTime, "330101000000Z"}},
-             subject = Subject,
-             subjectPublicKeyInfo = Spki,
-             extensions = [basic_constraints(IsCA)]},
-    public_key:pkix_sign(TBS, IssuerKey).
-
-basic_constraints(IsCA) ->
-    #'Extension'{extnID = ?'id-ce-basicConstraints', critical = true,
-                 extnValue = #'BasicConstraints'{cA = IsCA,
-                                                 pathLenConstraint = asn1_NOVALUE}}.
-
-pem(Ders) ->
-    public_key:pem_encode([{'Certificate', D, not_encrypted} || D <- Ders]).

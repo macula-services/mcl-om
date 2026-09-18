@@ -3,8 +3,10 @@
 > This exists so the mcl-* services ride the 11.x wire, while hecate-om keeps
 > serving the classical fleet untouched.
 
-**Status:** in progress on `port-11x` (main stays on the green 10.x baseline
-until this compiles and its tests pass). **Kind:** build.
+**Status:** DONE on `port-11x` — compiles, eunit 141/0, ct 16/16, lint +
+dialyzer clean, and the live smoke (test_live/) passes end-to-end against the
+PQ pair (5/5, 2026-09-18). main stays on the green 10.x baseline until this
+merges. **Kind:** build.
 
 ## The floor
 
@@ -56,9 +58,58 @@ API below changed in 11.x.
 - **mcl_om_content / content_downloader / content_feeder** — check
   macula:mcid + the content wire in 11.x.
 
-## The first live test
+## The first live test — DONE, 2026-09-18
 
-Once compiling: run mcl-om's own `test_live/` against
-`pq.station-de-nuremberg.macula.io` + `pq.station-fi-helsinki.macula.io`
-(both up, both GREEN on the probe). A capability advertised by a local
-mcl-om instance must be resolvable + callable across the PQ pair.
+`rebar3 as live_test eunit --dir test_live` runs the ported live suite
+against `pq.station-fi-helsinki.macula.io` (5 tests, 0 failures): the
+om boot + real publish, real pubsub events with dynamic subscriptions,
+and the capabilities path end to end — publish the D25 chain
+(org_directory + procedure_delegation under a test realm), advertise a
+handler-bearing capability through `mcl_om_capabilities:register/1`,
+resolve + dial + CALL it from a separate consumer pool, org-scoped
+calls and the org-capability browse.
+
+The live run paid for four real port bugs the unit tests could not
+reach, all fixed at the source:
+
+1. **The DHT record needs the authorization embedded.** The SDK's
+   advertise path resolves the D25 chain for the WIRE frame only; the
+   direct-dial record `advertise_direct` publishes carries just its
+   Opts, and the 11.x station refuses an org-namespaced record without
+   one (`{call_error, <<"no_authorization">>}`). `advertise_one/7` now
+   resolves the chain itself (the same two DHT reads the SDK makes)
+   and embeds `authorization` in the Opts.
+2. **The CALL target is the provider, not the station.** 11.x routes
+   the CALL by the provider's node id and the reply must verify as
+   that target (`not_the_target` otherwise); the ported dial passed
+   the serving station as target.
+3. **The direct dial needs the pinned trust triad.** The endpoint's
+   IP literal has no IP SAN, so `verify => none` +
+   `expected_node_id => Station` (D5 handshake pin), exactly the
+   station suite's own direct-dial caller.
+4. **Endpoint resolution must retry.** The station re-announces its
+   `station_endpoint` periodically; the ported one-shot lookup missed
+   it. Now `macula_direct_dial:resolve_station_endpoint/3` (retrying,
+   signer-checked).
+5. Also fixed: `decode_verified_if_org_matches/4` matched a bound
+   `realm_id` inside a `try ... of` — a mismatch raises `try_clause`,
+   which a try's `catch` does NOT catch (the catch covers the
+   expression, not the `of` clauses), so any foreign-realm record
+   crashed the browse instead of being filtered.
+
+Fleet findings from the smoke (not fixable in this repo):
+
+- **nuremberg publishes no `station_endpoint`** and its DHT find
+  misses every record (helsinki's own endpoint resolves fine through
+  helsinki). The live tests therefore pin helsinki. The PQ probe's
+  three legs (connect/pair/SWIM) don't exercise DHT record finds, so
+  this was invisible to it.
+- **The PQ fleet serves no content procedures** — the 11.x station
+  dropped the pooled content store (the SDK's content transfer targets
+  a content-serving peer). `test_live/mcl_om_content_live_station_tests`
+  was deleted: a live test that can never pass against any deployed
+  target is a lie. Restore it when a content-serving station joins the
+  fleet; mcl_om_content's unit tests stand meanwhile.
+- **Pubsub and RPC payload keys arrive as `{text, _}` markers** (D26)
+  on the PQ wire — `mcl_om_wire:field/2,3` is the contract, and the
+  live assertions read through it.

@@ -1,5 +1,5 @@
 %% -*- mode: erlang -*-
-%% Scaffold a complete hecate service: OTP release, container image, CI, and a
+%% Scaffold a complete mcl service: OTP release, container image, CI, and a
 %% deployable compose file.
 %%
 %% THIS EXISTS SO A NEW SERVICE STARTS DEPLOYABLE RATHER THAN STARTING EMPTY.
@@ -24,19 +24,19 @@
 %%
 %% Usage, from the directory that will hold the new repository:
 %%
-%%   rebar3 new hecate_service repo=hecate-foo name=hecate_foo \
+%%   rebar3 new mcl_service repo=mcl-foo name=mcl_foo \
 %%       desc="Does X over the mesh" health_port=8484
 
-{description, "A complete hecate service: release, container, CI, compose, and the six-callback mcl_om_service contract"}.
+{description, "A complete mcl service: release, container, CI, compose, and the six-callback mcl_om_service contract"}.
 
 {variables, [
-    {repo, "hecate-newservice",
+    {repo, "mcl-newservice",
      "Repository, container image and mesh-facing name. KEBAB-case."},
-    {name, "hecate_newservice",
+    {name, "mcl_newservice",
      "OTP application and module prefix. SNAKE_case, must be a valid Erlang atom, and must match `repo' modulo the separator."},
     {desc, "Does something over the mesh",
      "One line describing what the service does. Ends up in info/0, the app.src and the README."},
-    {org, "hecate-services",
+    {org, "macula-services",
      "Your source-forge organisation or user. Owns the repository URL and the container image namespace. CHANGE THIS if you are not building for the BEAM Campus fleet."},
     {registry, "ghcr.io",
      "Container registry the image is pushed to. ghcr.io pairs with a GitHub org; set it to whatever you publish to."},
@@ -47,8 +47,8 @@
 ]}.
 
 %% Build
-{template, "hecate_service/rebar.config",       "{{repo}}/rebar.config"}.
-{template, "hecate_service/gitignore",          "{{repo}}/.gitignore"}.
+{template, "mcl_service/rebar.config",       "{{repo}}/rebar.config"}.
+{template, "mcl_service/gitignore",          "{{repo}}/.gitignore"}.
 %% Pinned to the SAME OTP major (28) Containerfile and lint.yml pin below.
 %% Without this, a dev machine whose asdf/rebar3 global points at a newer
 %% OTP (29, in the four repos that hit this in one day: reckon-db, evoq,
@@ -57,30 +57,30 @@
 %% via `warnings_as_errors' -- a failure that has nothing to do with the
 %% generated service's own code, and reproduces nowhere the pin is honored
 %% (CI, the container build, or a machine using this file).
-{template, "hecate_service/tool-versions",      "{{repo}}/.tool-versions"}.
+{template, "mcl_service/tool-versions",      "{{repo}}/.tool-versions"}.
 
 %% The application
-{template, "hecate_service/app.src",            "{{repo}}/apps/{{name}}/src/{{name}}.app.src"}.
-{template, "hecate_service/app.erl",            "{{repo}}/apps/{{name}}/src/{{name}}_app.erl"}.
-{template, "hecate_service/sup.erl",            "{{repo}}/apps/{{name}}/src/{{name}}_sup.erl"}.
-{template, "hecate_service/service.erl",        "{{repo}}/apps/{{name}}/src/{{name}}_service.erl"}.
-{template, "hecate_service/service_tests.erl",  "{{repo}}/apps/{{name}}/test/{{name}}_service_tests.erl"}.
+{template, "mcl_service/app.src",            "{{repo}}/apps/{{name}}/src/{{name}}.app.src"}.
+{template, "mcl_service/app.erl",            "{{repo}}/apps/{{name}}/src/{{name}}_app.erl"}.
+{template, "mcl_service/sup.erl",            "{{repo}}/apps/{{name}}/src/{{name}}_sup.erl"}.
+{template, "mcl_service/service.erl",        "{{repo}}/apps/{{name}}/src/{{name}}_service.erl"}.
+{template, "mcl_service/service_tests.erl",  "{{repo}}/apps/{{name}}/test/{{name}}_service_tests.erl"}.
 
 %% Release configuration
-{template, "hecate_service/sys.config.src",     "{{repo}}/config/sys.config.src"}.
-{template, "hecate_service/vm.args.src",        "{{repo}}/config/vm.args.src"}.
+{template, "mcl_service/sys.config.src",     "{{repo}}/config/sys.config.src"}.
+{template, "mcl_service/vm.args.src",        "{{repo}}/config/vm.args.src"}.
 
 %% Image, CI and deployment
-{template, "hecate_service/Containerfile",      "{{repo}}/Containerfile"}.
-{template, "hecate_service/build-push.yml",     "{{repo}}/.github/workflows/build-push.yml"}.
-{template, "hecate_service/lint.yml",           "{{repo}}/.github/workflows/lint.yml"}.
-{template, "hecate_service/compose.yml",        "{{repo}}/deploy/docker-compose.yml"}.
+{template, "mcl_service/Containerfile",      "{{repo}}/Containerfile"}.
+{template, "mcl_service/build-push.yml",     "{{repo}}/.github/workflows/build-push.yml"}.
+{template, "mcl_service/lint.yml",           "{{repo}}/.github/workflows/lint.yml"}.
+{template, "mcl_service/compose.yml",        "{{repo}}/deploy/docker-compose.yml"}.
 
 %% Scripts
-{template, "hecate_service/health.sh",          "{{repo}}/scripts/health.sh"}.
+{template, "mcl_service/health.sh",          "{{repo}}/scripts/health.sh"}.
 {chmod,                                         "{{repo}}/scripts/health.sh", 8#755}.
 
 %% Documentation
-{template, "hecate_service/README.md",          "{{repo}}/README.md"}.
-{template, "hecate_service/CHANGELOG.md",       "{{repo}}/CHANGELOG.md"}.
-{template, "hecate_service/LICENSE",            "{{repo}}/LICENSE"}.
+{template, "mcl_service/README.md",          "{{repo}}/README.md"}.
+{template, "mcl_service/CHANGELOG.md",       "{{repo}}/CHANGELOG.md"}.
+{template, "mcl_service/LICENSE",            "{{repo}}/LICENSE"}.

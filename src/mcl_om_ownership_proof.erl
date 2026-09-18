@@ -1,11 +1,13 @@
-%%% @doc Verifies a caller actually holds the private key for the
-%%% A caller proves it holds the private half of the node key whose
-%%% carried public key it asserts as its identity, inside an otherwise-
-%%% open mesh payload: the 11.x identity is a pq_hybrid node key, and
-%%% ownership is proved by signing `{identity, timestamp, procedure}'
-%%% with its private half -- `procedure' included so a proof minted for
-%%% one gated capability can't be replayed against another this or any
-%%% other service adds later.
+%%% @doc Verifies a caller actually holds the private half of the node
+%%% key whose node id it asserts as its identity, inside an otherwise-
+%%% open mesh payload. The 11.x identity is a pq_hybrid node key whose
+%%% node id is a SHA-256 digest of its carried public key -- so, unlike
+%%% the 10.x Ed25519 DID (where the id WAS the public key), possession
+%%% can only be proved by signing `{identity, timestamp, procedure}'
+%%% with the private half AND carrying the public key the signature
+%%% verifies against. `procedure' is part of the signed message so a
+%%% proof minted for one gated capability can't be replayed against
+%%% another this or any other service adds later.
 %%%
 %%% Extracted here after the identical ~40-line verifier had been
 %%% written twice independently -- hecate-citizens'
@@ -37,8 +39,11 @@
 %%% an atom, so it always arrives `{text, Bin}'-tagged. `unwrap_text/1'
 %%% handles all three shapes (bare binary, bare atom, `{text, Bin}')
 %%% plus `undefined'; `decode_identity/1' layers hex-decoding on top for
-%%% identity/signature fields, `decode_text/1' is the same unwrap alone
-%%% for any other wire-transported string.
+%%% identity fields, `decode_text/1' is the same unwrap alone for any
+%%% other wire-transported string. The proof itself carries
+%%% `timestamp', `signature' (hex text of the composite signature) and
+%%% `public' (hex text of the carried public key the signature and the
+%%% node-id derivation are checked against).
 -module(mcl_om_ownership_proof).
 
 -export([verify/3, message/3, decode_identity/1, decode_text/1]).
@@ -79,44 +84,55 @@ message(Identity, Timestamp, Procedure)
   when is_binary(Identity), is_integer(Timestamp), is_binary(Procedure) ->
     <<Identity/binary, Timestamp:64/big, Procedure/binary>>.
 
-%% @doc Verify that `Proof' (a map with `timestamp' and `signature')
-%% proves possession of the private key behind `Identity' (a raw
-%% 32-byte Ed25519 pubkey), bound to `Procedure'.
+%% @doc Verify that `Proof' (a map with `timestamp', `signature' and
+%% `public') proves possession of the private key behind `Identity' (a
+%% raw 32-byte node id), bound to `Procedure'. The carried key must
+%% derive `Identity' as its node id AND sign the message -- a node id
+%% earns no trust on its own, only after a signature by the same
+%% carried key has verified.
 -spec verify(binary(), map(), binary()) -> ok | {error, atom()}.
 verify(Identity, Proof, Procedure)
   when is_binary(Identity), byte_size(Identity) =:= 32, is_map(Proof), is_binary(Procedure) ->
     checked_fields(maps:find(timestamp, Proof), maps:find(signature, Proof),
-                   Identity, Procedure);
+                   maps:find(public, Proof), Identity, Procedure);
 verify(_Identity, _Proof, _Procedure) ->
     {error, invalid_identity}.
 
-checked_fields({ok, Ts}, {ok, Sig}, Identity, Procedure) when is_integer(Ts) ->
-    decoded_sig(hex_or_raw_sig(unwrap_text(Sig)), Ts, Identity, Procedure);
-checked_fields(_Ts, _Sig, _Identity, _Procedure) ->
+checked_fields({ok, Ts}, {ok, Sig}, {ok, Pub}, Identity, Procedure) when is_integer(Ts) ->
+    decoded_fields(bytes_of(unwrap_text(Sig)), bytes_of(unwrap_text(Pub)),
+                   Ts, Identity, Procedure);
+checked_fields(_Ts, _Sig, _Pub, _Identity, _Procedure) ->
     {error, missing_proof}.
 
-hex_or_raw_sig(undefined) ->
+%% A wire-transported signature (or carried key) is hex TEXT on the
+%% wire; the raw-byte form is tolerated too. An odd-length raw ML-DSA
+%% signature never decodes as hex, and whatever length survives is
+%% refused by macula_node_keys:verify/4's own length checks.
+bytes_of(undefined) ->
     undefined;
-hex_or_raw_sig(Sig) when byte_size(Sig) =:= 128 ->
-    try binary:decode_hex(Sig) catch error:badarg -> undefined end;
-hex_or_raw_sig(Sig) when byte_size(Sig) =:= 64 ->
-    Sig;
-hex_or_raw_sig(_Other) ->
-    undefined.
+bytes_of(Bin) ->
+    try binary:decode_hex(Bin) catch error:badarg -> Bin end.
 
-decoded_sig(undefined, _Ts, _Identity, _Procedure) ->
-    {error, bad_signature};
-decoded_sig(Sig, Ts, Identity, Procedure) ->
-    fresh(Ts, Identity, Sig, Procedure).
+decoded_fields(Sig, Pub, Ts, Identity, Procedure)
+  when is_binary(Sig), is_binary(Pub) ->
+    skew_checked(abs(erlang:system_time(millisecond) - Ts), Ts, Identity, Pub,
+                 Sig, Procedure);
+decoded_fields(_Sig, _Pub, _Ts, _Identity, _Procedure) ->
+    {error, bad_signature}.
 
-fresh(Ts, Identity, Sig, Procedure) ->
-    skew_checked(abs(erlang:system_time(millisecond) - Ts), Ts, Identity, Sig, Procedure).
+skew_checked(Skew, _Ts, _Identity, _Pub, _Sig, _Procedure) when Skew > ?MAX_SKEW_MS ->
+    {error, stale_proof};
+skew_checked(_Skew, Ts, Identity, Pub, Sig, Procedure) ->
+    derived_checked(macula_node_keys:node_id(Pub, profile()),
+                    Ts, Identity, Pub, Sig, Procedure).
 
-skew_checked(Skew, Ts, Identity, Sig, Procedure) when Skew =< ?MAX_SKEW_MS ->
+%% The identity the proof asserts must genuinely derive from the
+%% carried key before the signature is spent on it.
+derived_checked(Identity, Ts, Identity, Pub, Sig, Procedure) ->
     signed(macula_node_keys:verify(message(Identity, Ts, Procedure), Sig,
-                                    Identity, profile()));
-skew_checked(_Skew, _Ts, _Identity, _Sig, _Procedure) ->
-    {error, stale_proof}.
+                                   Pub, profile()));
+derived_checked(_Derived, _Ts, _Identity, _Pub, _Sig, _Procedure) ->
+    {error, bad_signature}.
 
 signed(true) -> ok;
 signed(false) -> {error, bad_signature}.

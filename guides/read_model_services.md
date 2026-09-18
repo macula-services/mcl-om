@@ -49,7 +49,7 @@ handle_event(_Topic, Record, _Meta, State) ->
     {noreply, State}.
 ```
 
-`hecate_om:boot/1` wires this from your `subscriptions/0` callback automatically —
+`mcl_om:boot/1` wires this from your `subscriptions/0` callback automatically —
 supervised, reconnect-surviving, no code of your own needed for either. See
 `mesh_native_services.md` chapter 3 if this part is new to you.
 
@@ -133,7 +133,7 @@ the part that actually fixes staleness.
 what one relay locally holds — fine at ten entities, silently incomplete at thousands (see
 the corpus doc for the specific code comment this is drawn from). This is specific to
 `find_records_by_type` (a bulk, local-only listing of everything of one type) — it does NOT
-apply to exact-key resolution (`find_records`/`find_record`, what `hecate_om_capabilities`'s
+apply to exact-key resolution (`find_records`/`find_record`, what `mcl_om_capabilities`'s
 own `resolve_at`/`resolve_full` actually use to reach a specific capability by name): as of
 macula-station's current `macula_station_dht_handlers`, a local miss on an exact key falls
 back to a bounded multi-round FIND_VALUE walk toward the key's own custodians, dialing
@@ -154,7 +154,7 @@ schedule, because it's the same `expires_at`.
 ## Advertisement TTL: what this library sets, and what to set yourself
 
 **A capability you serve via `capabilities/0` ages out within minutes of your service
-dying.** `hecate_om_capabilities` re-advertises it about every 30 seconds
+dying.** `mcl_om_capabilities` re-advertises it about every 30 seconds
 (`macula_response:advertise_direct/7`, re-invoked on a timer), and every advertisement
 carries a `ttl_ms` of four times that interval, 120 seconds. Without it the underlying
 `procedure_advertisement` record would fall back to the generic envelope default of 48

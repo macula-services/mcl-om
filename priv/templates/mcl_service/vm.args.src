@@ -1,6 +1,6 @@
 {{=<% %>=}}## Node identity and runtime flags for <%name%>.
--name ${HECATE_NODE_NAME}@${HECATE_NODE_HOST}
--setcookie ${HECATE_COOKIE}
+-name ${MCL_NODE_NAME}@${MCL_NODE_HOST}
+-setcookie ${MCL_COOKIE}
 
 +K true
 

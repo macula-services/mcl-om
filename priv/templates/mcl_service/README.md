@@ -30,12 +30,13 @@ a different libc.
 
 | Variable | Default | Meaning |
 |----------|---------|---------|
-| `HECATE_REALM` | required | 64-hex realm tag, the `sha256` of the realm's name. No default: a service that guesses its realm announces itself where nobody can attribute it. |
-| `MACULA_STATION_SEEDS` | required | Station to dial. No default: naming a realm costs nothing, dialling a production station from every dev clone does. |
-| `HECATE_HEALTH_PORT` | `<%health_port%>` | Health endpoint. Host networking makes a collision a silent bind failure, so check the host before changing.  |
-| `HECATE_NODE_NAME` | `<%name%>` | Erlang node name. |
-| `HECATE_NODE_HOST` | `127.0.0.1` | Erlang node host. |
-| `HECATE_COOKIE` | `<%name%>` | Erlang cookie. |
+| `MCL_REALM` | required | 64-hex realm tag, the `sha256` of the realm's name. No default: a service that guesses its realm announces itself where nobody can attribute it. |
+| `MACULA_STATION_SEEDS` | required | Station hosts to dial, `host[:port]`, comma-separated. No default: naming a realm costs nothing, dialling a production station from every dev clone does. |
+| `MACULA_STATION_NODE_IDS` | required | The matching 64-hex station node ids, comma-separated, index-paired with the seeds. The 11.x dial is pinned (D5): mcl_om refuses to boot a pool with an unpinned seed. |
+| `MCL_HEALTH_PORT` | `<%health_port%>` | Health endpoint. Host networking makes a collision a silent bind failure, so check the host before changing.  |
+| `MCL_NODE_NAME` | `<%name%>` | Erlang node name. |
+| `MCL_NODE_HOST` | `127.0.0.1` | Erlang node host. |
+| `MCL_COOKIE` | `<%name%>` | Erlang cookie. |
 
 `deploy/docker-compose.yml` runs it, and carries what the service knows about
 itself. If you deploy through something else, let that carry **placement**: which
@@ -54,19 +55,20 @@ Two things CI cannot do for you, both of which have bitten:
    the host with a bare `unauthorized` that names nothing. Check it after the
    first build. On ghcr the `org.opencontainers.image.source` label in the
    Containerfile is what links the package to the repository.
-2. The host needs `HECATE_REALM` supplied from somewhere it is not committed.
+2. The host needs `MCL_REALM` and the pinned station pair supplied from
+   somewhere they are not committed.
 
 ## The service contract
 
 Six callbacks in `<%name%>_service`, all required, all resolved **by name** by
-`hecate_om` at startup on a live node. The `-behaviour(hecate_om_service)`
+`mcl_om` at startup on a live node. The `-behaviour(mcl_om_service)`
 attribute turns a missing one into a compile error rather than an `undef` where
 nobody is watching, and the eunit suite guards the attribute itself.
 
 <%#store%>### The store
 
 This service was scaffolded with `store=1`, so it owns a `reckon-db` store called
-`<%name%>_store`. `store_id/0` and `data_dir/0` are exported, `hecate_om:boot/1`
+`<%name%>_store`. `store_id/0` and `data_dir/0` are exported, `mcl_om:boot/1`
 opens the store and its evoq subscription before `start/1` fires, and
 `config/sys.config.src` carries the `evoq` adapter block that boot requires.
 
@@ -79,7 +81,7 @@ it the record lives inside the container and every recreate destroys it, which i
 the same as not keeping one.
 
 The store is node-local. To make it span every node running the same `store_id`,
-export the optional `store_mode/0` callback returning `cluster`, and `hecate_om`
+export the optional `store_mode/0` callback returning `cluster`, and `mcl_om`
 starts it with reckon-db discovery and Ra clustering. It is not generated,
 because `single` is the default and a scaffold should not decide that for you.
 <%/store%><%^store%>### Adding a store later

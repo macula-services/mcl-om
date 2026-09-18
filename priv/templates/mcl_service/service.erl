@@ -93,7 +93,7 @@ store_id() -> <%name%>_store.
 %% is what a laptop wants; a container without the mount loses its record on every
 %% recreate, which is the same as not keeping one.
 -spec data_dir() -> string().
-data_dir() -> chosen(os:getenv("HECATE_DATA_DIR")).
+data_dir() -> chosen(os:getenv("MCL_DATA_DIR")).
 
 chosen(false) -> "/tmp/<%name%>";
 chosen("") -> "/tmp/<%name%>";

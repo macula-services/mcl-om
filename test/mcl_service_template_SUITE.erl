@@ -17,7 +17,7 @@
 %%% so a template without the delimiter change silently renders that to "$" and
 %%% reports success. The workflow then fails at its login step with an empty
 %%% password, a long way from the cause.
--module(hecate_service_template_SUITE).
+-module(mcl_service_template_SUITE).
 
 -include_lib("common_test/include/ct.hrl").
 -include_lib("stdlib/include/assert.hrl").
@@ -33,8 +33,8 @@
          generated_sources_satisfy_the_behaviour/1,
          generated_service_reports_the_scaffolded_names/1]).
 
--define(REPO, "hecate-probe-svc").
--define(APP,  "hecate_probe_svc").
+-define(REPO, "mcl-probe-svc").
+-define(APP,  "mcl_probe_svc").
 -define(DESC, "A generated probe service").
 -define(PORT, "8499").
 %% DELIBERATELY NOT OUR OWN ORG OR REGISTRY. Generating as a stranger is what
@@ -68,7 +68,7 @@ init_per_suite(Config) ->
     ok = filelib:ensure_path(Work),
     ok = filelib:ensure_path(Ebin),
     Added = install_templates(templates_dir()),
-    Out = run(Rebar3, ["new", "hecate_service",
+    Out = run(Rebar3, ["new", "mcl_service",
                        "repo=" ?REPO, "name=" ?APP,
                        "desc=" ?DESC, "health_port=" ?PORT,
                        "org=" ?ORG, "registry=" ?REGISTRY],
@@ -250,7 +250,9 @@ generated_workflow_keeps_actions_syntax(Config) ->
 %% by name would still slip through.
 leaks_no_house_specifics(Config) ->
     Root = ?config(root, Config),
-    Forbidden = [<<"hecate-services">>,   %% our organisation
+    Forbidden = [<<"macula-services">>,   %% our organisation
+                 <<"hecate-services">>,   %% the parent org -- a leak here
+                                          %% means the rename missed one
                  <<"ghcr.io/">>,          %% our registry, as a path prefix
                  <<"macula-demo">>,       %% our GitOps repository
                  <<"beam0">>,             %% our node names

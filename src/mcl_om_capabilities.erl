@@ -491,10 +491,19 @@ advertise_one(Pool, Key, Realm, Org,
     %% (no_org_namespace), so the one registration is the org-qualified
     %% procedure. The SDK's advertise path resolves this pool's own D25
     %% authorization from the DHT (org_directory + procedure_delegation
-    %% naming the pool's node id) and signs the advertisement itself.
+    %% naming the pool's node id) for the WIRE frame -- but the
+    %% direct-dial DHT record advertise_direct publishes carries only
+    %% what its Opts say, and the station refuses an org-namespaced
+    %% record without one ({call_error, <<"no_authorization">>}). So
+    %% this module resolves the chain itself -- via the SDK's own
+    %% `macula:provider_authorization/3' (11.4.0) -- and embeds it, or
+    %% the record never lands and every mcl_om caller resolves
+    %% no_provider.
     OrgProcedure = org_procedure(Org, Name),
     Opts = maps:merge(maps:merge(auth_opts(Cap), stream_opts(Cap)),
-                      reuse_sup_opts(maps:get(OrgProcedure, Sups, undefined))),
+                      maps:merge(resolved_authorization(Pool, Realm,
+                                                        OrgProcedure),
+                                 reuse_sup_opts(maps:get(OrgProcedure, Sups, undefined)))),
     Result = Provider:advertise_direct(Pool, Realm, OrgProcedure, Mod,
                                        Args, Key, Opts),
     advertised(Result, OrgProcedure, Sups);
@@ -503,6 +512,17 @@ advertise_one(Pool, Key, Realm, Org, Cap, Sups) ->
     %% kept for a capability another mechanism serves.
     advertise_record_only(serving_station(Pool), Pool, Key, Realm, Org, Cap),
     Sups.
+
+%% The D25 authorization this provider's org-namespaced procedure
+%% needs, as the `authorization' opt to embed in the record the SDK
+%% publishes. `#{}' when the chain is not published yet: the wire
+%% advertise then fails fast with its own `{provider_authorization,
+%% _}' error, and the next republish tick retries the whole thing.
+resolved_authorization(Pool, Realm, OrgProcedure) ->
+    case macula:provider_authorization(Pool, Realm, OrgProcedure) of
+        {ok, Authorization} -> #{authorization => Authorization};
+        {error, _Reason}    -> #{}
+    end.
 
 %% @doc The org-qualified wire-level procedure string a handler-bearing
 %% capability's SECOND `advertise_direct' registration uses. Deliberately
@@ -623,13 +643,21 @@ on_find_by_type({ok, Records}) -> Records;
 on_find_by_type(_Other)        -> [].
 
 decode_if_org_matches(Record, Realm, Pattern) ->
-    decode_verified_if_org_matches(macula_record:verify(Record, profile()),
-                                   Record, Realm, Pattern).
+    decode_verified_if_org_matches(reverify(Record), Record, Realm, Pattern).
+
+%% find_records/2 and find_records_by_type/2 already return records
+%% verified under the node's profile; re-verify the {key, tbs,
+%% signature} projection -- the map form macula_record:verify/2 takes.
+%% Passing the full decoded record would trip verify/2's map_size =:= 3
+%% guard and drop every record as malformed.
+reverify(Record) ->
+    macula_record:verify(maps:with([key, tbs, signature], Record), profile()).
 
 decode_verified_if_org_matches({ok, _Payload}, Record, Realm, Pattern) ->
     try macula_record:read_procedure_advertisement(Record) of
-        #{realm_id := Realm, procedure := Procedure} = Decoded ->
-            keep_if_matches(matches_org_pattern(Pattern, Procedure),
+        #{realm_id := RecordRealm, procedure := Procedure} = Decoded ->
+            keep_if_matches(RecordRealm =:= Realm
+                            andalso matches_org_pattern(Pattern, Procedure),
                             Decoded, Record)
     catch _:_ ->
         false
@@ -695,7 +723,7 @@ decode_resolved_full(Records) ->
     lists:filtermap(fun decode_one_full/1, Records).
 
 decode_one_full(Record) ->
-    decode_verified_full(macula_record:verify(Record, profile()), Record).
+    decode_verified_full(reverify(Record), Record).
 
 decode_verified_full({ok, _Payload}, Record) ->
     try macula_record:read_procedure_advertisement(Record) of
@@ -760,10 +788,12 @@ call_capability(Pool, Realm, Org, CapName, Payload, TimeoutMs, Opts) ->
 
 call_providers([], _Pool, _Realm, _CapName, _Payload, _TimeoutMs, _Ucan) ->
     {error, no_provider};
-call_providers([#{serving_station := Station, procedure := Procedure} | Rest],
+call_providers([#{serving_station := Station, advertiser := Advertiser,
+                  procedure := Procedure} | Rest],
                Pool, Realm, CapName, Payload, TimeoutMs, Ucan) ->
-    dial_provider(resolve_endpoint(Pool, Station), Station, Procedure,
-                  Rest, Pool, Realm, CapName, Payload, TimeoutMs, Ucan).
+    dial_provider(resolve_endpoint(Pool, Station), Station, Advertiser,
+                  Procedure, Rest, Pool, Realm, CapName, Payload, TimeoutMs,
+                  Ucan).
 
 %% Endpoint resolved: dial + call; on error, fail over to the next.
 %%
@@ -771,14 +801,22 @@ call_providers([#{serving_station := Station, procedure := Procedure} | Rest],
 %% `procedure_advertisement' named exactly this `Station' node id — the
 %% 11.x call_station pins the dial on it as the Target (D5): the
 %% CONNECT/HELLO handshake refuses any other identity, and a station's
-%% TLS cert has no relationship to its macula identity.
-dial_provider({ok, Url}, Station, Procedure, Rest, Pool, Realm, CapName,
-              Payload, TimeoutMs, Ucan) ->
-    CallResult = macula:call_station(Pool, Url, Station, Realm, Procedure,
-                                     Payload, TimeoutMs, Ucan),
+%% TLS cert has no relationship to its macula identity. The CALL's
+%% target is the PROVIDER's node id (the station routes by it, and the
+%% reply verifies as answered by that exact target); the endpoint's IP
+%% literal has no IP SAN, so TLS verification is none -- the pinned
+%% handshake is the whole transport trust, exactly macula's own
+%% direct-dial caller (macula_station_gated_call_SUITE's call/6).
+dial_provider({ok, Url}, Station, Advertiser, Procedure, Rest, Pool, Realm,
+              CapName, Payload, TimeoutMs, Ucan) ->
+    CallResult = macula:call_station(Pool, Url, Advertiser, Realm, Procedure,
+                                     Payload, TimeoutMs,
+                                     #{ucan_token => Ucan,
+                                       verify => none,
+                                       expected_node_id => Station}),
     failover(CallResult, Rest, Pool, Realm, CapName, Payload, TimeoutMs, Ucan);
-dial_provider({error, _}, _Station, _Procedure, Rest, Pool, Realm, CapName,
-              Payload, TimeoutMs, Ucan) ->
+dial_provider({error, _}, _Station, _Advertiser, _Procedure, Rest, Pool, Realm,
+              CapName, Payload, TimeoutMs, Ucan) ->
     call_providers(Rest, Pool, Realm, CapName, Payload, TimeoutMs, Ucan).
 
 failover({ok, _} = Ok, _R, _P, _Rlm, _Cap, _Pl, _Tmo, _Ucan) ->
@@ -786,28 +824,13 @@ failover({ok, _} = Ok, _R, _P, _Rlm, _Cap, _Pl, _Tmo, _Ucan) ->
 failover({error, _}, Rest, Pool, Realm, CapName, Payload, TimeoutMs, Ucan) ->
     call_providers(Rest, Pool, Realm, CapName, Payload, TimeoutMs, Ucan).
 
-%% Resolve a serving_station pubkey to a dialable `quic://' URL via its
-%% signed `station_endpoint' record.
+%% Resolve a serving_station pubkey to a dialable `quic://' URL. The
+%% SDK's own resolver: it retries past an absent, expired or malformed
+%% endpoint record until its deadline (the station re-announces its
+%% endpoint periodically, and a one-shot lookup misses), and verifies
+%% the record's signer is exactly the station.
 resolve_endpoint(Pool, Station) ->
-    endpoint_url(find_endpoint(Pool, Station)).
-
-find_endpoint(Pool, Station) ->
-    read_endpoint(find_record(Pool, macula_record:station_endpoint_key(Station))).
-
-find_record(Pool, Key) ->
-    try macula:find_record(Pool, Key)
-    catch _:_ -> {error, unreachable}
-    end.
-
-read_endpoint({ok, Record}) ->
-    {ok, macula_record:read_station_endpoint(Record)};
-read_endpoint(_Other) ->
-    {error, no_endpoint}.
-
-endpoint_url({ok, #{quic_port := Port, host_advertised := [Host | _]}}) ->
-    {ok, station_url(Host, Port)};
-endpoint_url(_Other) ->
-    {error, no_endpoint}.
+    macula_direct_dial:resolve_station_endpoint(Pool, Station).
 
 %%% Pure helpers (unit-tested)
 
@@ -844,7 +867,7 @@ decode_resolved(Records) ->
     lists:filtermap(fun decode_one/1, Records).
 
 decode_one(Record) ->
-    decode_verified(macula_record:verify(Record, profile()), Record).
+    decode_verified(reverify(Record), Record).
 
 decode_verified({ok, _Payload}, Record) ->
     try macula_record:read_procedure_advertisement(Record) of

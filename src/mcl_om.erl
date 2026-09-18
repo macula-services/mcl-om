@@ -1,11 +1,11 @@
-%%% @doc Public facade for hecate-om.
+%%% @doc Public facade for mcl_om — the PQ-only over-mesh substrate.
 %%%
 %%% Services typically only need a handful of these:
 %%%
 %%%   mcl_om:boot(MyServiceMod)         %% one-call lifecycle wiring
 %%%   mcl_om:advertise_capabilities()   %% (re-)publish my caps
 %%%   mcl_om:health()                   %% snapshot for /health
-%%%   mcl_om:service_cert()             %% load my service-principal cert
+%%%   mcl_om:identity_key()             %% my node key, or {error, ...}
 %%%   mcl_om:macula_client()            %% returns the SDK client handle
 %%%   mcl_om:read_model()               %% my barrel_docdb database name
 -module(mcl_om).

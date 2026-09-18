@@ -164,7 +164,19 @@ pool_opts(NodeKey) ->
     maps:merge(base_pool_opts(), #{node_identity => NodeKey}).
 
 base_pool_opts() ->
-    #{verify => verify_mode()}.
+    maps:merge(#{verify => verify_mode()}, realm_trust_opts()).
+
+%% The realm keys the pool pins for org-namespaced advertisement
+%% verification (D25), from the deploy env: `#{RealmId => RealmKey}',
+%% each realm's public key as carried. Passed through untouched --
+%% macula:connect/2 itself refuses a malformed entry (`{error,
+%% {realm_trust, invalid}}' for a non-32-byte id or a key not well
+%% formed for the node's crypto profile), so this module never has to.
+realm_trust_opts() ->
+    case application:get_env(mcl_om, realm_trust) of
+        {ok, Trust} when is_map(Trust) -> #{realm_trust => Trust};
+        _                               -> #{}
+    end.
 
 verify_mode() ->
     case os:getenv("MCL_OM_VERIFY", "webpki") of
