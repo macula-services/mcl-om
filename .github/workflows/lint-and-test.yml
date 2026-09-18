@@ -38,10 +38,11 @@
 
 name: lint-and-test
 
+# Manual dispatch only. The push/PR churn burned the team's patience for
+# zero signal (five runs for five CI-fix pushes); the gate still exists for
+# whoever wants it -- `gh workflow run lint-and-test` -- and the release
+# pipeline (publish-hex.yml) verifies every tag itself.
 on:
-  push:
-    branches: [main, master]
-  pull_request:
   workflow_dispatch:
 
 jobs:
