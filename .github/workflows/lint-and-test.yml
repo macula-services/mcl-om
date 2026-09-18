@@ -40,6 +40,12 @@ jobs:
     timeout-minutes: 240
     env:
       LD_LIBRARY_PATH: /opt/openssl-pq/lib
+      # rocksdb (via barrel_docdb) links OpenSSL::Crypto for its
+      # encrypted env -- point its CMake at the SAME PQ OpenSSL, so
+      # whatever NIF loads libcrypto first, the process holds exactly
+      # one, and crypto.so's version check always passes. This is what
+      # fixed the ct node: eunit never boots rocksdb, ct does.
+      ERLANG_ROCKSDB_OPTS: -DOPENSSL_ROOT_DIR=/opt/openssl-pq
     steps:
       - uses: actions/checkout@v4
 
@@ -120,6 +126,12 @@ jobs:
     continue-on-error: true
     env:
       LD_LIBRARY_PATH: /opt/openssl-pq/lib
+      # rocksdb (via barrel_docdb) links OpenSSL::Crypto for its
+      # encrypted env -- point its CMake at the SAME PQ OpenSSL, so
+      # whatever NIF loads libcrypto first, the process holds exactly
+      # one, and crypto.so's version check always passes. This is what
+      # fixed the ct node: eunit never boots rocksdb, ct does.
+      ERLANG_ROCKSDB_OPTS: -DOPENSSL_ROOT_DIR=/opt/openssl-pq
     steps:
       - uses: actions/checkout@v4
 
