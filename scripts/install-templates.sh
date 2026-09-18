@@ -4,7 +4,7 @@
 # rebar3 discovers custom templates in ~/.config/rebar3/templates, and only
 # there when you are standing in an empty directory with no rebar.config, which
 # is exactly the situation you are in when scaffolding a new service. So the
-# templates cannot simply be carried by the hecate_om dependency: nothing has
+# templates cannot simply be carried by the mcl_om dependency: nothing has
 # fetched it yet.
 #
 # SYMLINKS RATHER THAN COPIES, so editing a template in this checkout takes

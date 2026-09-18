@@ -10,7 +10,7 @@
 # THREE OUTCOMES, NOT TWO, because they need different responses from whoever is
 # reading. Unreachable means the container is not running or the port is wrong.
 # Unhealthy means the node is up and telling you something is wrong with it, and
-# hecate_om answers that with a 503 carrying a reason. Collapsing the two sends
+# mcl_om answers that with a 503 carrying a reason. Collapsing the two sends
 # you to look in the wrong place.
 #
 #   0  healthy

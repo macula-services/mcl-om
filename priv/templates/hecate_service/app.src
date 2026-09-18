@@ -8,7 +8,7 @@
         stdlib,
         crypto,
         %% Mesh SDK, realm identity, capabilities, health.
-        hecate_om
+        mcl_om
     ]},
     {env, []},
     {modules, []},

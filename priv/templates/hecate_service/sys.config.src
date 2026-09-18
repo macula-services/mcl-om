@@ -3,14 +3,14 @@
 %% half-configured realm announces itself where nobody can attribute it, which
 %% looks exactly like a healthy node.
 [
-    {hecate_om, [
+    {mcl_om, [
         {service_cert_path, "/etc/hecate/secrets/service-cert.pem"},
-        %% Without this, hecate_om_identity:load_keypair/0 returns `undefined`
+        %% Without this, mcl_om_identity:load_keypair/0 returns `undefined`
         %% forever and keypair/0 stays {error, no_keypair} -- a service that
         %% declares a handler-bearing capability() then silently never
         %% advertises it, on every republish tick, permanently ("an
         %% ephemeral service cannot sign and is correctly not advertised",
-        %% hecate_om_capabilities's own moduledoc). Confirmed live 2026-08-31
+        %% mcl_om_capabilities's own moduledoc). Confirmed live 2026-08-31
         %% on a service generated from an earlier copy of this template that
         %% lacked this line. Point it at the same mounted secrets volume
         %% service_cert_path already uses -- no new infrastructure needed.
@@ -18,8 +18,8 @@
         {health_port,       ${HECATE_HEALTH_PORT}},
         {capability_topic,  <<"_mesh.cap.">>},
         %% THE REALM IS AN APPLICATION ENV, NOT A SHELL VARIABLE, and this file
-        %% is the only place the two meet. hecate_om_identity:realm() reads
-        %% application:get_env(hecate_om, realm); exporting HECATE_REALM in the
+        %% is the only place the two meet. mcl_om_identity:realm() reads
+        %% application:get_env(mcl_om, realm); exporting HECATE_REALM in the
         %% shell and expecting that to be enough has cost a sibling service an
         %% hour, because nothing translates between the two by itself.
         {realm,             <<"${HECATE_REALM}">>}
@@ -29,14 +29,14 @@
     %% EVOQ'S ADAPTER, WITHOUT WHICH THIS NODE DOES NOT BOOT
     %% ==========================================================================
     %%
-    %% ⚠ MANDATORY BECAUSE THIS SERVICE EXPORTS `store_id/0'. `hecate_om:boot/1'
+    %% ⚠ MANDATORY BECAUSE THIS SERVICE EXPORTS `store_id/0'. `mcl_om:boot/1'
     %% then starts the store AND a per-store evoq subscription, and that
     %% subscription reads the global log through evoq, which crashes on
     %% `{not_configured, event_store_adapter}' if this block is absent. evoq
     %% starts as a release-boot application before any service's `start/2' runs,
-    %% so hecate_om cannot inject it at runtime.
+    %% so mcl_om cannot inject it at runtime.
     %%
-    %% `hecate_om_store' documents this in its own module header, calling it
+    %% `mcl_om_store' documents this in its own module header, calling it
     %% MANDATORY, and a sibling service still put two of three fleet nodes into a
     %% boot-crash loop because the callbacks were added without reading it. That
     %% is why this block is generated rather than left to be discovered.

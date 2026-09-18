@@ -1,6 +1,6 @@
-%%% @doc Minimal `hecate_om_service` impl used by the CT suite.
+%%% @doc Minimal `mcl_om_service` impl used by the CT suite.
 -module(dummy_service).
--behaviour(hecate_om_service).
+-behaviour(mcl_om_service).
 
 -export([info/0, start/1, stop/1, health/0, capabilities/0, identity_spec/0]).
 

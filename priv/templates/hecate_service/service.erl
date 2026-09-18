@@ -1,6 +1,6 @@
-{{=<% %>=}}%% @doc The hecate_om service contract: what this service is and may do.
+{{=<% %>=}}%% @doc The mcl_om service contract: what this service is and may do.
 %%
-%% SIX CALLBACKS, ALL REQUIRED. hecate_om resolves them BY NAME at startup, on a
+%% SIX CALLBACKS, ALL REQUIRED. mcl_om resolves them BY NAME at startup, on a
 %% live node, so a service that forgets one dies with `undef' where nobody is
 %% watching. The `-behaviour' attribute below is what turns that into a compile
 %% error instead, and the generated test suite guards the attribute itself.
@@ -13,7 +13,7 @@
 %% act rather than a comment someone forgot.
 -module(<%name%>_service).
 
--behaviour(hecate_om_service).
+-behaviour(mcl_om_service).
 
 -export([info/0, start/1, stop/1, health/0, capabilities/0, identity_spec/0]).
 <%#store%>
@@ -22,18 +22,18 @@
 %% ==========================================================================
 %%
 %% Generated because this service was scaffolded with `store=1'. Exporting
-%% `store_id/0' and `data_dir/0' TOGETHER makes `hecate_om:boot/1' open a
+%% `store_id/0' and `data_dir/0' TOGETHER makes `mcl_om:boot/1' open a
 %% reckon-db store before this module's `start/1' fires.
 %%
 %% ⚠ THE reckon-db APPLICATIONS RUN EITHER WAY. `reckon_db', `reckon_evoq',
-%% `reckon_gater', `evoq', `khepri' and `ra' start with `hecate_om' whether these
+%% `reckon_gater', `evoq', `khepri' and `ra' start with `mcl_om' whether these
 %% callbacks exist or not. What the two add is a STORE: a data directory, an open
 %% handle, and something written. A sibling service claimed for months that they
 %% suppressed the whole stack while six of its thirty-one running applications
 %% quietly disproved it.
 %%
 %% ⚠⚠ AND `config/sys.config.src' MUST CARRY THE `evoq' BLOCK, which is why it was
-%% generated with one. hecate_om starts a per-store evoq subscription that reads
+%% generated with one. mcl_om starts a per-store evoq subscription that reads
 %% the global log, and that crashes on `{not_configured, event_store_adapter}'
 %% without it. evoq starts as a release-boot application before any service's
 %% `start/2' runs, so nothing can inject it later. A sibling put two of three

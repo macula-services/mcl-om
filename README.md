@@ -1,4 +1,4 @@
-# hecate-om
+# mcl-om
 
 **Hecate-over-mesh**: the shared substrate every `hecate-services/hecate-X`
 service daemon stands on.

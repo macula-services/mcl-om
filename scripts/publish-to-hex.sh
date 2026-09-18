@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Publish hecate_om to hex.pm.
+# Publish mcl_om to hex.pm.
 #
 # YOU run this — it fires the actual `rebar3 hex publish`. Claude prepares the
 # release (version bump, CHANGELOG, docs, dialyzer/edoc verification) but never
 # runs the publish itself.
 #
 # Pre-flight (Claude does these before handing off):
-#   - src/hecate_om.app.src vsn bumped + matching CHANGELOG.md entry
+#   - src/mcl_om.app.src vsn bumped + matching CHANGELOG.md entry
 #   - rebar3 ct        (tests green)
 #   - rebar3 dialyzer  (clean)
 #   - rebar3 ex_doc    (builds clean — verify guides/extras render)
@@ -20,8 +20,8 @@ set -euo pipefail
 
 cd "$(dirname -- "$0")/.."
 
-VSN=$(grep -oE '\{vsn, *"[^"]+"' src/hecate_om.app.src | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')
-echo "==> Preparing to publish hecate_om ${VSN}"
+VSN=$(grep -oE '\{vsn, *"[^"]+"' src/mcl_om.app.src | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')
+echo "==> Preparing to publish mcl_om ${VSN}"
 
 grep -q "## \[${VSN}\]" CHANGELOG.md \
     || { echo "ERROR: no CHANGELOG.md entry for ${VSN}" >&2; exit 1; }

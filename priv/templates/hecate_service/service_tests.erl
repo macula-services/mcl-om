@@ -1,15 +1,15 @@
 {{=<% %>=}}%% @doc The service contract, asserted locally.
 %%
-%% hecate_om resolves its six callbacks BY NAME at startup, on a live node, so a
+%% mcl_om resolves its six callbacks BY NAME at startup, on a live node, so a
 %% service that forgets one dies with `undef' where nobody is watching. The
-%% primary defence is the `-behaviour(hecate_om_service)' attribute on the
+%% primary defence is the `-behaviour(mcl_om_service)' attribute on the
 %% service module, which turns a missing callback into a compile error under
 %% warnings_as_errors.
 %%
 %% What this suite adds is everything the compiler cannot see: that the attribute
 %% has not been quietly dropped, that the values inside those callbacks are the
-%% shapes hecate_om will destructure, and that the names and version this service
-%% reports are the ones it actually has. Nothing local boots hecate_om, so
+%% shapes mcl_om will destructure, and that the names and version this service
+%% reports are the ones it actually has. Nothing local boots mcl_om, so
 %% asserting the shape by hand is the closest available thing to a rehearsal.
 -module(<%name%>_service_tests).
 
@@ -19,7 +19,7 @@
 -define(SERVICE, <%name%>_service).
 
 %% Belt and braces with the behaviour attribute, and it survives the attribute
-%% being removed. If hecate_om ever adds a SEVENTH required callback this test
+%% being removed. If mcl_om ever adds a SEVENTH required callback this test
 %% keeps passing and the deploy still breaks, which is the honest limit of a
 %% local assertion about a remote contract.
 exports_every_required_callback_test() ->
@@ -64,7 +64,7 @@ health_is_green_test() ->
 announces_no_capability_yet_test() ->
     ?assertEqual([], ?SERVICE:capabilities()).
 
-identity_spec_has_the_shape_hecate_om_expects_test() ->
+identity_spec_has_the_shape_mcl_om_expects_test() ->
     #{scope := Scope, actions := Actions,
       resources := Resources, ttl_days := Ttl} = ?SERVICE:identity_spec(),
     ?assert(is_binary(Scope)),
@@ -81,7 +81,7 @@ authority_matches_what_is_announced_test() ->
     ?assertEqual([], Actions),
     ?assertEqual([], Resources).
 
-%% The supervisor starts and stops cleanly on its own, without hecate_om. It has
+%% The supervisor starts and stops cleanly on its own, without mcl_om. It has
 %% no children as generated; this asserts the tree is startable, not that it does
 %% any work.
 supervisor_starts_and_stops_test() ->
@@ -99,7 +99,7 @@ supervisor_starts_and_stops_test() ->
 %% ⚠ A SIBLING SERVICE'S FLEET CRASH-LOOPED ON TWO OF THREE NODES FOR WANT OF THE
 %% `evoq' BLOCK.
 %%
-%% Exporting `store_id/0' makes `hecate_om:boot/1' start the store AND a per-store
+%% Exporting `store_id/0' makes `mcl_om:boot/1' start the store AND a per-store
 %% evoq subscription. That subscription reads through evoq, which raises
 %% `{not_configured, event_store_adapter}' unless sys.config names the adapter,
 %% and evoq starts as a release-boot application before any service's `start/2'
@@ -121,7 +121,7 @@ the_evoq_adapter_is_configured_wherever_a_store_is_opened_test() ->
        <<"reckon_evoq_adapter">>]).
 
 %% ⚠ AND THE STORE ID IS IN TWO PLACES, WHICH IS ONE MORE THAN IT SHOULD BE.
-%% `store_id/0' is what hecate_om opens; the `{store_id, ...}' in the evoq block
+%% `store_id/0' is what mcl_om opens; the `{store_id, ...}' in the evoq block
 %% is what evoq falls back to when it resolves a dispatch before knowing there is
 %% none. Nothing makes them agree, and disagreeing opens one store and addresses
 %% another. Same boundary guard, other side.

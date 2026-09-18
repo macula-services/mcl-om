@@ -27,7 +27,7 @@
 %%   rebar3 new hecate_service repo=hecate-foo name=hecate_foo \
 %%       desc="Does X over the mesh" health_port=8484
 
-{description, "A complete hecate service: release, container, CI, compose, and the six-callback hecate_om_service contract"}.
+{description, "A complete hecate service: release, container, CI, compose, and the six-callback mcl_om_service contract"}.
 
 {variables, [
     {repo, "hecate-newservice",

@@ -105,7 +105,7 @@ templates_dir() ->
 %% Returns the paths created, so end_per_suite removes those and nothing else.
 %% Symlinks, so an edit to a template in this checkout is what the next run sees.
 install_templates(Dest) ->
-    Src = filename:join(code:priv_dir(hecate_om), "templates"),
+    Src = filename:join(code:priv_dir(mcl_om), "templates"),
     ok = filelib:ensure_path(Dest),
     {ok, Entries} = file:list_dir(Src),
     lists:filtermap(fun(E) -> link_entry(filename:join(Src, E),
@@ -143,8 +143,8 @@ collect(Port, Acc) ->
         ct:fail({rebar3_new_timeout, Acc})
     end.
 
-%% hecate_om is compiled right here, so the generated modules can be compiled
-%% against it and the `-behaviour(hecate_om_service)' attribute makes the
+%% mcl_om is compiled right here, so the generated modules can be compiled
+%% against it and the `-behaviour(mcl_om_service)' attribute makes the
 %% compiler check all six callbacks. warnings_as_errors matches what the
 %% generated rebar.config sets, so a template emitting an unused variable fails
 %% here too, exactly as it would for whoever scaffolds next.
@@ -196,7 +196,7 @@ health_script_is_executable(Config) ->
 %% boots clean, peers and calls fine, and NEVER advertises a single
 %% handler-bearing capability -- silently, forever, on every republish tick
 %% ("an ephemeral service cannot sign and is correctly not advertised" by
-%% design, hecate_om_capabilities's own moduledoc). Confirmed live 2026-08-31
+%% design, mcl_om_capabilities's own moduledoc). Confirmed live 2026-08-31
 %% on a service generated from an earlier copy of this template that lacked
 %% this key: keypair/0 stayed {error, no_keypair} for its entire deployed
 %% lifetime, and hecate_stations.list_stations never once reached the DHT.
@@ -276,7 +276,7 @@ generated_sources_satisfy_the_behaviour(Config) ->
     {module, Mod} = code:ensure_loaded(Mod),
     %% One `-behaviour' attribute, whose value is itself a list of one.
     Attrs = Mod:module_info(attributes),
-    ?assertEqual([[hecate_om_service]],
+    ?assertEqual([[mcl_om_service]],
                  proplists:get_all_values(behaviour, Attrs)).
 
 %% The two names must agree and the version must be the application's own. The
