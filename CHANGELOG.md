@@ -3,7 +3,14 @@
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [SemVer](https://semver.org/).
 
-## [Unreleased]
+## [0.1.0] - unreleased
+
+### Changed
+
+- **The hard break.** Forked from hecate-om 0.25.0 into the PQ-only
+  `mcl_om` line; the version resets to 0.1.0 because the API and the wire
+  are incompatible with every hecate-om release. Everything below is the
+  inherited hecate-om history.
 
 ## [0.25.0] - 2026-09-11
 
