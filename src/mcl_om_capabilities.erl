@@ -135,14 +135,12 @@
 %% Pure helpers — the record-building, dispatch-decision, and resolution
 %% logic, kept side-effect-free so it is unit-testable without a live
 %% mesh.
--export([procedure_uri/3, org_procedure/2, build_advertisement/5,
-         build_advertisement/6, decode_resolved/1, station_url/2,
-         has_handler/1, auth_opts/1, unguarded_capabilities/1,
-         reuse_sup_opts/1, advertise_opts/1,
+-export([org_procedure/2, build_advertisement/5, decode_resolved/1,
+         station_url/2, has_handler/1, auth_opts/1, unguarded_capabilities/1,
+         reuse_sup_opts/1, advertise_opts/0,
          provider_module/1, stream_opts/1,
-         discovery_key/2, discovery_key_org/3,
-         org_scoped_or_any/4, org_scoped_full_or_any/5,
-         org_capability_pattern/2, matches_org_pattern/2,
+         discovery_key_org/3, org_scoped_full_or_any/5,
+         org_capability_pattern/1, matches_org_pattern/2,
          resolve_org_capabilities/3, republish_delay_ms/0]).
 
 %% `macula_record.erl''s own `?TYPE_PROCEDURE_ADVERTISEMENT' — not
@@ -331,24 +329,18 @@ plural_suffix(_)   -> "ies were".
 
 do_advertise(Caps, Sups) ->
     advertise_with(mcl_om_identity:macula_client(),
-                   mcl_om_identity:keypair(),
+                   mcl_om_identity:identity_key(),
                    mcl_om_identity:realm(),
                    mcl_om_identity:org(),
-                   advertise_opts(mcl_om_identity:cert_chain()),
                    Caps, Sups).
 
-%% Embed the service cert chain when one is provisioned (Slice 7c
-%% Direction B); otherwise advertise without it (open-mode discovery).
-%% Always carries `ttl_ms' — see moduledoc.
-advertise_opts(CertChain) ->
-    maps:merge(cert_chain_opts(CertChain), #{ttl_ms => ?ADVERTISEMENT_TTL_MS}).
+%% Every advertisement carries `ttl_ms' — see moduledoc.
+advertise_opts() ->
+    #{ttl_ms => ?ADVERTISEMENT_TTL_MS}.
 
-cert_chain_opts({ok, Pem})  -> #{cert_chain => Pem};
-cert_chain_opts({error, _}) -> #{}.
-
-advertise_with({ok, Pool}, {ok, KeyPair}, {ok, Realm}, Org, CertOpts, Caps, Sups) ->
+advertise_with({ok, Pool}, {ok, Key}, {ok, Realm}, Org, Caps, Sups) ->
     lists:foldl(fun(Cap, Acc) ->
-                    advertise_one_safely(Pool, KeyPair, Realm, Org, CertOpts, Cap, Acc)
+                    advertise_one_safely(Pool, Key, Realm, Org, Cap, Acc)
                 end, Sups, Caps);
 %% Missing pool / keypair / realm: cannot reach the mesh or sign. No-op;
 %% the timer retries once all three are present. Existing sups (if any)
@@ -362,8 +354,8 @@ advertise_with({ok, Pool}, {ok, KeyPair}, {ok, Realm}, Org, CertOpts, Caps, Sups
 %% got called. Logged now, throttled to once per distinct reason
 %% (see log_advertise_gate_once/1) so a genuinely stuck boot doesn't
 %% spam a warning every 30s republish tick forever.
-advertise_with(PoolR, KeyPairR, RealmR, _Org, _CertOpts, _Caps, Sups) ->
-    log_advertise_gate_once({error_of(PoolR), error_of(KeyPairR), error_of(RealmR)}),
+advertise_with(PoolR, KeyR, RealmR, _Org, _Caps, Sups) ->
+    log_advertise_gate_once({error_of(PoolR), error_of(KeyR), error_of(RealmR)}),
     Sups.
 
 error_of({ok, _}) -> ok;
@@ -479,9 +471,9 @@ stream_opts(_)                                        -> #{}.
 %% so a sup that DOES die between ticks (this path or any other) self-
 %% heals on the next successful call rather than handing `dispatch' a
 %% dead pid.
-advertise_one_safely(Pool, KeyPair, Realm, Org, CertOpts, Cap, Acc) ->
+advertise_one_safely(Pool, Key, Realm, Org, Cap, Acc) ->
     try
-        advertise_one(Pool, KeyPair, Realm, Org, CertOpts, Cap, Acc)
+        advertise_one(Pool, Key, Realm, Org, Cap, Acc)
     catch
         Class:Reason ->
             logger:warning(
@@ -492,38 +484,24 @@ advertise_one_safely(Pool, KeyPair, Realm, Org, CertOpts, Cap, Acc) ->
             Acc
     end.
 
-advertise_one(Pool, KeyPair, Realm, Org, CertOpts,
+advertise_one(Pool, Key, Realm, Org,
              #{name := Name, handler := {Mod, Args}} = Cap, Sups) ->
     Provider = provider_module(Cap),
+    %% 11.x refuses a procedure without an org namespace
+    %% (no_org_namespace), so the one registration is the org-qualified
+    %% procedure. The SDK's advertise path resolves this pool's own D25
+    %% authorization from the DHT (org_directory + procedure_delegation
+    %% naming the pool's node id) and signs the advertisement itself.
     OrgProcedure = org_procedure(Org, Name),
-    AuthOpts = auth_opts(Cap),
-    StreamOpts = stream_opts(Cap),
-    BareOpts = maps:merge(maps:merge(maps:merge(CertOpts, AuthOpts), StreamOpts),
-                          reuse_sup_opts(maps:get(Name, Sups, undefined))),
-    OrgOpts  = maps:merge(maps:merge(maps:merge(CertOpts, AuthOpts), StreamOpts),
-                          reuse_sup_opts(maps:get(OrgProcedure, Sups, undefined))),
-    %% Two independent advertise_direct calls, two independent wire-level
-    %% ADVERTISE registrations and DHT records -- see moduledoc for why
-    %% this is both necessary (station-side dispatch is opaque-string-
-    %% keyed, so two orgs sharing a bare name collide) and sufficient (no
-    %% separate record-only write needed; advertise_direct's own DHT
-    %% publish for the org-qualified name already lands at
-    %% discovery_key_org/3's key). `Provider' is `macula_response' for
-    %% every existing capability (no `kind' key set); `macula_streamer'
-    %% only for one that opts in with `kind => streamer' -- both publish
-    %% the identical `procedure_advertisement' record type, see
-    %% `mcl_om_service:capability()''s doc.
-    BareResult = Provider:advertise_direct(Pool, Realm, Name, Mod, Args,
-                                           KeyPair, BareOpts),
-    OrgResult  = Provider:advertise_direct(Pool, Realm, OrgProcedure, Mod,
-                                           Args, KeyPair, OrgOpts),
-    Sups1 = advertised(BareResult, Name, Sups),
-    advertised(OrgResult, OrgProcedure, Sups1);
-advertise_one(Pool, KeyPair, Realm, Org, CertOpts, Cap, Sups) ->
-    %% No handler declared — legacy discoverable-but-not-callable path,
+    Opts = maps:merge(maps:merge(auth_opts(Cap), stream_opts(Cap)),
+                      reuse_sup_opts(maps:get(OrgProcedure, Sups, undefined))),
+    Result = Provider:advertise_direct(Pool, Realm, OrgProcedure, Mod,
+                                       Args, Key, Opts),
+    advertised(Result, OrgProcedure, Sups);
+advertise_one(Pool, Key, Realm, Org, Cap, Sups) ->
+    %% No handler declared — discoverable-but-not-callable path,
     %% kept for a capability another mechanism serves.
-    advertise_record_only(serving_station(Pool), Pool, KeyPair, Realm, Org,
-                          CertOpts, Cap),
+    advertise_record_only(serving_station(Pool), Pool, Key, Realm, Org, Cap),
     Sups.
 
 %% @doc The org-qualified wire-level procedure string a handler-bearing
@@ -552,11 +530,9 @@ advertised({error, Reason}, Name, Sups) ->
                    [Name, Reason]),
     Sups.
 
-advertise_record_only({ok, Station}, Pool, KeyPair, Realm, Org, CertOpts, Cap) ->
-    put_advertisement(Pool, build_advertisement(KeyPair, Realm, Org, Cap,
-                                                Station, CertOpts));
-advertise_record_only({error, no_station}, _Pool, _KeyPair, _Realm, _Org,
-                      _CertOpts, _Cap) ->
+advertise_record_only({ok, Station}, Pool, Key, Realm, Org, Cap) ->
+    put_advertisement(Pool, build_advertisement(Key, Realm, Org, Cap, Station));
+advertise_record_only({error, no_station}, _Pool, _Key, _Realm, _Org, _Cap) ->
     ok.
 
 %% `macula:put_record/2' returns `ok | {error, term()}' -- both branches
@@ -624,16 +600,16 @@ list_org_with(_Pool, _Realm, _Org) ->
 %% `find_records_by_type', not a DHT-indexed query.
 -spec resolve_org_capabilities(pid(), binary(), binary()) -> [map()].
 resolve_org_capabilities(Pool, Realm, Org) ->
-    Pattern = org_capability_pattern(Realm, Org),
-    lists:filtermap(fun(R) -> decode_if_org_matches(R, Pattern) end,
+    Pattern = org_capability_pattern(Org),
+    lists:filtermap(fun(R) -> decode_if_org_matches(R, Realm, Pattern) end,
                     find_by_type(Pool)).
 
-%% `RealmHex/Org/*' -- the pattern every one of Org's advertisements'
-%% procedure_uri must match, in the SAME `RealmHex/Org/Name' shape
-%% `procedure_uri/3' builds (a wildcard trailing segment, matched via
-%% `macula_topic_pattern:matches/2').
-org_capability_pattern(Realm, Org) ->
-    [binary:encode_hex(Realm, uppercase), Org, <<"*">>].
+%% `Org/*' -- the pattern every one of Org's advertisements' procedure
+%% string must match (a wildcard trailing segment, matched via
+%% `macula_topic_pattern:matches/2'). The realm is checked as the
+%% record's own realm_id field, not as part of the pattern.
+org_capability_pattern(Org) ->
+    [Org, <<"*">>].
 
 find_by_type(Pool) ->
     on_find_by_type(find_records_by_type(Pool)).
@@ -646,69 +622,44 @@ find_records_by_type(Pool) ->
 on_find_by_type({ok, Records}) -> Records;
 on_find_by_type(_Other)        -> [].
 
-decode_if_org_matches(Record, Pattern) ->
-    decode_verified_if_org_matches(macula_record:verify(Record), Record, Pattern).
+decode_if_org_matches(Record, Realm, Pattern) ->
+    decode_verified_if_org_matches(macula_record:verify(Record, profile()),
+                                   Record, Realm, Pattern).
 
-decode_verified_if_org_matches({ok, _Payload}, Record, Pattern) ->
+decode_verified_if_org_matches({ok, _Payload}, Record, Realm, Pattern) ->
     try macula_record:read_procedure_advertisement(Record) of
-        #{procedure_uri := Uri} = Decoded ->
-            keep_if_matches(matches_org_pattern(Pattern, Uri), Decoded, Record)
+        #{realm_id := Realm, procedure := Procedure} = Decoded ->
+            keep_if_matches(matches_org_pattern(Pattern, Procedure),
+                            Decoded, Record)
     catch _:_ ->
         false
     end;
-decode_verified_if_org_matches({error, _}, _Record, _Pattern) ->
+decode_verified_if_org_matches({error, _}, _Record, _Realm, _Pattern) ->
     false.
 
-%% @doc Whether `Uri' (a procedure_advertisement's own `procedure_uri'
-%% field) matches the `RealmHex/Org/*' `Pattern'. Split purely on `/' --
-%% `Uri''s own Name segment may itself contain `.' (`weather.get_forecast')
-%% but never `/', matching `procedure_uri/3''s own construction.
+%% @doc Whether `Procedure' (a procedure_advertisement's own procedure
+%% string, `Org/Name') matches the `Org/*' `Pattern'. Split purely on
+%% `/'. The realm is the record's own realm_id, checked by the caller.
 -spec matches_org_pattern([binary()], binary()) -> boolean().
-matches_org_pattern(Pattern, Uri) ->
-    macula_topic_pattern:matches(Pattern, binary:split(Uri, <<"/">>, [global])).
+matches_org_pattern(Pattern, Procedure) ->
+    macula_topic_pattern:matches(Pattern, binary:split(Procedure, <<"/">>, [global])).
 
 keep_if_matches(true, Decoded, Record) ->
     {true, Decoded#{record => Record}};
 keep_if_matches(false, _Decoded, _Record) ->
     false.
 
-%% Org-scoped first: as of advertise_one/7, a handler-bearing capability
-%% publishes BOTH the bare key (below) and an org-qualified one. Resolving
-%% the org-qualified key first can only ever return `Org''s own
-%% providers -- two orgs running the same capability name never mix.
-%% Falls back to the bare (any-provider) key when the org-qualified
-%% lookup is empty, which is what keeps this backward compatible with a
-%% provider that hasn't upgraded to publish the org-qualified record yet
-%% -- no fleet-wide flag day required, resolution just gets more precise
-%% as each provider upgrades independently.
+%% Org-scoped, the only form 11.x accepts: a procedure without an org
+%% namespace is refused at the station (no_org_namespace), so every
+%% registration and therefore every resolution is under
+%% `Realm/Org/CapName'.
 resolve_at(Pool, Realm, Org, CapName) ->
-    org_scoped_or_any(resolve_records(find(Pool, discovery_key_org(Realm, Org, CapName))),
-                      Pool, Realm, CapName).
+    resolve_records(find(Pool, discovery_key_org(Realm, Org, CapName))).
 
-org_scoped_or_any([_ | _] = OrgScoped, _Pool, _Realm, _CapName) ->
-    OrgScoped;
-org_scoped_or_any([], Pool, Realm, CapName) ->
-    resolve_records(find(Pool, discovery_key(Realm, CapName))).
-
-%% The key a handler-bearing capability is actually reachable under, when
-%% no org-qualified record exists for it (yet, or at all): Realm + the
-%% bare capability name, matching macula_direct_dial's own (private, so
-%% replicated here) discovery_uri/2 formula -- NOT procedure_uri/3 alone.
-%% A capability advertised via the legacy record-only path (no handler,
-%% never callable via call_capability regardless) is not resolvable
-%% through this lookup — documented as written "for a capability another
-%% mechanism serves".
-discovery_key(Realm, Name) ->
-    macula_record:procedure_key(<<(binary:encode_hex(Realm, uppercase))/binary, "/",
-                                  Name/binary>>).
-
-%% Org-qualified discovery key -- Realm/Org/Name, procedure_uri/3's own
-%% formula (already realm-prefixed; do not also wrap it in discovery_key/2's
-%% own prefixing, that would double the realm segment). A distinct DHT
-%% bucket per org: resolving this key can only ever return the named
-%% org's own providers.
+%% Org-qualified discovery key. The 11.x procedure_key takes the realm
+%% as its own argument; the procedure is the org-qualified string.
 discovery_key_org(Realm, Org, Name) ->
-    macula_record:procedure_key(procedure_uri(Realm, Org, Name)).
+    macula_record:procedure_key(Realm, org_procedure(Org, Name)).
 
 %% find/2 always returns `{ok, List}' (its retry loop converts an
 %% exhausted/persistent error into `{ok, []}' rather than passing
@@ -730,11 +681,8 @@ resolve_full(Pool, Realm, Org, CapName) ->
       resolve_full_records(find(Pool, discovery_key_org(Realm, Org, CapName))),
       Pool, Realm, Org, CapName).
 
-org_scoped_full_or_any([_ | _] = OrgScoped, _Pool, _Realm, Org, CapName) ->
-    tag_procedure(OrgScoped, org_procedure(Org, CapName));
-org_scoped_full_or_any([], Pool, Realm, _Org, CapName) ->
-    tag_procedure(resolve_full_records(find(Pool, discovery_key(Realm, CapName))),
-                 CapName).
+org_scoped_full_or_any(OrgScoped, _Pool, _Realm, Org, CapName) ->
+    tag_procedure(OrgScoped, org_procedure(Org, CapName)).
 
 tag_procedure(Providers, Procedure) ->
     [P#{procedure => Procedure} || P <- Providers].
@@ -747,7 +695,7 @@ decode_resolved_full(Records) ->
     lists:filtermap(fun decode_one_full/1, Records).
 
 decode_one_full(Record) ->
-    decode_verified_full(macula_record:verify(Record), Record).
+    decode_verified_full(macula_record:verify(Record, profile()), Record).
 
 decode_verified_full({ok, _Payload}, Record) ->
     try macula_record:read_procedure_advertisement(Record) of
@@ -798,34 +746,17 @@ call_capability_via(_Pool, _Realm, _Org, _CapName, _Payload, _TimeoutMs, _Opts) 
     {error, not_configured}.
 
 %% @doc Explicit-pool form (testable without mcl_om_identity).
-%% `Opts': `verify => boolean()' (default false = open; when true, drop
-%% providers whose embedded service-cert chain does not verify to the
-%% realm CA, Slice 7c Direction B) and `ucan_token => binary()'
-%% (presented to a gated provider, Slice 7b).
+%% `Opts': `ucan_token => binary()' (presented to a gated provider).
+%% The 10.x `verify => true' cert-chain mode is gone with the cert
+%% authorization form: in 11.x the trust check is the D25 authorization
+%% the pool verifies against its realm_trust keys, and the pinned
+%% expected_node_id below.
 -spec call_capability(pid(), binary(), binary(), binary(), term(),
                       pos_integer(), map()) -> {ok, term()} | {error, term()}.
 call_capability(Pool, Realm, Org, CapName, Payload, TimeoutMs, Opts) ->
-    Providers = verify_providers(maps:get(verify, Opts, false), Org,
-                                 resolve_full(Pool, Realm, Org, CapName)),
-    call_providers(Providers, Pool, Realm, CapName, Payload, TimeoutMs,
+    call_providers(resolve_full(Pool, Realm, Org, CapName),
+                   Pool, Realm, CapName, Payload, TimeoutMs,
                    maps:get(ucan_token, Opts, <<>>)).
-
-%% Verifying-consumer mode (7c Direction B): keep only providers whose
-%% embedded service-cert chain verifies to the realm CA and whose leaf
-%% is issued for `Org'. Open mode (default): keep all.
-verify_providers(false, _Org, Providers) ->
-    Providers;
-verify_providers(true, Org, Providers) ->
-    keep_chain_verified(mcl_om_identity:realm_ca(), Org, Providers).
-
-%% `verify => true' but no realm CA provisioned: nothing can be verified,
-%% so drop every provider rather than trust blindly.
-keep_chain_verified({ok, RealmCaPem}, Org, Providers) ->
-    [P || #{record := Rec} = P <- Providers,
-          macula_record:verify_advertisement_cert_chain(RealmCaPem, Rec, Org)
-              =:= ok];
-keep_chain_verified({error, _}, _Org, _Providers) ->
-    [].
 
 call_providers([], _Pool, _Realm, _CapName, _Payload, _TimeoutMs, _Ucan) ->
     {error, no_provider};
@@ -836,35 +767,15 @@ call_providers([#{serving_station := Station, procedure := Procedure} | Rest],
 
 %% Endpoint resolved: dial + call; on error, fail over to the next.
 %%
-%% CALLs with `Procedure' -- the wire-level string `resolve_full/4' tagged
-%% this provider with (`org_procedure(Org, CapName)' on an org-scoped
-%% resolve, bare `CapName' on the any-provider fallback) -- NOT the raw
-%% `CapName' argument. This is what makes org-scoping real all the way to
-%% the wire: this provider only ever registered a wire-level ADVERTISE
-%% under `Procedure', so CALLing with anything else would hit whatever
-%% (possibly a different org's) registration currently holds the bare
-%% name at this station.
-%%
-%% Trust triad matches macula_direct_dial:call/6 exactly (verified
-%% against a real demo-fleet station, 2026-08-24 -- omitting it makes
-%% every direct-dial call fail with `not_connected', not a signature
-%% or auth error, because the failure is at the TLS layer before the
-%% application-level trust check ever runs): a resolved provider is
-%% trusted because the signed DHT `procedure_advertisement' chain
-%% named exactly this `Station' pubkey, not because its TLS
-%% certificate chains to a CA -- a production station's TLS cert has
-%% no relationship to its macula identity. `verify => none' +
-%% `pin_tls_cert => false' skip the (irrelevant) TLS check;
-%% `expected_node_id => Station' is what actually pins trust, enforced
-%% at the application layer during the CONNECT/HELLO handshake.
+%% Trust: a resolved provider is trusted because the signed DHT
+%% `procedure_advertisement' named exactly this `Station' node id — the
+%% 11.x call_station pins the dial on it as the Target (D5): the
+%% CONNECT/HELLO handshake refuses any other identity, and a station's
+%% TLS cert has no relationship to its macula identity.
 dial_provider({ok, Url}, Station, Procedure, Rest, Pool, Realm, CapName,
               Payload, TimeoutMs, Ucan) ->
-    CallResult = macula:call_station(Pool, Url, Realm, Procedure, Payload,
-                                     TimeoutMs,
-                                     #{ucan_token => Ucan,
-                                       expected_node_id => Station,
-                                       pin_tls_cert => false,
-                                       verify => none}),
+    CallResult = macula:call_station(Pool, Url, Station, Realm, Procedure,
+                                     Payload, TimeoutMs, Ucan),
     failover(CallResult, Rest, Pool, Realm, CapName, Payload, TimeoutMs, Ucan);
 dial_provider({error, _}, _Station, _Procedure, Rest, Pool, Realm, CapName,
               Payload, TimeoutMs, Ucan) ->
@@ -900,19 +811,6 @@ endpoint_url(_Other) ->
 
 %%% Pure helpers (unit-tested)
 
-%% Realm-namespaced procedure URI. The org segment (Q8) rides with
-%% Slice 7 trust; realm-scoping is enough for discovery and
-%% cross-realm collision-freedom now.
-%% `<realm-hex>/<org>/<capability>' — the org segment (Slice 7c) roots
-%% the delegation chain and keeps two orgs' same-named capabilities
-%% distinct.
--spec procedure_uri(binary(), binary(), binary() | map()) -> binary().
-procedure_uri(Realm, Org, #{name := Name}) ->
-    procedure_uri(Realm, Org, Name);
-procedure_uri(Realm, Org, Name)
-  when is_binary(Realm), is_binary(Org), is_binary(Name) ->
-    <<(binary:encode_hex(Realm, uppercase))/binary, "/", Org/binary, "/", Name/binary>>.
-
 %% Build the `quic://' seed URL a pool dials, bracketing IPv6 hosts.
 -spec station_url(binary(), 1..65535) -> binary().
 station_url(Host, Port) when is_binary(Host), is_integer(Port) ->
@@ -925,25 +823,17 @@ bracket_if_ipv6(Host) ->
 add_brackets(nomatch, Host) -> Host;
 add_brackets(_Found, Host)  -> <<"[", Host/binary, "]">>.
 
--spec build_advertisement(macula_identity:key_pair(), binary(), binary(),
+-spec build_advertisement(macula_node_keys:node_key(), binary(), binary(),
                           mcl_om_service:capability(),
-                          macula_identity:pubkey()) -> map().
-build_advertisement(KeyPair, Realm, Org, Cap, Station) ->
-    build_advertisement(KeyPair, Realm, Org, Cap, Station, #{}).
-
-%% `CertOpts' carries `cert_chain => Pem' (leaf ++ org CA) so a verifying
-%% consumer can chain the advertiser to the realm CA (Slice 7c Direction B);
-%% `#{}' when the service has no provisioned chain.
--spec build_advertisement(macula_identity:key_pair(), binary(), binary(),
-                          mcl_om_service:capability(),
-                          macula_identity:pubkey(),
-                          macula_record:procedure_advertisement_opts()) -> map().
-build_advertisement(KeyPair, Realm, Org, #{name := Name}, Station, CertOpts) ->
-    Advertiser = macula_identity:public(KeyPair),
-    Uri        = procedure_uri(Realm, Org, Name),
-    Record     = macula_record:procedure_advertisement(Advertiser, Uri, Station,
-                                                       CertOpts),
-    macula_record:sign(Record, KeyPair).
+                          <<_:256>>) -> map().
+build_advertisement(Key, Realm, Org, #{name := Name}, Station) ->
+    {ok, Advertiser} = macula_node_keys:node_id(Key),
+    %% The 11.x record names the realm as its own field; the procedure
+    %% is the org-qualified string, no realm-hex prefix.
+    Record = macula_record:procedure_advertisement(Advertiser, Realm,
+                                                   org_procedure(Org, Name),
+                                                   Station),
+    macula_record:sign(Record, Key).
 
 %% Verify each record's signature and project it to
 %% `{advertiser, serving_station}'. Non-procedure records and bad
@@ -954,7 +844,7 @@ decode_resolved(Records) ->
     lists:filtermap(fun decode_one/1, Records).
 
 decode_one(Record) ->
-    decode_verified(macula_record:verify(Record), Record).
+    decode_verified(macula_record:verify(Record, profile()), Record).
 
 decode_verified({ok, _Payload}, Record) ->
     try macula_record:read_procedure_advertisement(Record) of
@@ -979,3 +869,7 @@ arm_timer(S) ->
 republish_delay_ms() ->
     ?REPUBLISH_INTERVAL_MS - (?REPUBLISH_JITTER_MS div 2)
         + rand:uniform(?REPUBLISH_JITTER_MS + 1) - 1.
+
+profile() ->
+    {ok, P} = macula_crypto_profile:configured(),
+    P.

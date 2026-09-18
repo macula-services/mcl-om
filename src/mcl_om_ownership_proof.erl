@@ -1,14 +1,11 @@
 %%% @doc Verifies a caller actually holds the private key for the
-%%% Ed25519 identity (a raw 32-byte pubkey -- the same node_id/DID
-%%% convention macula's own identity uses) it claims to be asserting on
-%%% behalf of, inside an otherwise-open mesh payload.
-%%%
-%%% A Macula identity is literally an Ed25519 public key
-%%% (`macula_identity:node_id() :: pubkey()`), so ownership is proved by
-%%% signing `{identity, timestamp, procedure}` with the matching private
-%%% key -- `procedure` included so a proof minted for one gated
-%%% capability can't be replayed against another this or any other
-%%% service adds later.
+%%% A caller proves it holds the private half of the node key whose
+%%% carried public key it asserts as its identity, inside an otherwise-
+%%% open mesh payload: the 11.x identity is a pq_hybrid node key, and
+%%% ownership is proved by signing `{identity, timestamp, procedure}'
+%%% with its private half -- `procedure' included so a proof minted for
+%%% one gated capability can't be replayed against another this or any
+%%% other service adds later.
 %%%
 %%% Extracted here after the identical ~40-line verifier had been
 %%% written twice independently -- hecate-citizens'
@@ -116,9 +113,14 @@ fresh(Ts, Identity, Sig, Procedure) ->
     skew_checked(abs(erlang:system_time(millisecond) - Ts), Ts, Identity, Sig, Procedure).
 
 skew_checked(Skew, Ts, Identity, Sig, Procedure) when Skew =< ?MAX_SKEW_MS ->
-    signed(macula_identity:verify(message(Identity, Ts, Procedure), Sig, Identity));
+    signed(macula_node_keys:verify(message(Identity, Ts, Procedure), Sig,
+                                    Identity, profile()));
 skew_checked(_Skew, _Ts, _Identity, _Sig, _Procedure) ->
     {error, stale_proof}.
 
 signed(true) -> ok;
 signed(false) -> {error, bad_signature}.
+
+profile() ->
+    {ok, P} = macula_crypto_profile:configured(),
+    P.

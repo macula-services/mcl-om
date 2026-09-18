@@ -16,10 +16,9 @@
     advertise_capabilities/0,
     call_capability/4,
     health/0,
-    service_cert/0,
     macula_client/0,
     realm/0,
-    keypair/0,
+    identity_key/0,
     mesh_handles/0,
     service_module/0,
     read_model/0
@@ -203,10 +202,6 @@ call_capability(Org, CapName, Payload, TimeoutMs) ->
 health() ->
     mcl_om_health:snapshot().
 
--spec service_cert() -> {ok, binary()} | {error, term()}.
-service_cert() ->
-    mcl_om_identity:service_cert().
-
 -spec macula_client() -> {ok, term()} | {error, term()}.
 macula_client() ->
     mcl_om_identity:macula_client().
@@ -219,14 +214,13 @@ macula_client() ->
 realm() ->
     mcl_om_identity:realm().
 
-%% @doc This service's stable signing keypair, or `{error, no_keypair}'
-%% when running on an ephemeral identity. Needed by every direct-dial
-%% PROVIDER desk (`macula_response:advertise_direct/6,7',
-%% `macula_streamer:advertise_direct/6,7', ...), which sign their own DHT
-%% advertisement record with it.
--spec keypair() -> {ok, macula_identity:key_pair()} | {error, term()}.
-keypair() ->
-    mcl_om_identity:keypair().
+%% @doc This service's stable signing node key, or
+%% `{error, no_identity_key}' when running on an ephemeral identity.
+%% Needed by every provider advertisement, which signs its own DHT
+%% record with it.
+-spec identity_key() -> {ok, macula_node_keys:node_key()} | {error, term()}.
+identity_key() ->
+    mcl_om_identity:identity_key().
 
 %% @doc The `{Pool, Realm}' pair every PubSub/RPC-consumer/Content call
 %% needs together. Replaces the hand-rolled
