@@ -54,14 +54,21 @@ jobs:
           make -j4 > /dev/null
           sudo make install_sw > /dev/null
 
+      # The RPATH baked in via LDFLAGS makes every OTP binary find
+      # /opt/openssl-pq/lib WITHOUT LD_LIBRARY_PATH: the ct runner
+      # spawns its test node in a way that did not carry the job env on
+      # this repo's first run (eunit, in rebar3's own VM, was fine; the
+      # spawned ct node saw the system libcrypto and crypto.so refused
+      # to load). The RPATH makes the lookup correct in any spawn.
       - name: Build Erlang/OTP 28.1 from source against the PQ OpenSSL
         run: |
           sudo apt-get install -y -qq --no-install-recommends autoconf libncurses-dev m4
           curl -fsSL https://github.com/erlang/otp/releases/download/OTP-28.1/otp_src_28.1.tar.gz -o /tmp/otp.tar.gz
           tar -xzf /tmp/otp.tar.gz -C /tmp
           cd /tmp/otp_src_28.1
-          ./configure --prefix=/opt/otp-28.1 --with-ssl=/opt/openssl-pq \
-            --without-javac --without-wx --without-odbc > /dev/null
+          LDFLAGS="-Wl,-rpath,/opt/openssl-pq/lib" \
+            ./configure --prefix=/opt/otp-28.1 --with-ssl=/opt/openssl-pq \
+              --without-javac --without-wx --without-odbc > /dev/null
           make -j4 > /dev/null
           sudo make install > /dev/null
           echo "/opt/otp-28.1/bin" >> "$GITHUB_PATH"
@@ -127,14 +134,21 @@ jobs:
           make -j4 > /dev/null
           sudo make install_sw > /dev/null
 
+      # The RPATH baked in via LDFLAGS makes every OTP binary find
+      # /opt/openssl-pq/lib WITHOUT LD_LIBRARY_PATH: the ct runner
+      # spawns its test node in a way that did not carry the job env on
+      # this repo's first run (eunit, in rebar3's own VM, was fine; the
+      # spawned ct node saw the system libcrypto and crypto.so refused
+      # to load). The RPATH makes the lookup correct in any spawn.
       - name: Build Erlang/OTP 28.1 from source against the PQ OpenSSL
         run: |
           sudo apt-get install -y -qq --no-install-recommends autoconf libncurses-dev m4
           curl -fsSL https://github.com/erlang/otp/releases/download/OTP-28.1/otp_src_28.1.tar.gz -o /tmp/otp.tar.gz
           tar -xzf /tmp/otp.tar.gz -C /tmp
           cd /tmp/otp_src_28.1
-          ./configure --prefix=/opt/otp-28.1 --with-ssl=/opt/openssl-pq \
-            --without-javac --without-wx --without-odbc > /dev/null
+          LDFLAGS="-Wl,-rpath,/opt/openssl-pq/lib" \
+            ./configure --prefix=/opt/otp-28.1 --with-ssl=/opt/openssl-pq \
+              --without-javac --without-wx --without-odbc > /dev/null
           make -j4 > /dev/null
           sudo make install > /dev/null
           echo "/opt/otp-28.1/bin" >> "$GITHUB_PATH"
