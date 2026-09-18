@@ -137,23 +137,26 @@ existing_atom(Bin) ->
 %% didn't code-classify at all (a raw `catch', a timeout), has nothing
 %% for the BOLT#4 table to say, so those are decided directly here
 %% rather than delegated.
+%% The 11.x call outcomes: `{error, {call_error, C, Detail}}' with a
+%% BINARY wire code (`temporary_relay_failure', `unauthorized',
+%% `unknown_error', ...) or the atom `unknown_next_peer' for a station
+%% that could not route; `handler_error' arrives as `{error, Detail}'.
 -spec retryable({ok, term()} | {error, term()} | {'EXIT', term()}) ->
     boolean().
 retryable({ok, _Reply}) ->
     false;
-retryable({error, {call_error, Code, _Name}}) ->
-    bolt4_retryable(Code);
+retryable({error, {call_error, Code, _Detail}}) ->
+    retryable_code(Code);
 retryable({error, _Reason}) ->
     true;
 retryable({'EXIT', _Reason}) ->
     true.
 
-%% An unrecognized code raises INSIDE macula_bolt4:is_retryable/1
-%% itself (an unknown-code lookup errors, it doesn't return `false') --
-%% a real possibility across a protocol version skew, not defensive
-%% paranoia. Treated as retryable rather than as a reason to abandon a
-%% call outright over a code this build doesn't recognize yet.
-bolt4_retryable(Code) ->
-    try macula_bolt4:is_retryable(Code)
-    catch _:_ -> true
-    end.
+%% Retry the transient, routing and unrecognized codes; never retry the
+%% security refusals (unauthorized) — an unrecognized code across a
+%% protocol skew is treated as retryable, matching the pre-11.x stance.
+retryable_code(unknown_next_peer)             -> true;
+retryable_code(<<"temporary_relay_failure">>) -> true;
+retryable_code(<<"unknown_error">>)           -> true;
+retryable_code(<<"unauthorized">>)            -> false;
+retryable_code(_Unrecognized)                 -> true.

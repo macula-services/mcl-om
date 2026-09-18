@@ -1,7 +1,9 @@
 # mcl-om
 
-**Hecate-over-mesh**: the shared substrate every `hecate-services/hecate-X`
-service daemon stands on.
+**Over-mesh substrate for the PQ fleet**: the shared library every
+`macula-services/mcl-X` service daemon stands on. The PQ-only fork of the
+hectate-om line: `hecate-om` keeps serving the classical fleet on the 10.x
+wire untouched; the `mcl-*` services ride this on the 11.x wire.
 
 Services in this org are **edge-first**. A service runs wherever its
 operator puts it (a cooperative infrastructure node, a relay box, a lab
@@ -12,21 +14,22 @@ on one edge box reaches a service on another.
 
 Placement is therefore a deployment decision, not a property of the
 substrate. What a service always carries with it is its own
-**service-principal identity**. It answers as itself, chaining to a realm
-root, never as the human whose machine it happens to be running on. See
+**node identity**: a puzzle-hardened pq_hybrid node key whose node id
+derives from the carried public key. It answers as itself, never as the
+human whose machine it happens to be running on. See
 [`guides/identity_model.md`](guides/identity_model.md) for the
 town/library metaphor that drives the identity choices.
 
 ```
-                        hecate-om
+                         mcl-om
                             │
-        ┌──────────┬────────┼─────────┬──────────┬─────────┐
-        ▼          ▼        ▼         ▼          ▼         ▼
-   hecate-rag  hecate-llm hecate-dns hecate-git hecate-blob …
+        ┌──────────┬────────┼─────────┐
+        ▼          ▼        ▼         ▼
+    mcl-echo  mcl-warden mcl-sentinel …
 ```
 
 Every service is a separate OTP release shipped as an OCI container
-to `ghcr.io/hecate-services/`. `hecate-om` is the library they all
+to `ghcr.io/macula-services/`. `mcl-om` is the library they all
 link against to behave consistently on the mesh: the same service
 contract, the same health endpoint, the same identity-claim flow, the
 same capability-advertise pattern, and the same generated repository
@@ -36,13 +39,14 @@ same capability-advertise pattern, and the same generated repository
 
 It **is**:
 
-- An Erlang `behaviour` (`hecate_om_service`) — six callbacks every
+- An Erlang `behaviour` (`mcl_om_service`) — six callbacks every
   service implements: `start/1`, `stop/1`, `health/0`, `capabilities/0`,
   `identity_spec/0`, `info/0`.
-- Helpers for the bits every service needs: load the realm cert,
-  advertise a capability on the mesh as a signed DHT record (callable
-  when it carries a handler), serve a `/health` endpoint.
-- The `hecate_service` rebar3 template for a new service repository:
+- Helpers for the bits every service needs: load (or generate) the
+  puzzle-hardened node key, advertise a capability on the mesh as a signed
+  DHT record (callable when it carries a handler), serve a `/health`
+  endpoint.
+- The `mcl_service` rebar3 template for a new service repository:
   application, supervisor, service module with its eunit suite, release
   config, `Containerfile`, `compose.yml`, `health.sh` and both CI
   workflows. See [Scaffold a new service](#scaffold-a-new-service).
@@ -53,30 +57,29 @@ It **is not**:
   the library's facade.
 - A plugin host. Services are containerised. Plugins live in
   `hecate-daemon` (different repo, different model).
-- A network library. Services talk to `macula-station` via the
-  macula SDK like any other Macula client: **outbound only**. The
+- A network library. Services talk to a PQ `macula-station` via the
+  11.x macula SDK like any other Macula client: **outbound only**. The
   station does the peering, the DHT and the routing, which is what
   lets a service sit behind NAT at the edge and still be reachable.
 
 ## Layering position
 
 ```
-Layer 4 — apps        hecate-app-martha, hecate-app-rag (UI), …
-                      User-facing plugins, live in hecate-daemon
+Layer 4 — apps        user-facing apps, live in hecate-daemon
 
 Layer 3 — session     hecate-daemon
                       Per-identity, plugin host, UI surface
 
-Layer 2 — services    hecate-services/hecate-rag, -llm, -dns, -git, …
+Layer 2 — services    macula-services/mcl-echo, -warden, -sentinel, …
                       Always-on, containerised, system-class workloads,
-                      each with its own service-principal identity.
+                      each with its own node identity.
                       Run at the edge or on realm infrastructure; either
                       way they dial out to a station.
                       ↑↑↑ this library is the substrate ↑↑↑
 
-Layer 1 — identity    hecate-realm / macula-realm
+Layer 1 — identity    macula-realm
 
-Layer 0 — kernel      macula-station
+Layer 0 — kernel      macula-station (the PQ fleet)
 ```
 
 See [`philosophy/HECATE_TIER_MODEL.md`](https://github.com/hecate-social/hecate-corpus/blob/main/philosophy/HECATE_TIER_MODEL.md)
@@ -89,7 +92,7 @@ services belong, not as a limit on what a hecate-om service can do.
 
 ```erlang
 -module(my_service).
--behaviour(hecate_om_service).
+-behaviour(mcl_om_service).
 
 %% lifecycle
 -export([start/1, stop/1]).
@@ -107,7 +110,7 @@ stop(_State) ->
 health() ->
     ok.
 
-%% Advertised onto the mesh via hecate_om_capabilities:advertise/1.
+%% Advertised onto the mesh via mcl_om_capabilities:advertise/1.
 %% Other services / plugins find you by these.
 capabilities() ->
     [
@@ -115,7 +118,8 @@ capabilities() ->
         #{name => <<"my_service.list_things">>, version => 1}
     ].
 
-%% Tells hecate-realm what UCAN this service needs.
+%% The authority this service asks the realm for, and deliberately nothing
+%% more. Ask for exactly the topics you publish and subscribe to.
 identity_spec() ->
     #{
         scope     => <<"my_service">>,
@@ -126,22 +130,22 @@ identity_spec() ->
 
 info() ->
     #{
-        name        => <<"hecate-my-service">>,
+        name        => <<"mcl-my-service">>,
         version     => <<"0.1.0">>,
         description => <<"What this service does in one line">>
     }.
 ```
 
 That's the whole user-side contract. Six small functions. Health
-endpoint wiring and mesh advertisement come from `hecate-om`; the
+endpoint wiring and mesh advertisement come from `mcl-om`; the
 release, container image, compose file and CI workflows come from the
-`hecate_service` template described below.
+`mcl_service` template described below.
 
 ## Optional: store-backed services
 
 CMD/PRJ services that own a `reckon-db` event store export three more
 **optional** callbacks. When a service exports `store_id/0` + `data_dir/0`,
-`hecate_om:boot/1` auto-starts the store and its evoq subscription *before*
+`mcl_om:boot/1` auto-starts the store and its evoq subscription *before*
 `start/1` runs — you never call `reckon_db_sup:start_store/1` yourself.
 Producer-only services (no store) omit these and pay nothing.
 
@@ -166,7 +170,7 @@ store_indexes() ->
 `store_indexes/0` is itself optional: export it only when the store needs
 secondary indexes. Omit it (or return `[]`) for a store with none.
 
-> Requires `hecate_om >= 0.3.4`. (0.3.3 introduced the callback but failed
+> Requires `mcl_om >= 0.3.4`. (0.3.3 introduced the callback but failed
 > to export the helper it calls, crashing boot — use 0.3.4+.)
 
 ## Scaffold a new service
@@ -174,10 +178,10 @@ secondary indexes. Omit it (or return `[]`) for a store with none.
 ```bash
 # From the directory that will hold the new repository,
 # typically ~/work/github.com/hecate-services:
-scripts/scaffold-service.sh hecate-newservice "Does X over the mesh" 8484
+scripts/scaffold-service.sh mcl-newservice "Does X over the mesh" 8484
 ```
 
-That is a thin wrapper over `rebar3 new hecate_service`, and it exists so you
+That is a thin wrapper over `rebar3 new mcl_service`, and it exists so you
 **say the name once**. A service has two names: the repository, the container
 image and the name it answers to on the mesh are kebab-case, while the OTP
 application and every module prefix are snake_case because they are Erlang
@@ -192,7 +196,7 @@ no dependencies to carry them there:
 
 ```bash
 scripts/install-templates.sh          # symlinks; --remove to undo
-rebar3 new hecate_service repo=hecate-newservice name=hecate_newservice \
+rebar3 new mcl_service repo=mcl-newservice name=mcl_newservice \
     desc="Does X over the mesh" org=your-org registry=ghcr.io health_port=8484
 ```
 
@@ -200,7 +204,7 @@ rebar3 new hecate_service repo=hecate-newservice name=hecate_newservice \
 nothing generated names our organisation, our registry, our deployment
 repository or our hosts. If you are building a hecate service for your own mesh,
 set those two and everything else follows. `scaffold-service.sh` defaults them
-to ours because that is who runs it most; `HECATE_ORG` and `HECATE_REGISTRY`
+to ours because that is who runs it most; `MCL_ORG` and `MCL_REGISTRY`
 override. A test generates a service as a stranger and fails if any of our own
 specifics survive.
 
@@ -225,7 +229,7 @@ and requests no authority. Those are the correct answers for a service that does
 nothing yet, and each is asserted by a generated test, so filling one in is a
 deliberate act that breaks a test rather than a comment someone forgets.
 
-The templates are exercised by `hecate_service_template_SUITE`, which generates
+The templates are exercised by `mcl_service_template_SUITE`, which generates
 a service for real and compiles it. The suite exists because the previous
 templates drifted unnoticed for months, and a template with no test is
 documentation that compiles.
@@ -252,11 +256,11 @@ networking makes a collision a silent bind failure.
 ## Status
 
 **Working library — v0.14.2.** The behaviour and all helpers are implemented
-(`hecate_om_identity`, `hecate_om_capabilities`, `hecate_om_store`,
-`hecate_om_health`), the boot path (`hecate_om:boot/1` with auto store-wiring)
-is exercised by a Common Test suite (`hecate_om_SUITE`), and `rebar3 new
-hecate_service` generates a service that compiles, tests and deploys, guarded
-by a suite that generates one for real. `hecate_om:mesh_handles/0` gives every
+(`mcl_om_identity`, `mcl_om_capabilities`, `mcl_om_store`,
+`mcl_om_health`), the boot path (`mcl_om:boot/1` with auto store-wiring)
+is exercised by a Common Test suite (`mcl_om_SUITE`), and `rebar3 new
+mcl_service` generates a service that compiles, tests and deploys, guarded
+by a suite that generates one for real. `mcl_om:mesh_handles/0` gives every
 service the shared `{Pool, Realm}` pair its own PubSub/RPC/Content code needs,
 alongside `realm/0` and `keypair/0` on the same public facade.
 
@@ -267,7 +271,7 @@ and `store_integrity/0` (per-store HMAC event tamper-resistance). See the
 [CHANGELOG](CHANGELOG.md) for the evolution.
 
 Known gap: the store-wiring callbacks are the part of the contract with no test
-of their own. `hecate_om_SUITE` boots a producer-only dummy service.
+of their own. `mcl_om_SUITE` boots a producer-only dummy service.
 
 First consumers are onboarding: `hecate-services/hecate-spartan` links against
 the store-wiring path, and `hecate-services/hecate-rag` follows when the RAG

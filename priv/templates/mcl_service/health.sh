@@ -5,7 +5,7 @@
 # one on another host, for example:
 #
 #   scripts/health.sh a-remote-host
-#   HECATE_HEALTH_PORT=<%health_port%> scripts/health.sh a-remote-host
+#   MCL_HEALTH_PORT=<%health_port%> scripts/health.sh a-remote-host
 #
 # THREE OUTCOMES, NOT TWO, because they need different responses from whoever is
 # reading. Unreachable means the container is not running or the port is wrong.
@@ -20,7 +20,7 @@
 set -euo pipefail
 
 HOST="${1:-127.0.0.1}"
-PORT="${HECATE_HEALTH_PORT:-<%health_port%>}"
+PORT="${MCL_HEALTH_PORT:-<%health_port%>}"
 URL="http://${HOST}:${PORT}/health"
 
 # No -f, so a 503 arrives as a body to be shown rather than as a curl failure

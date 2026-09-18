@@ -3,7 +3,32 @@
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [SemVer](https://semver.org/).
 
-## [Unreleased]
+## [0.1.0] - 2026-09-18
+
+### Changed
+
+- **The hard break.** Forked from hecate-om 0.25.0 into the PQ-only
+  `mcl_om` line; the version resets to 0.1.0 because the API and the wire
+  are incompatible with every hecate-om release. Everything below is the
+  inherited hecate-om history.
+- **The 11.x port.** Identity is a puzzle-hardened pq_hybrid node key
+  (`macula_node_keys`, `identity_key/0` replaces the 10.x keypair +
+  service cert); seeds are pinned by station node id (D5, `MACULA_STATION_SEEDS`
+  index-paired with `MACULA_STATION_NODE_IDS`); capabilities advertise the
+  org-qualified procedure with the D25 authorization resolved from the DHT
+  (`macula:provider_authorization/3`, macula >= 11.4.0) and call with the
+  provider's node id as the CALL target; the cert-chain accessors and the
+  bare-name/cert forms are deleted with the 10.x authorization model.
+- **The service scaffold** is the `mcl_service` rebar3 template (renamed off
+  the hecate lineage), carrying the mandatory PQ crypto block and the pinned
+  seed pair; CI builds OpenSSL 3.6.4 + OTP 28.1 from source for the ML-DSA
+  tests, and the release pipeline (`publish-hex.yml`) verifies the tag and
+  publishes to hex behind the `hex-publish` environment gate.
+- **The live smoke** (test_live/, run manually against the PQ pair) proves
+  the whole path end to end: D25 chain publish, org-namespaced advertise,
+  authorized direct-dial record, pinned dial, CALL, org-scoped calls and the
+  org-capability browse. The content live test is gone: the PQ fleet serves
+  no content procedures.
 
 ## [0.25.0] - 2026-09-11
 

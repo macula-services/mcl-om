@@ -1,13 +1,17 @@
-%%% Unit tests for mcl_om_identity: keypair resolution
-%%% (mcl_om_identity:keypair_from/1) -- generate on a MISSING key file,
+%%% Unit tests for mcl_om_identity: node key resolution
+%%% (mcl_om_identity:node_key_from/1) -- generate on a MISSING key file,
 %%% refuse any other load failure. Confirmed live: without generate-on-
 %%% missing, a service whose job is a direct-dial RPC/Streaming provider
-%%% (hecate-tube) silently never advertises anything -- keypair/0 stays
-%%% {error, no_keypair} forever, unless something out-of-band provisions
-%%% the file first. Generating on any OTHER failure would silently replace
-%%% the service's identity, so those stop the service instead.
+%%% (hecate-tube) silently never advertises anything -- identity_key/0
+%%% stays {error, no_identity_key} forever, unless something out-of-band
+%%% provisions the file first. Generating on any OTHER failure would
+%%% silently replace the service's identity, so those stop the service
+%%% instead.
 %%% Also configured_seeds/0 (piece A) and the non-raising accessor
 %%% contract (piece H) -- see PLAN_MCL_OM_MESH_WRAPPERS.md.
+%%% The 11.x port: fixtures generate real pq_hybrid node keys
+%%% (macula_node_keys), and the seed contract carries the station node
+%%% ids every dial must be pinned to.
 -module(mcl_om_identity_tests).
 -include_lib("eunit/include/eunit.hrl").
 
@@ -15,51 +19,61 @@ tmp_path() ->
     Name = binary:encode_hex(crypto:strong_rand_bytes(8)),
     filename:join("/tmp", <<"mcl_om_identity_test_", Name/binary, ".key">>).
 
+profile() ->
+    {ok, P} = macula_crypto_profile:configured(),
+    P.
+
+%% A real pq_hybrid node key, generated at difficulty 0 (no puzzle
+%% grind): the puzzle is generate_and_save/1's own concern, exercised
+%% by the first-boot test below, not a tax on every fixture.
+node_key() ->
+    {ok, K} = macula_node_keys:generate(identity, profile(),
+                                        #{puzzle_difficulty => 0}),
+    K.
+
 unconfigured_path_stays_ephemeral_test() ->
-    ?assertEqual(undefined, mcl_om_identity:keypair_from(undefined)).
+    ?assertEqual(undefined, mcl_om_identity:node_key_from(undefined)).
 
 first_boot_generates_and_persists_a_keypair_test() ->
     Path = tmp_path(),
     ?assertEqual(false, filelib:is_regular(Path)),
 
-    KeyPair = mcl_om_identity:keypair_from({ok, Path}),
+    Key = mcl_om_identity:node_key_from({ok, Path}),
 
-    ?assertMatch(#{public := _, private := _}, KeyPair),
-    #{public := Pub, private := Priv} = KeyPair,
-    ?assertEqual(32, byte_size(Pub)),
-    ?assertEqual(32, byte_size(Priv)),
+    ?assertMatch(#{purpose := identity, profile := _, components := [_ | _]}, Key),
     ?assert(filelib:is_regular(Path)),
-    %% and it's genuinely loadable back via the same path macula_identity
+    %% and it's genuinely loadable back via the same path macula_node_keys
     %% itself would use -- not just "a file exists".
-    ?assertEqual({ok, KeyPair}, macula_identity:load(Path)),
+    ?assertEqual({ok, Key}, macula_node_keys:load(Path, identity, profile())),
     %% Regression: a non-puzzle-hardened identity's handshake gets
     %% closed with puzzle_invalid by every station in this fleet,
     %% forever -- confirmed live, see generate_and_save/1's own comment.
-    ?assert(macula_identity:puzzle_valid(macula_identity:public(KeyPair))),
+    {ok, NodeId} = macula_node_keys:node_id(Key),
+    ?assert(macula_node_keys:puzzle_solved(NodeId,
+                                           macula_node_keys:puzzle_difficulty())),
     file:delete(Path).
 
 existing_keypair_is_loaded_not_regenerated_test() ->
     Path = tmp_path(),
-    Original = macula_identity:generate(),
-    ok = macula_identity:save(Path, Original),
+    Original = node_key(),
+    ok = macula_node_keys:save(Path, Original),
 
-    Loaded = mcl_om_identity:keypair_from({ok, Path}),
+    Loaded = mcl_om_identity:node_key_from({ok, Path}),
 
     ?assertEqual(Original, Loaded),
     file:delete(Path).
 
 %% A key file that exists but will not load is refused and left untouched.
 %% Regenerating would give the service a new node id and overwrite its
-%% real key: macula's next release refuses key files readable by group or
-%% others, so a permissions mistake would otherwise become a silent
-%% identity change. Works as a red case on today's macula too.
+%% real key: macula refuses key files readable by group or others, so a
+%% permissions mistake would otherwise become a silent identity change.
 corrupt_keypair_file_is_refused_and_left_untouched_test() ->
     Path = tmp_path(),
     ok = filelib:ensure_dir(Path),
     ok = file:write_file(Path, <<"not a real key file">>),
 
     ?assertMatch({error, {identity_key_unloadable, Path, _}},
-                 mcl_om_identity:keypair_from({ok, Path})),
+                 mcl_om_identity:node_key_from({ok, Path})),
     ?assertEqual({ok, <<"not a real key file">>}, file:read_file(Path)),
     file:delete(Path).
 
@@ -70,7 +84,7 @@ key_path_that_is_a_directory_is_refused_test() ->
     ok = file:make_dir(Path),
 
     ?assertMatch({error, {identity_key_unloadable, Path, _}},
-                 mcl_om_identity:keypair_from({ok, Path})),
+                 mcl_om_identity:node_key_from({ok, Path})),
     ?assert(filelib:is_dir(Path)),
     ?assertEqual({ok, []}, file:list_dir(Path)),
     file:del_dir(Path).
@@ -124,45 +138,74 @@ start_in_helper() ->
 %% all, which makes a wrong answer here higher-stakes than before this
 %% piece: it used to only pick which seeds a connect attempt used, now
 %% it decides whether a pool is started at all.
+%%
+%% The 11.x contract: seeds are maps #{host, port, expected_node_id},
+%% and an env seed without a matching node-id pin is refused outright
+%% (D5 -- an unpinned dial can never connect).
 configured_seeds_test_() ->
     {setup, fun clear_seed_config/0, fun restore_seed_config/1,
      fun(_) ->
          [
-          ?_assertEqual([], with_seed_config(false, undefined, fun mcl_om_identity:configured_seeds/0)),
-          ?_assertEqual([<<"https://a:1">>, <<"https://b:2">>],
-                        with_seed_config(false, [<<"https://a:1">>, <<"https://b:2">>],
-                                          fun mcl_om_identity:configured_seeds/0)),
-          ?_assertEqual([<<"https://env:9">>],
-                        with_seed_config("https://env:9", [<<"https://appenv:1">>],
-                                          fun mcl_om_identity:configured_seeds/0)),
-          ?_assertEqual([<<"https://a:1">>, <<"https://b:2">>],
-                        with_seed_config(" https://a:1 , https://b:2 ,, ", undefined,
-                                          fun mcl_om_identity:configured_seeds/0))
+          ?_assertEqual([], seeds(false, false, undefined)),
+          %% app env seeds pass through as configured
+          ?_assertEqual([#{host => <<"a">>, port => 1, expected_node_id => <<1:256>>}],
+                        seeds(false, false,
+                              [#{host => <<"a">>, port => 1, expected_node_id => <<1:256>>}])),
+          %% env seeds pair with env node ids by index; ports default 4433
+          ?_assertEqual([#{host => <<"a">>, port => 4433, expected_node_id => <<1:256>>},
+                         #{host => <<"b">>, port => 2, expected_node_id => <<2:256>>}],
+                        seeds("a,b:2", node_id_hex(1) ++ "," ++ node_id_hex(2), undefined)),
+          %% whitespace and empty slots are tolerated
+          ?_assertEqual([#{host => <<"a">>, port => 4433, expected_node_id => <<1:256>>}],
+                        seeds(" a ,, ", node_id_hex(1) ++ " ,, ", undefined)),
+          %% env seeds win over the app env
+          ?_assertEqual([#{host => <<"env">>, port => 4433, expected_node_id => <<1:256>>}],
+                        seeds("env", node_id_hex(1),
+                              [#{host => <<"app">>, port => 1, expected_node_id => <<2:256>>}])),
+          %% a seed without a matching pin is refused: it would be a
+          %% dial that can never connect
+          ?_assertError({mcl_om, seeds_without_node_ids},
+                        seeds("env", false, undefined)),
+          ?_assertError({mcl_om, seeds_without_node_ids},
+                        seeds("env", "", undefined)),
+          %% and a pin without a seed is a configuration error, loud
+          ?_assertError({mcl_om, node_ids_without_seeds},
+                        seeds(false, node_id_hex(1), undefined))
          ]
      end}.
 
-clear_seed_config() ->
-    {os:getenv("MACULA_STATION_SEEDS"), application:get_env(mcl_om, station_seeds)}.
+%% A 64-hex node id for env seeding: pins are hex text on the env
+%% (os:putenv takes a string), decoded to 32 raw bytes by
+%% configured_seeds/0 itself.
+node_id_hex(N) ->
+    binary_to_list(binary:encode_hex(<<N:256>>, lowercase)).
 
-restore_seed_config({Env, AppEnv}) ->
-    restore_env(Env),
+clear_seed_config() ->
+    {os:getenv("MACULA_STATION_SEEDS"),
+     os:getenv("MACULA_STATION_NODE_IDS"),
+     application:get_env(mcl_om, station_seeds)}.
+
+restore_seed_config({Env, EnvIds, AppEnv}) ->
+    restore_env("MACULA_STATION_SEEDS", Env),
+    restore_env("MACULA_STATION_NODE_IDS", EnvIds),
     restore_app_env(AppEnv).
 
-restore_env(false) -> os:unsetenv("MACULA_STATION_SEEDS");
-restore_env(Val)   -> os:putenv("MACULA_STATION_SEEDS", Val).
+restore_env(_Var, false) -> ok;
+restore_env(Var, Val)    -> os:putenv(Var, Val).
 
 restore_app_env(undefined)  -> application:unset_env(mcl_om, station_seeds);
 restore_app_env({ok, Seeds}) -> application:set_env(mcl_om, station_seeds, Seeds).
 
-%% EnvVal: string to putenv, or `false' to unsetenv. AppEnvSeeds:
-%% seed list to set as app env, or `undefined' to unset.
-with_seed_config(EnvVal, AppEnvSeeds, Fun) ->
-    set_env(EnvVal),
+%% EnvSeeds/EnvIds: string to putenv, or `false' to unsetenv.
+%% AppEnvSeeds: seed list to set as app env, or `undefined' to unset.
+seeds(EnvSeeds, EnvIds, AppEnvSeeds) ->
+    set_env("MACULA_STATION_SEEDS", EnvSeeds),
+    set_env("MACULA_STATION_NODE_IDS", EnvIds),
     set_app_env(AppEnvSeeds),
-    Fun().
+    mcl_om_identity:configured_seeds().
 
-set_env(false)  -> os:unsetenv("MACULA_STATION_SEEDS");
-set_env(EnvVal) -> os:putenv("MACULA_STATION_SEEDS", EnvVal).
+set_env(Var, false) -> os:unsetenv(Var);
+set_env(Var, Val)   -> os:putenv(Var, Val).
 
 set_app_env(undefined) -> application:unset_env(mcl_om, station_seeds);
 set_app_env(Seeds)     -> application:set_env(mcl_om, station_seeds, Seeds).
@@ -180,10 +223,7 @@ accessors_degrade_instead_of_raising_when_not_booted_test_() ->
      fun(_) ->
         [
          ?_assertEqual({error, not_booted}, mcl_om_identity:realm()),
-         ?_assertEqual({error, not_booted}, mcl_om_identity:keypair()),
-         ?_assertEqual({error, not_booted}, mcl_om_identity:service_cert()),
-         ?_assertEqual({error, not_booted}, mcl_om_identity:cert_chain()),
-         ?_assertEqual({error, not_booted}, mcl_om_identity:realm_ca()),
+         ?_assertEqual({error, not_booted}, mcl_om_identity:identity_key()),
          %% org/0's contract is "always a binary" -- not_booted collapses
          %% into the same placeholder as "unconfigured", not a new shape.
          ?_assertEqual(<<"_">>, mcl_om_identity:org())

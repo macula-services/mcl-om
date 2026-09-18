@@ -28,7 +28,12 @@
          seeds_configured_starts_pool_without_a_retry_loop/1,
          pool_crash_is_restarted_by_the_supervisor_not_hand_rolled_code/1]).
 
--define(UNREACHABLE_SEED, <<"https://127.0.0.1:1">>).
+%% The 11.x seed shape: a map pinning the station's node id (D5) --
+%% every dial refuses to connect without one. The pin itself is a
+%% placeholder: the dial fails at the transport long before the pin is
+%% ever checked.
+-define(UNREACHABLE_SEED, #{host => <<"127.0.0.1">>, port => 1,
+                            expected_node_id => <<0:256>>}).
 
 all() ->
     [no_seeds_means_no_pool_child,

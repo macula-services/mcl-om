@@ -1,97 +1,144 @@
 # Structural lint, EUnit, and the Common Test suites.
 #
-# THE TEMPLATE SUITE IS THE REASON THIS EXISTS. hecate_om ships the scaffold
+# THE TEMPLATE SUITE IS THE REASON THIS EXISTS. mcl_om ships the scaffold
 # every other service is generated from, and the previous templates drifted for
 # months precisely because nothing ran them: they emitted a Quadlet unit nothing
 # on the fleet uses, TODOs in place of callbacks, and an identity_spec claiming
 # authority the generated service could not exercise. A guard nobody runs is not
 # a guard. `rebar3 eunit` joined this job for the same reason, 2026-08-24: the
-# mesh-wrappers pieces (hecate_om_capabilities/_pubsub/_content) shipped with
-# real test coverage that nothing was running -- CI only ever called `rebar3 ct`,
-# so a regression in any of it would have stayed green.
+# mesh-wrappers pieces (mcl_om_capabilities/_pubsub/_content) shipped with real
+# test coverage that nothing was running -- CI only ever called `rebar3 ct`, so
+# a regression in any of it would have stayed green.
 #
-# Runs on the glibc erlang image, matching local dev (OTP 28). cmake, a C++
-# toolchain, and the codec dev libs are needed: barrel_docdb pulls in
-# rocksdb, which builds its NIF from source via CMake -- the base erlang
-# image ships none of it. This was broken in three stages, all silent
-# because nothing checked `gh run view` after the pushes that caused them:
-#   1. `cmake: not found`, failing at the dependency-compile step inside
-#      `rebar3 lint`, since barrel_docdb was added.
-#   2. Once cmake was installed: rocksdb's CMakeLists auto-detects system
-#      Snappy via `find_package(Snappy)` and, if it's missing, disables
-#      Snappy support WITHOUT failing the build -- so the compile step went
-#      green while producing a NIF barrel_docdb's runtime config can't
-#      actually open (`rebar3 ct` then failed at boot with "The specified
-#      blob compression type Snappy is not available"). lz4/zstd/bz2 go
-#      through the same silent auto-detect, so all four dev libs are
-#      installed here, not just the one that happened to be exercised.
-#   3. This job previously claimed "macula resolves a prebuilt QUIC NIF and
-#      no Rust toolchain is needed" -- true for the QUIC NIF's own
-#      precompiled-download path, but macula_cbor_nif (macula's CBOR wire
-#      codec, no Erlang fallback by design) always builds from source, and
-#      macula's own build script silently skipped it with cargo missing
-#      (fixed separately in macula-io/macula 10.14.3, but that alone
-#      doesn't put cargo in THIS container). `rebar3 compile` and `rebar3
-#      lint` both went green with the NIF never built; `rebar3 eunit` then
-#      failed 7 tests with nif_not_loaded, the same silent-then-late
-#      pattern as stage 2. Installing Rust here is the actual fix, not a
-#      newer macula alone.
+# THE 11.x PORT CHANGED THE RUNTIME REQUIREMENT. The PQ identity tests (and any
+# pool connect) generate ML-DSA-87 node keys, and ML-DSA arrived in OpenSSL 3.5.
+# The runners' system OpenSSL predates it (24.04 ships 3.0, and setup-beam's
+# prebuilt OTP pins its own equally old libssl), so this job builds OpenSSL
+# 3.6.4 and OTP 28.1 from source against it -- the same recipe the station
+# repo's ci.yml uses, for the same reason. Never revert to a prebuilt OTP or
+# to ubuntu-22.04 for speed: keygen then breaks, or the 22.04 pool throttles
+# PQ crypto so hard individual eunit tests outrun even a 300s bound.
+#
+# The toolchain builds into $HOME (sudo-free) and is cached across runs: the
+# first run pays ~9 minutes, later runs restore it in ~1. The _build dir
+# (rocksdb CMake + Rust NIFs + hex deps) is cached the same way, with the
+# station repo's own fresh-deps discipline (rebar3 upgrade --all after a
+# restore, since rebar.lock is gitignored and the cache key cannot reflect
+# a new hex release).
+#
+# The live-mesh tests are NOT here: they cannot pass on GitHub-hosted
+# runners (the fleet's stations are AAAA-only and the runners have no IPv6
+# egress), so they run on manual dispatch only -- see live-mesh-tests.yml.
+#
+# cmake, a C++ toolchain, and the codec dev libs are still needed:
+# barrel_docdb pulls in rocksdb, which builds its NIF from source via CMake,
+# and rocksdb's own CMake silently disables Snappy/lz4/zstd/bz2 when their dev
+# libs are missing, producing a NIF the runtime config cannot open. Install all
+# four, not just the one that happened to be exercised.
 
 name: lint-and-test
 
+# Manual dispatch only. The push/PR churn burned the team's patience for
+# zero signal (five runs for five CI-fix pushes); the gate still exists for
+# whoever wants it -- `gh workflow run lint-and-test` -- and the release
+# pipeline (publish-hex.yml) verifies every tag itself.
 on:
-  push:
-    branches: [main, master]
-  pull_request:
   workflow_dispatch:
 
 jobs:
   check:
+    name: lint + eunit + ct (OTP 28.1, PQ OpenSSL)
     runs-on: ubuntu-latest
-    container:
-      image: erlang:28
+    timeout-minutes: 120
+    env:
+      PQ_OPENSSL: ${{ github.workspace }}/pq/openssl
+      PQ_OTP: ${{ github.workspace }}/pq/otp-28.1
+      LD_LIBRARY_PATH: ${{ github.workspace }}/pq/openssl/lib
+      # rocksdb (via barrel_docdb) links OpenSSL::Crypto for its
+      # encrypted env -- point its CMake at the SAME PQ OpenSSL, so
+      # whatever NIF loads libcrypto first, the process holds exactly
+      # one, and crypto.so's version check always passes. This is what
+      # fixed the ct node: eunit never boots rocksdb, ct does.
+      ERLANG_ROCKSDB_OPTS: -DOPENSSL_ROOT_DIR=${{ github.workspace }}/pq/openssl
     steps:
       - uses: actions/checkout@v4
-      - run: apt-get update && apt-get install -y --no-install-recommends cmake build-essential libsnappy-dev liblz4-dev libzstd-dev libbz2-dev
+
+      - name: Cache the PQ toolchain (OpenSSL 3.6.4 + OTP 28.1)
+        id: toolchain
+        uses: actions/cache@v4
+        with:
+          path: pq
+          key: pq-toolchain-openssl3.6.4-otp28.1
+
+      - name: Build a modern OpenSSL (ML-DSA) for the PQ crypto
+        if: steps.toolchain.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends build-essential perl zlib1g-dev
+          curl -fsSL https://github.com/openssl/openssl/releases/download/openssl-3.6.4/openssl-3.6.4.tar.gz -o /tmp/openssl.tar.gz
+          tar -xzf /tmp/openssl.tar.gz -C /tmp
+          cd /tmp/openssl-3.6.4
+          ./Configure --prefix="$PQ_OPENSSL" -shared > /dev/null
+          make -j4 > /dev/null
+          make install_sw > /dev/null
+
+      # The RPATH baked in via LDFLAGS makes every OTP binary find the PQ
+      # libcrypto WITHOUT LD_LIBRARY_PATH -- the process holds exactly one
+      # libcrypto (see ERLANG_ROCKSDB_OPTS above), and the RPATH makes the
+      # lookup correct in any spawn.
+      - name: Build Erlang/OTP 28.1 from source against the PQ OpenSSL
+        if: steps.toolchain.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get install -y -qq --no-install-recommends autoconf libncurses-dev m4
+          curl -fsSL https://github.com/erlang/otp/releases/download/OTP-28.1/otp_src_28.1.tar.gz -o /tmp/otp.tar.gz
+          tar -xzf /tmp/otp.tar.gz -C /tmp
+          cd /tmp/otp_src_28.1
+          LDFLAGS="-Wl,-rpath,$PQ_OPENSSL/lib" \
+            ./configure --prefix="$PQ_OTP" --with-ssl="$PQ_OPENSSL" \
+              --without-javac --without-wx --without-odbc > /dev/null
+          make -j4 > /dev/null
+          make install > /dev/null
+
+      - name: Put the PQ OTP on PATH
+        run: echo "$PQ_OTP/bin" >> "$GITHUB_PATH"
+
+      - name: Verify the OTP crypto supports ML-DSA
+        run: |
+          erl -noshell -eval '
+            case lists:member(mldsa87, crypto:supports(public_keys)) of
+                true  -> io:format("mldsa87 supported~n"), halt(0);
+                false -> io:format("mldsa87 MISSING: ~p~n", [crypto:supports(public_keys)]), halt(1)
+            end.'
+
+      - name: Install rebar3
+        run: |
+          curl -L -o rebar3 https://s3.amazonaws.com/rebar3/rebar3
+          chmod +x rebar3
+          sudo mv rebar3 /usr/local/bin/rebar3
+
+      - name: Install rocksdb build deps
+        run: |
+          sudo apt-get install -y -qq --no-install-recommends cmake libsnappy-dev liblz4-dev libzstd-dev libbz2-dev
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache _build and the rebar3 cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            _build
+            ~/.cache/rebar3
+          key: build-cache-${{ hashFiles('rebar.config', 'src/*.app.src') }}-openssl3.6.4-otp28.1
+
+      # rebar.lock is deliberately gitignored, so the cache key above can't
+      # reflect which hex release satisfies a dependency constraint. Without
+      # this step, a cache hit silently keeps building against stale deps.
+      - name: Upgrade deps to the latest matching version
+        run: rebar3 upgrade --all
+
       - run: rebar3 lint
       - run: rebar3 eunit
-      # hecate_service_template_SUITE shells out to `rebar3 new', so rebar3 must
-      # be on PATH inside the container. The erlang image ships it.
+      # mcl_service_template_SUITE shells out to `rebar3 new', so rebar3 must
+      # be on PATH (installed above from the canonical S3 binary).
       - run: rebar3 ct
-
-  # test_live/*.erl hit a real demo-fleet station (station-de-frankfurt.macula.io)
-  # over the network -- genuinely valuable (they've caught three real bugs no
-  # unit test could have). continue-on-error surfaces a failure (this job goes
-  # yellow, visible in the run) without turning the check red.
-  #
-  # ⚠ Confirmed 2026-08-31: this job's real failure mode is not "occasional
-  # station blip" (what this comment used to say) -- it fails 100% of the
-  # time, deterministically, on every run, for a reason no station-side fix
-  # touches: `station-de-frankfurt.macula.io` has ONLY an AAAA record
-  # (`dig AAAA` -> 2a01:7e01::f03c:94ff:fe22:719e; `dig A` -> nothing), and
-  # GitHub-hosted runners (ubuntu-latest, incl. this container) have no IPv6
-  # egress at all -- a platform limitation, not something this repo's code
-  # or workflow config can route around. `wait_healthy/2` in every
-  # test_live/*.erl module times out waiting for `healthy_links > 0` because
-  # the QUIC connect can never even reach the station, not because it's
-  # unhealthy. continue-on-error is doing real work here and should stay --
-  # but don't read a red live-mesh-tests run as "the station had a blip";
-  # read it as "expected on a GitHub-hosted runner, uninformative until
-  # this runs somewhere with IPv6 egress." A self-hosted runner (this
-  # user's own boxes are already IPv6-capable) or an IPv4 listener added
-  # station-side would both fix it for real; neither is a workflow-file
-  # change. See rebar.config's `live_test` profile and any
-  # test_live/*.erl moduledoc for the rest of the reasoning.
-  live-mesh-tests:
-    runs-on: ubuntu-latest
-    container:
-      image: erlang:28
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@v4
-      - run: apt-get update && apt-get install -y --no-install-recommends cmake build-essential libsnappy-dev liblz4-dev libzstd-dev libbz2-dev
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-      - run: rebar3 as live_test eunit --dir test_live

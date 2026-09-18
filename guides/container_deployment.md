@@ -1,10 +1,10 @@
 # Container deployment
 
-A hecate service ships as an OCI image and runs on an infrastructure
+An mcl service ships as an OCI image and runs on an infrastructure
 node. This guide describes how that actually works today, and says
 plainly where something is intended rather than built.
 
-`rebar3 new hecate_service` generates the `Containerfile`, both CI
+`rebar3 new mcl_service` generates the `Containerfile`, both CI
 workflows and a `deploy/docker-compose.yml` that runs the service. The
 registry and organisation are template variables: nothing here is
 specific to the fleet the authors happen to run.
@@ -19,7 +19,7 @@ the mesh and does not host them.
 
 Two stages, both in the generated `Containerfile`.
 
-The builder is `erlang:27-alpine` and installs a Rust toolchain,
+The builder is `erlang:28-alpine` and installs a Rust toolchain,
 because macula ships a QUIC NIF. `MACULA_FORCE_SOURCE_BUILD=1` makes it
 compile that NIF here rather than fetch a prebuilt one, which would be
 linked against a different libc: the fetched artifact loads on the
@@ -55,8 +55,10 @@ missing scope. Use an SSH remote and it does not arise.
 `deploy/docker-compose.yml` in a generated service is runnable as-is:
 
 ```bash
-HECATE_REALM=<64-hex> MACULA_STATION_SEEDS=https://station.example:4433 \
-  docker compose -p hecate-x -f deploy/docker-compose.yml up -d
+MCL_REALM=<64-hex> \
+  MACULA_STATION_SEEDS=station.example:4433 \
+  MACULA_STATION_NODE_IDS=<64-hex node id of that station> \
+  docker compose -p mcl-x -f deploy/docker-compose.yml up -d
 ```
 
 Two things in it are deliberate and worth keeping.
@@ -70,9 +72,12 @@ port knowing what else runs there.
 
 **The realm has no default.** A service that guesses its realm
 announces itself where nobody can attribute it, which is
-indistinguishable from a healthy node. Same for the station seeds:
+indistinguishable from a healthy node. Same for the station pins:
 naming a realm costs nothing, dialling somebody's production station
-from every dev clone does.
+from every dev clone does — and the 11.x dial is **pinned**: every
+seed host pairs with its station's node id (D5), and mcl_om refuses
+to boot a pool holding an unpinned seed, since that dial could never
+connect anyway.
 
 ## Separating the service from its placement
 
@@ -85,22 +90,25 @@ station, which realm, which secret store. Keeping the two apart is what
 stops a configuration table in a README and the real environment
 drifting apart with nothing checking them.
 
-The BEAM Campus fleet does this with a pull-based reconciler: each node
-runs a timer that fetches a GitOps repository and brings up the stacks
-listed in that node's manifest, with secrets seeded once out of band as
-0600 files. That is one arrangement, not a requirement of hecate_om.
+The beam fleet does this with **watchtower**: CI pushes `:latest` to
+ghcr.io, watchtower on each node polls and rolls the container within
+seconds of the push, and a rollback is pinning the node to a semver
+tag. Secrets are seeded once out of band on the node. That is one
+arrangement, not a requirement of mcl_om.
 
 ## Secrets
 
-`sys.config.src` expects the service-principal certificate at
-`/etc/hecate/secrets/service-cert.pem`, and the `Containerfile`
-declares that path as a volume. How the file gets there is the
-deployment's business.
+`sys.config.src` expects the node identity key at
+`/etc/mcl/secrets/identity.key`, and the `Containerfile` declares that
+path as a volume. How the file gets there is the deployment's
+business. A missing key file is not an error: `mcl_om_identity`
+generates a fresh puzzle-hardened key and persists it there on first
+boot.
 
-The realm tag arrives as `HECATE_REALM` and is translated into
+The realm tag arrives as `MCL_REALM` and is translated into
 application environment by `sys.config.src`. That translation is the
 only place the shell variable and the application environment meet:
-`hecate_om_identity:realm/0` reads `application:get_env(hecate_om,
+`mcl_om_identity:realm/0` reads `application:get_env(mcl_om,
 realm)`, so exporting the shell variable and expecting that to be
 enough has cost a service an hour of confusion.
 
@@ -113,8 +121,11 @@ tags are published by every CI run precisely so this works.
 
 Stated so nothing here reads as describing a working system.
 
-The service-principal provisioning flow is manual today, and UCAN
-delegation is not wired: `identity_spec/0` is informational. See
+`identity_spec/0` is informational today: the realm-side provisioning
+that would enforce it is not wired. The enforcement that DOES exist on
+the 11.x wire is the D25 authorization (the org_directory +
+procedure_delegation chain a station checks against the realm's trust
+records) and the per-capability `auth` policies. See
 `identity_model.md`.
 
 Images are built for `linux/amd64` only. Add `linux/arm64` to the

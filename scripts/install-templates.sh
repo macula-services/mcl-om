@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Make `rebar3 new hecate_service' available on this machine.
+# Make `rebar3 new mcl_service' available on this machine.
 #
 # rebar3 discovers custom templates in ~/.config/rebar3/templates, and only
 # there when you are standing in an empty directory with no rebar.config, which
@@ -65,7 +65,7 @@ case "${1:-}" in
               echo
               echo "Now, from the directory that will hold the new repository:"
               echo
-              echo "  rebar3 new hecate_service repo=hecate-foo name=hecate_foo \\"
+              echo "  rebar3 new mcl_service repo=mcl-foo name=mcl_foo \\"
               echo "      desc=\"Does X over the mesh\" health_port=8484"
               ;;
     *)        echo "usage: $0 [--remove]" >&2 ; exit 64 ;;

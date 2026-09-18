@@ -24,7 +24,7 @@ WORKDIR /build
 # recorded glibc trap: the fetched artifact loads on the build host and fails on
 # alpine at runtime.
 #
-# openssl-dev/zstd-dev/snappy-dev/lz4-dev: hecate_om pulls in rocksdb (via
+# openssl-dev/zstd-dev/snappy-dev/lz4-dev: mcl_om pulls in rocksdb (via
 # barrel_docdb) and khepri/ra transitively, UNCONDITIONALLY -- confirmed on a
 # storeless, producer-only service (no store_id/0 or data_dir/0 exported),
 # which still failed to build without these. Not specific to a service that
@@ -71,15 +71,15 @@ COPY --from=builder /build/_build/prod/rel/<%name%> ./
 ENV HOME=/app
 ENV RELX_REPLACE_OS_VARS=true
 
-ENV HECATE_NODE_NAME=<%name%>
-ENV HECATE_NODE_HOST=127.0.0.1
-ENV HECATE_COOKIE=<%name%>
-ENV HECATE_HEALTH_PORT=<%health_port%>
+ENV MCL_NODE_NAME=<%name%>
+ENV MCL_NODE_HOST=127.0.0.1
+ENV MCL_COOKIE=<%name%>
+ENV MCL_HEALTH_PORT=<%health_port%>
 
-VOLUME ["/etc/hecate/secrets"]
+VOLUME ["/etc/mcl/secrets"]
 
 EXPOSE <%health_port%>
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
-    CMD curl -fsS "http://127.0.0.1:${HECATE_HEALTH_PORT}/health" || exit 1
+    CMD curl -fsS "http://127.0.0.1:${MCL_HEALTH_PORT}/health" || exit 1
 
 CMD ["/app/bin/<%name%>", "foreground"]

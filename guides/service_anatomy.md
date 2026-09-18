@@ -4,7 +4,7 @@ A Hecate service is one OTP release and one OCI container, running on
 an infrastructure node rather than on a user's laptop. A laptop is a
 citizen: it consults services across the mesh, it does not host them.
 
-`rebar3 new hecate_service` generates the whole layout below; see the
+`rebar3 new mcl_service` generates the whole layout below; see the
 README for how to install the template.
 
 ## Repository layout
@@ -15,13 +15,13 @@ README for how to install the template.
 ├── LICENSE
 ├── CHANGELOG.md
 ├── Containerfile                ← multi-stage Erlang build
-├── rebar.config                 ← deps incl. {hecate_om, "~> 0.9"}, relx release
+├── rebar.config                 ← deps incl. {mcl_om, "~> 0.9"}, relx release
 ├── apps/hecate_x/
 │   ├── src/
-│   │   ├── hecate_x.app.src     ← `applications: [hecate_om, …]`
-│   │   ├── hecate_x_app.erl     ← `start/2 -> hecate_om:boot(hecate_x_service)`
+│   │   ├── hecate_x.app.src     ← `applications: [mcl_om, …]`
+│   │   ├── hecate_x_app.erl     ← `start/2 -> mcl_om:boot(hecate_x_service)`
 │   │   ├── hecate_x_sup.erl
-│   │   └── hecate_x_service.erl ← implements hecate_om_service
+│   │   └── hecate_x_service.erl ← implements mcl_om_service
 │   └── test/
 │       └── hecate_x_service_tests.erl
 ├── config/
@@ -42,23 +42,24 @@ A service that grows vertical slices adds them as further apps under
 ## Lifecycle
 
 ```
-the container runtime pulls <registry>/<org>/hecate-X:latest
+the container runtime pulls <registry>/<org>/mcl-X:latest
    ↓
-Erlang VM boots → application:start(hecate_x)
+Erlang VM boots → application:start(mcl_x)
    ↓
-hecate_x_app:start/2 → hecate_om:boot(hecate_x_service)
+mcl_x_app:start/2 → mcl_om:boot(mcl_x_service)
    ↓
-hecate_om:
-   ├── loads the service-principal cert from
-   │   /etc/hecate/secrets/service-cert.pem (a mounted volume)
-   ├── registers capabilities() into hecate_om_capabilities
-   ├── registers the service module into hecate_om_health
+mcl_om:
+   ├── mcl_om_identity loads (or generates on first boot) the
+   │   puzzle-hardened node key from
+   │   /etc/mcl/secrets/identity.key (a mounted volume)
+   ├── starts the mesh pool IF pinned station seeds are configured
+   ├── registers capabilities() into mcl_om_capabilities
+   ├── registers the service module into mcl_om_health
    ├── wires a reckon-db store IF the service exports store_id/0
    │   and data_dir/0; producer-only services pay nothing
-   ├── (planned) auto-rotates short-lived UCANs against hecate-realm
-   └── calls hecate_x_service:start(Opts) → hecate_x_sup:start_link()
+   └── calls mcl_x_service:start(Opts) → mcl_x_sup:start_link()
    ↓
-hecate_om_capabilities:publish/0 announces capabilities on the mesh
+mcl_om_capabilities:publish/0 announces capabilities on the mesh
    ↓
 GET /health ready to answer, on the port sys.config.src was given
    ↓
@@ -67,23 +68,23 @@ Service is live.
 
 ## What the service module must implement
 
-Six callbacks. See `hecate_om_service` for the full type spec.
+Six callbacks. See `mcl_om_service` for the full type spec.
 
 ```erlang
 -module(hecate_X_service).
--behaviour(hecate_om_service).
+-behaviour(mcl_om_service).
 -export([info/0, start/1, stop/1, health/0, capabilities/0, identity_spec/0]).
 ```
 
 That's the whole user-side surface. Health endpoint, mesh
 advertisement, identity loading, container packaging — all handled
-by `hecate_om` + the templates.
+by `mcl_om` + the templates.
 
 ## Store-backed services (optional)
 
 A CMD/PRJ service that owns a `reckon-db` event store exports three more
 **optional** callbacks. When both `store_id/0` and `data_dir/0` are present,
-`hecate_om:boot/1` auto-wires the store and its evoq subscription during
+`mcl_om:boot/1` auto-wires the store and its evoq subscription during
 `maybe_wire_store`, *before* `start/1` runs — so the store is already up
 when your supervisor boots. You never call `reckon_db_sup:start_store/1`
 directly.
@@ -107,14 +108,14 @@ store_indexes() ->
 `store_indexes/0` is itself optional — omit it (or return `[]`) for a store
 with no secondary indexes. Boot threads its result into the `#store_config{}`
 so `reckon_db_index_config` registers the declarations; the gateway's CCC
-payload/hash queries then resolve against them. Requires `hecate_om >= 0.3.4`.
+payload/hash queries then resolve against them. Requires `mcl_om >= 0.3.4`.
 
 Boot order with a store:
 
 ```
-hecate_X_app:start/2 → hecate_om:boot(hecate_X_service)
+hecate_X_app:start/2 → mcl_om:boot(hecate_X_service)
    ↓
-hecate_om:maybe_wire_store/1   (store_id/0 + data_dir/0 present?)
+mcl_om:maybe_wire_store/1   (store_id/0 + data_dir/0 present?)
    ├── reckon_db_sup:start_store(#store_config{indexes = store_indexes()})
    └── evoq_store_subscription:start_link(store_id())
    ↓
@@ -126,7 +127,7 @@ hecate_X_service:start/1 → hecate_X_sup:start_link()   (store already up)
 A service that wants a persistent, queryable read model (PRJ code writing
 denormalized views, the kind of thing that used to be hand-rolled ETS or
 esqlite) exports two more **optional** callbacks. When both
-`read_model_id/0` and `data_dir/0` are present, `hecate_om:boot/1` opens a
+`read_model_id/0` and `data_dir/0` are present, `mcl_om:boot/1` opens a
 `barrel_docdb` database during `maybe_wire_read_model`, *before* `start/1`
 runs. Independent of the store callbacks above — a service may have a read
 model, an event store, both, or neither.
@@ -141,7 +142,7 @@ data_dir()      -> "/var/lib/hecate-my-service".
 There is no separate accessor to fetch a "handle" first: `barrel_docdb`
 takes the database name and the pid interchangeably everywhere, so PRJ code
 just calls `barrel_docdb:put_doc(read_model_id(), Doc)` directly (or
-`hecate_om:read_model()` if it's more convenient than re-deriving the name).
+`mcl_om:read_model()` if it's more convenient than re-deriving the name).
 Unlike a store, restarting doesn't lose anything — RocksDB reopens from the
 same on-disk directory; there's no evoq-projection-rebuild-on-boot dance to
 get right, which is exactly the class of bug that made ETS-backed read
@@ -150,9 +151,9 @@ models a recurring problem.
 Boot order with a read model:
 
 ```
-hecate_X_app:start/2 → hecate_om:boot(hecate_X_service)
+hecate_X_app:start/2 → mcl_om:boot(hecate_X_service)
    ↓
-hecate_om:maybe_wire_read_model/1   (read_model_id/0 + data_dir/0 present?)
+mcl_om:maybe_wire_read_model/1   (read_model_id/0 + data_dir/0 present?)
    └── barrel_docdb:create_db(read_model_id(), #{data_dir => ...})
    ↓
 hecate_X_service:start/1 → hecate_X_sup:start_link()   (read model already open)
