@@ -49,6 +49,7 @@ init([]) ->
         worker(mcl_om_identity)
     ] ++ mesh_pool_children() ++ [
         worker(mcl_om_capabilities),
+        worker(mcl_om_claim),
         supervisor_child(mcl_om_pubsub_sup),
         worker(mcl_om_pubsub_subscriptions),
         worker(mcl_om_health)
