@@ -3,6 +3,19 @@
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [SemVer](https://semver.org/).
 
+## [0.2.0] - 2026-09-19
+
+### Added
+
+- **The boot-time claim** (`mcl_om_claim`, a sup child): once the pool is
+  connected, the service requests its provider authorization from the realm
+  over the mesh (`io.macula/_realm/_realm/identity/request_provider_authorization_v1`),
+  by its own wire-authenticated identity — no credentials. The realm either
+  issues the D25 delegation or records the request as a pending row for its
+  operator; either reply ends the retries, and the advertise path resolves
+  the delegation independently. Stops normally when no seeds are configured;
+  `service_name`/`box` app envs are informational labels the operator sees.
+
 ## [0.1.0] - 2026-09-18
 
 ### Changed

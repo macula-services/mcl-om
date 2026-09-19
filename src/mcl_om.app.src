@@ -1,6 +1,6 @@
 {application, mcl_om, [
     {description, "PQ-only over-mesh substrate for the macula-services/mcl-* daemons"},
-    {vsn, "0.1.0"},
+    {vsn, "0.2.0"},
     {registered, [mcl_om_sup]},
     {mod, {mcl_om_app, []}},
     {applications, [
