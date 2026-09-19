@@ -87,15 +87,16 @@ dispatch_claim(State, {Org, Pool, Realm}) ->
     settle(Reply, Org, State).
 
 %% The realm answered: either it issued the delegation or it recorded
-%% the pending request (handler_error carries its refusal text). Both
-%% mean the claim is on file — stop retrying. Anything else (mesh not
-%% resolved yet, pool still connecting) retries.
+%% the pending request (the refusal text arrives under whatever
+%% call_error code the responder used — measured live as both
+%% handler_error and unknown_error). Both mean the claim is on file —
+%% stop retrying. Anything else (mesh not resolved yet, pool still
+%% connecting) retries.
 settle({ok, Result}, Org, State) ->
     logger:info("mcl_om_claim: realm answered for org=~s: ~p", [Org, Result]),
     State;
-settle({error, {call_error, <<"handler_error">>, Detail}}, Org, State) ->
-    logger:notice("mcl_om_claim: claim recorded as pending for org=~s: ~s",
-                  [Org, Detail]),
+settle({error, {call_error, _Code, <<"not_admitted">>}}, Org, State) ->
+    logger:notice("mcl_om_claim: claim recorded as pending for org=~s", [Org]),
     State;
 settle({error, Reason}, Org, State) ->
     logger:debug("mcl_om_claim: claim not delivered for org=~s (~p); retrying",
