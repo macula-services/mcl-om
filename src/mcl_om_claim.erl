@@ -69,8 +69,9 @@ terminate(_Reason, #state{retry_ref = Ref}) ->
 %%% Internal
 %%%===================================================================
 
-claim(State) ->
-    dispatch_claim(cancel(State#state.retry_ref), claim_target()).
+claim(#state{retry_ref = Ref} = State) ->
+    _ = cancel(Ref),
+    dispatch_claim(State#state{retry_ref = undefined}, claim_target()).
 
 %% An unconfigured org (`<<"_">>') has no org-namespaced procedures
 %% and nothing to request — done, silently.

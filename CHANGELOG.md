@@ -3,6 +3,15 @@
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [SemVer](https://semver.org/).
 
+## [0.2.1] - 2026-09-19
+
+### Fixed
+
+- **mcl_om_claim boot crash**: `claim/1` passed `cancel/1`'s return
+  instead of the state into the retry path, crashing the worker's
+  init (`{badrecord, undefined}`) the first time the pool was not
+  ready yet — the claim never went out. Found in the live demo.
+
 ## [0.2.0] - 2026-09-19
 
 ### Added
