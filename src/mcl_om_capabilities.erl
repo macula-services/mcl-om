@@ -2,28 +2,35 @@
 %%% other services' capabilities from the DHT.
 %%%
 %%% A capability carrying `handler => {HandlerModule, Args}' is advertised
-%%% TWICE via `advertise_direct/7' on its provider module (see
-%%% `provider_module/1') — `macula_response' (request/reply RPC, the
-%%% default) or `macula_streamer' (a `kind => streamer' capability) — the
-%%% SDK's own supervised wrapper, which registers a handler with the pool
-%%% AND publishes the signed `procedure_advertisement' DHT record naming
-%%% this pool's connected station, in one call:
+%%% ONCE, by `advertise_one/6', via `advertise_direct/7' on its provider
+%%% module (see `provider_module/1') — `macula_response' (request/reply
+%%% RPC, the default) or `macula_streamer' (a `kind => streamer'
+%%% capability) — the SDK's own supervised wrapper, which registers a
+%%% handler with the pool AND publishes the signed
+%%% `procedure_advertisement' DHT record naming this pool's connected
+%%% station, in one call.
 %%%
-%%%   1. under the bare capability name (`Name') — the any-provider,
-%%%      backward-compatible registration every caller could always reach;
-%%%   2. under `org_procedure(Org, Name)' (`<<Org/binary, "/",
-%%%      Name/binary>>') — a SEPARATE wire-level ADVERTISE and DHT record.
-%%%      `macula_remote_advertise_registry' (station-side) keys purely on
-%%%      the opaque procedure string, so this lands as a genuinely
-%%%      distinct registry entry, not a second write to the same slot.
-%%%      Two orgs serving the same capability name from the SAME relay
-%%%      station therefore each hold their own entry, rather than one
-%%%      shared bare-name slot where whichever republish landed last wins
-%%%      — the exact bug a live test
-%%%      (`test_live/mcl_om_capabilities_live_station_tests.erl''s
-%%%      `org_scoped_call_reaches_only_the_targeted_org_test_') caught
-%%%      2026-08-29: both an acme- and a contoso-targeted call were
-%%%      answered by whichever org's registration was most recent.
+%%% The one registration is under `org_procedure(Org, Name)'
+%%% (`<<Org/binary, "/", Name/binary>>'). THERE IS NO BARE-NAME
+%%% REGISTRATION: 11.x refuses a procedure with no org namespace
+%%% (`no_org_namespace'), so a caller reaches a capability by its
+%%% org-qualified string and by nothing else. A service whose org is
+%%% `acme' and whose capability is `echo' is called as `acme/echo'.
+%%%
+%%% `macula_remote_advertise_registry' (station-side) keys purely on the
+%%% opaque procedure string, so two orgs serving the same capability name
+%%% from the SAME relay station each hold their own entry. Before the org
+%%% namespace was mandatory they shared one bare-name slot and whichever
+%%% republish landed last won — the exact bug a live test
+%%% (`test_live/mcl_om_capabilities_live_station_tests.erl''s
+%%% `org_scoped_call_reaches_only_the_targeted_org_test_') caught: both an
+%%% acme- and a contoso-targeted call were answered by whichever org's
+%%% registration was most recent.
+%%%
+%%% ⚠ 10.x ADVERTISED TWICE, under the bare name as well, and callers
+%%% written against that era hardcode the bare string. Those calls do not
+%%% reach an 11.x service at all. This is not a silent-fallback situation:
+%%% there is nothing to fall back to.
 %%%
 %%% The discovery URI macula_direct_dial builds internally
 %%% (`RealmHex/Procedure') and this module's `procedure_uri/3'
@@ -65,18 +72,19 @@
 %%% `macula-mcp/plans/PLAN_AGENT_IDENTITY_UCAN.md' for the caller side
 %%% of presenting a token shaped for either policy.
 %%%
-%%% `call_capability/5,7' resolves `CapName' under `Org' first
-%%% (`discovery_key_org/3'), falling back to the bare (any-provider) key
-%%% only when `Org' has published nothing there yet. `resolve_full/4' tags
-%%% each resolved provider with which wire-level procedure string actually
-%%% matched, and the CALL uses that string, not the raw `CapName' — an
-%%% org-scoped resolution CALLs `org_procedure(Org, CapName)', never the
-%%% bare name, so a targeted call can only ever be answered by that org's
-%%% own registration, all the way to the wire.
+%%% `call_capability/5,7' resolves `CapName' under `Org' and only under
+%%% `Org' (`discovery_key_org/3'). There is no bare-key fallback on the
+%%% read side either: `resolve_at/4' looks up exactly one key, and an org
+%%% that has published nothing there resolves to nothing rather than to
+%%% somebody else's registration. `resolve_full/4' tags each resolved
+%%% provider with the wire-level procedure string that matched, and the
+%%% CALL uses that string rather than the raw `CapName', so a targeted
+%%% call can only ever be answered by that org's own registration, all the
+%%% way to the wire.
 %%%
 %%% `reuse_sup/0''s pid is round-tripped through this worker's state — one
-%%% slot per DISTINCT procedure string, so the bare and org-qualified
-%%% registrations each keep their own supervisor — and passed back in as
+%%% slot per DISTINCT procedure string, which since 11.x means one slot
+%%% per org-qualified registration — and passed back in as
 %%% `advertise_direct's own `reuse_sup' option on every 30s republish tick
 %%% — a station's wire-level registration for a procedure is tied to the
 %%% connection that sent it and does not survive that connection being
@@ -696,14 +704,16 @@ resolve_records({ok, Records}) -> decode_resolved(Records).
 
 %% Like resolve_at/4 but keeps each raw record so the verifying-consumer
 %% path (7c Direction B) can chain-check the embedded service cert. Same
-%% org-scoped-with-fallback resolution as resolve_at/4, PLUS: tags every
-%% returned provider with `procedure' -- the actual wire-level string the
-%% CALL must use. This is what makes the org-scoping real all the way to
-%% the wire: an org-scoped hit is tagged `org_procedure(Org, CapName)', a
-%% fallback-to-bare hit is tagged the bare `CapName' -- never derived from
-%% `Org' alone at call time, because a fallback hit's provider may not be
-%% `Org' at all (that's the point of the fallback), and CALLing with the
-%% wrong tag would target a registration that provider never made.
+%% org-scoped resolution as resolve_at/4, PLUS: tags every returned
+%% provider with `procedure' -- the actual wire-level string the CALL must
+%% use. This is what makes the org-scoping real all the way to the wire:
+%% every hit is tagged `org_procedure(Org, CapName)', which in 11.x is the
+%% only string anything was registered under.
+%%
+%% NOTE THE NAME `org_scoped_full_or_any/5' IS A LEFTOVER. It dates from
+%% the 10.x bare-name fallback and takes no `any' branch any more; it
+%% tags and returns. Renaming it is an API change (it is exported) and is
+%% deliberately not folded into a documentation fix.
 resolve_full(Pool, Realm, Org, CapName) ->
     org_scoped_full_or_any(
       resolve_full_records(find(Pool, discovery_key_org(Realm, Org, CapName))),
