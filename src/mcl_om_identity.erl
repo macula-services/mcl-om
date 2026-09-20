@@ -30,7 +30,7 @@
 -export([start_link/0, macula_client/0, realm/0, identity_key/0, org/0]).
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
 %% Exported for mcl_om_identity_tests.erl — pure resolution logic.
--export([node_key_from/1]).
+-export([node_key_from/1, realm_trust_opts/0]).
 %% Exported for mcl_om_sup.erl and as the mesh pool child's start function.
 -export([configured_seeds/0, start_mesh_pool/0]).
 
@@ -166,17 +166,60 @@ pool_opts(NodeKey) ->
 base_pool_opts() ->
     maps:merge(#{verify => verify_mode()}, realm_trust_opts()).
 
-%% The realm keys the pool pins for org-namespaced advertisement
-%% verification (D25), from the deploy env: `#{RealmId => RealmKey}',
-%% each realm's public key as carried. Passed through untouched --
-%% macula:connect/2 itself refuses a malformed entry (`{error,
-%% {realm_trust, invalid}}' for a non-32-byte id or a key not well
-%% formed for the node's crypto profile), so this module never has to.
+%% The realm key the pool pins for org-namespaced advertisement
+%% verification (D25): `#{RealmId => RealmKey}', the realm's public
+%% signing key as carried, built from the `realm' and `realm_key' deploy
+%% envs. One realm per service, matching one org per service.
+%%
+%% ⚠ REQUIRED, AND LOUD WHEN ABSENT. This used to fall through to `#{}'
+%% when nothing was configured. That is how a service reached a box, went
+%% green, answered /health, and was PERMANENTLY unable to resolve anything
+%% org-namespaced: with no realm key
+%% `macula_record:verify_authorization/3' refuses every advertisement with
+%% `no_realm_key', `macula_direct_dial' reports `{unresolved,
+%% no_trusted_advertisement}', and the boot claim never reaches the realm,
+%% so there is no pending row for an operator to approve, no delegation,
+%% and no advertise. An unconfigured trust anchor is not a deployment that
+%% half works; it is one that cannot work, and it should not boot.
+%%
+%% THE HEX DECODE LIVES HERE, not in the SDK and not in a service.
+%% `macula:connect/2' takes `realm_trust' as raw bytes and deliberately
+%% refuses anything else: it is a typed, in-memory contract. A deploy
+%% environment can only carry text. Translating one into the other is
+%% exactly what this module already does for `realm' (64-hex to 32 bytes)
+%% and for every seed's `expected_node_id'. Anywhere else means every
+%% mcl-* service doing it again, which is the duplication that produced
+%% the outage this clause exists to prevent.
+%%
+%% A malformed entry would also be refused by macula:connect/2 itself
+%% (`{error, {realm_trust, invalid}}'), but by then the reason is about a
+%% map the operator never typed. The checks here name the variable.
 realm_trust_opts() ->
-    case application:get_env(mcl_om, realm_trust) of
-        {ok, Trust} when is_map(Trust) -> #{realm_trust => Trust};
-        _                               -> #{}
+    #{realm_trust => realm_trust(load_realm(), configured_realm_key())}.
+
+realm_trust(undefined, _KeyHex) ->
+    error({mcl_om_realm_trust, realm_unconfigured});
+realm_trust(_Realm, undefined) ->
+    error({mcl_om_realm_trust, realm_key_unconfigured});
+realm_trust(<<_:256>> = Realm, KeyHex) ->
+    #{Realm => realm_key_decoded(hex_shaped(KeyHex), KeyHex)}.
+
+configured_realm_key() ->
+    case application:get_env(mcl_om, realm_key) of
+        {ok, Hex} when is_binary(Hex), Hex =/= <<>> -> Hex;
+        _                                           -> undefined
     end.
+
+%% Checked before decoding rather than after: decode_hex/1 on a stray
+%% character raises a bare badarg naming nothing.
+realm_key_decoded(true, KeyHex) ->
+    decode_hex(KeyHex);
+realm_key_decoded(false, KeyHex) ->
+    error({mcl_om_realm_trust, {realm_key_not_hex, byte_size(KeyHex)}}).
+
+hex_shaped(Hex) ->
+    byte_size(Hex) rem 2 =:= 0 andalso
+        match =:= re:run(Hex, <<"^[0-9a-fA-F]+$">>, [{capture, none}]).
 
 verify_mode() ->
     case os:getenv("MCL_OM_VERIFY", "webpki") of

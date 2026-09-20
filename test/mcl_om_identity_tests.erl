@@ -250,3 +250,78 @@ ensure_identity_not_running() ->
 
 restore_identity(undefined) -> ok;
 restore_identity(running)   -> {ok, _} = mcl_om_identity:start_link(), ok.
+
+%%%-------------------------------------------------------------------
+%%% Realm trust: the pool's anchor for org-namespaced advertisements
+%%%
+%%% These exist because the absence of this pin is not detectable from
+%%% outside a running service. A pool without it starts, the node goes
+%%% green, /health answers, and every org-namespaced resolution is
+%%% refused with `no_realm_key' forever. The failure surfaced as
+%%% `{unresolved, no_trusted_advertisement}' on a deployed box and cost
+%%% an evening to trace back to an unset variable.
+%%%-------------------------------------------------------------------
+
+-define(TRUST_REALM, <<16#abb81b5a614b63551b400b810648c0c8a78efad845442630c94b46cc95d2fcd1:256>>).
+-define(TRUST_KEY_RAW, <<16#deadbeefcafe:48>>).
+-define(TRUST_KEY_HEX, <<"deadbeefcafe">>).
+
+realm_trust_is_decoded_from_hex_test_() ->
+    {setup, fun save_realm_env/0, fun restore_realm_env/1,
+     fun(_) ->
+        set_realm_env(binary:encode_hex(?TRUST_REALM, lowercase), ?TRUST_KEY_HEX),
+        %% The map macula:connect/2 receives: raw 32-byte id, raw key.
+        %% Hex anywhere in here is refused by the SDK, which is the whole
+        %% reason the decode happens in this module.
+        [?_assertEqual(#{realm_trust => #{?TRUST_REALM => ?TRUST_KEY_RAW}},
+                       mcl_om_identity:realm_trust_opts())]
+     end}.
+
+%% The clause this whole change exists for. It used to return #{}.
+realm_trust_unset_refuses_to_start_a_pool_test_() ->
+    {setup, fun save_realm_env/0, fun restore_realm_env/1,
+     fun(_) ->
+        set_realm_env(binary:encode_hex(?TRUST_REALM, lowercase), undefined),
+        [?_assertError({mcl_om_realm_trust, realm_key_unconfigured},
+                       mcl_om_identity:realm_trust_opts())]
+     end}.
+
+realm_unset_refuses_to_start_a_pool_test_() ->
+    {setup, fun save_realm_env/0, fun restore_realm_env/1,
+     fun(_) ->
+        set_realm_env(undefined, ?TRUST_KEY_HEX),
+        [?_assertError({mcl_om_realm_trust, realm_unconfigured},
+                       mcl_om_identity:realm_trust_opts())]
+     end}.
+
+%% A stray character must name the variable, not raise a bare badarg out
+%% of the hex decoder with nothing to act on.
+realm_key_that_is_not_hex_names_the_variable_test_() ->
+    {setup, fun save_realm_env/0, fun restore_realm_env/1,
+     fun(_) ->
+        RealmHex = binary:encode_hex(?TRUST_REALM, lowercase),
+        [?_assertError({mcl_om_realm_trust, {realm_key_not_hex, _}},
+                       begin set_realm_env(RealmHex, <<"not hex at all">>),
+                             mcl_om_identity:realm_trust_opts() end),
+         %% Odd length is the other way a paste goes wrong.
+         ?_assertError({mcl_om_realm_trust, {realm_key_not_hex, _}},
+                       begin set_realm_env(RealmHex, <<"abc">>),
+                             mcl_om_identity:realm_trust_opts() end)]
+     end}.
+
+save_realm_env() ->
+    {application:get_env(mcl_om, realm), application:get_env(mcl_om, realm_key)}.
+
+restore_realm_env({Realm, Key}) ->
+    restore_app_env(realm, Realm),
+    restore_app_env(realm_key, Key).
+
+restore_app_env(K, {ok, V})   -> application:set_env(mcl_om, K, V);
+restore_app_env(K, undefined) -> application:unset_env(mcl_om, K).
+
+set_realm_env(Realm, Key) ->
+    restore_app_env(realm, env_value(Realm)),
+    restore_app_env(realm_key, env_value(Key)).
+
+env_value(undefined) -> undefined;
+env_value(V)         -> {ok, V}.

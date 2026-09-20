@@ -4,6 +4,7 @@
 # port, the environment variables its own code reads, and its health check.
 #
 #   MCL_REALM=<64-hex> \
+#     MCL_REALM_KEY=<hex of the realm's public signing key> \
 #     MACULA_STATION_SEEDS=station.example:4433 \
 #     MACULA_STATION_NODE_IDS=<64-hex node id of that station> \
 #     docker compose -p <%repo%> -f deploy/docker-compose.yml up -d
@@ -44,6 +45,12 @@ services:
       # No default. A service that guesses its realm announces itself where
       # nobody can attribute it, and that looks exactly like a healthy node.
       - MCL_REALM=${MCL_REALM:?set MCL_REALM to the 64-hex realm tag}
+      # The TRUST ANCHOR, and a different thing from MCL_REALM above: that is
+      # an identifier, this is the realm's public signing key, hex encoded.
+      # Without it nothing org-namespaced resolves, the boot claim never
+      # reaches the realm, and the container stays green while being
+      # unreachable. Public material, so it belongs here and not in secrets.
+      - MCL_REALM_KEY=${MCL_REALM_KEY:?set MCL_REALM_KEY to the hex-encoded public realm signing key}
       # No default either: naming a realm costs nothing, dialling somebody's
       # production station from every dev clone does. The 11.x dial is PINNED:
       # every seed host pairs with its station's node id, index for index

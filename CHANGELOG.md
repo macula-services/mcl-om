@@ -3,6 +3,61 @@
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [SemVer](https://semver.org/).
 
+## [0.3.0]
+
+### Changed
+
+- ⚠ **BREAKING: the realm trust anchor is required, and its absence now stops
+  the pool from starting.** `realm_trust_opts/0` used to fall through to `#{}`
+  when nothing was configured, so a service with no trust anchor started
+  normally, went green and answered `/health` while being permanently unable
+  to resolve anything org-namespaced. Configure `realm` and `realm_key`, or
+  the node does not boot.
+
+  The failure this replaces, traced off a deployed box: with no realm key
+  pinned, `macula_client:realm_key/2` answers `none`,
+  `macula_record:verify_authorization/3` refuses every advertisement with
+  `no_realm_key`, and `macula_direct_dial` reports `{unresolved,
+  no_trusted_advertisement}`. The boot claim therefore never reached the
+  realm, so there was no pending row for an operator to approve, no
+  delegation, and nothing callable. Every symptom was downstream of one
+  unset variable, and nothing anywhere said so.
+
+  Note for whoever meets that atom next: `trusted_stations/2` filters on the
+  authorization check AND a readable `serving_station` in the record. A record
+  missing the latter is dropped silently and produces the IDENTICAL
+  `no_trusted_advertisement`. Do not assume it is this cause.
+
+### Added
+
+- **`realm_key`**, a new app env: the realm's public signing key, hex encoded.
+  `mcl_om` decodes it and pins `#{RealmId => RealmKey}` as
+  `macula:connect/2`'s `realm_trust`.
+
+  The decode lives here rather than in a service or in the SDK.
+  `macula:connect/2` takes `realm_trust` as raw bytes and deliberately
+  refuses anything else, being a typed in-memory contract; a deploy
+  environment can only carry text. Translating between the two is what this
+  module already does for `realm` (64-hex to 32 bytes) and for every seed's
+  `expected_node_id`. Anywhere else means every `mcl-*` service doing it
+  again, which is the duplication that produced the outage.
+
+  A malformed value names the variable (`{mcl_om_realm_trust,
+  {realm_key_not_hex, _}}`) rather than raising a bare `badarg` out of the hex
+  decoder.
+
+### Fixed
+
+- **The scaffold taught the bug.** `priv/templates/mcl_service/sys.config.src`
+  carried `realm_trust` commented out, described as needed only by a service
+  that CALLS org-namespaced capabilities, and claimed "the realm's key comes
+  from its own `foundation_realm_trust_list` DHT record, not from this file".
+  That last part is wrong for this path: `macula_direct_dial` never supplies
+  the foundation form, so the pinned key is the only way an advertisement is
+  ever trusted. Every service generated from this template inherited an
+  optional-looking setting that is mandatory. The template now requires
+  `MCL_REALM_KEY`, in its config, its compose file and its README.
+
 ## [0.2.2] - 2026-09-20
 
 ### Fixed

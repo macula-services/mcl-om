@@ -20,7 +20,29 @@
         %% application:get_env(mcl_om, realm); exporting MCL_REALM in the
         %% shell and expecting that to be enough has cost a sibling service an
         %% hour, because nothing translates between the two by itself.
-        {realm,             <<"${MCL_REALM}">>}
+        {realm,             <<"${MCL_REALM}">>},
+        %% ⚠ THE TRUST ANCHOR, AND IT IS NOT OPTIONAL. MCL_REALM above is an
+        %% IDENTIFIER (sha256 of the realm name); this is the realm's public
+        %% SIGNING KEY, 64-hex-per-32-bytes, as carried. mcl_om decodes it and
+        %% pins it as macula:connect/2's `realm_trust'.
+        %%
+        %% Without it every org-namespaced advertisement this service resolves
+        %% is refused with `no_realm_key', direct dial answers `{unresolved,
+        %% no_trusted_advertisement}', and the boot claim never reaches the
+        %% realm: no pending row, no delegation, nothing callable. The node
+        %% stays green and answers /health throughout, which is why mcl_om
+        %% now refuses to start a pool without it rather than letting a
+        %% service look healthy and be unreachable.
+        %%
+        %% Public material. It is the half everyone verifies against, not a
+        %% secret, and it does not belong in the secrets volume.
+        %%
+        %% An earlier version of this file said the realm's key comes from a
+        %% `foundation_realm_trust_list' DHT record rather than from here.
+        %% That is WRONG for this path and cost a deployment: `macula_direct_dial'
+        %% never supplies the foundation form, so the pinned key is the only
+        %% way an advertisement is ever trusted.
+        {realm_key,         <<"${MCL_REALM_KEY}">>}
     ]},
     %% ==========================================================================
     %% THE PQ CRYPTO PROFILE, WITHOUT WHICH THIS NODE DOES NOT PEER
@@ -38,17 +60,6 @@
         {crypto_profile, pq_hybrid},
         {puzzle_difficulty, 8}
     ]},
-    %% ==========================================================================
-    %% REALM TRUST, WHEN THIS SERVICE RESOLVES ORG-NAMESPACED CAPABILITIES
-    %% ==========================================================================
-    %%
-    %% The realm keys this pool pins for D25 (org-namespaced advertisement)
-    %% verification: one per realm id, each realm's public key as carried --
-    %% macula:connect/2's `realm_trust' opt. Set it only when this service
-    %% CALLS org-namespaced capabilities; a service that only publishes does
-    %% not need it. The realm's key comes from its own
-    %% `foundation_realm_trust_list' DHT record, not from this file.
-    %% {realm_trust, #{<<...32-byte realm id...>> => <<...carried realm key...>>}},
 <%#store%>
     %% ==========================================================================
     %% EVOQ'S ADAPTER, WITHOUT WHICH THIS NODE DOES NOT BOOT
