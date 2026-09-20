@@ -3,6 +3,15 @@
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [SemVer](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+
+- **The claim settle accepts the realm's actual refusal**: the refusal arrives as
+  `call_error` with code `handler_error` OR `unknown_error` (measured live); the
+  worker now settles on the `<<"not_admitted">>` text so it stops retrying once
+  the claim is on file.
+
 ## [0.2.1] - 2026-09-19
 
 ### Fixed
