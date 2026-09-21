@@ -3,6 +3,47 @@
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [SemVer](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+
+- **The pool's `verify` now defaults to `none`, not `webpki`** (`mcl_om_identity:verify_mode/0`).
+  `webpki` was only ever harmless by accident: macula 11.4.0's
+  `macula_peering_conn:start_dial/1` discarded the caller's value and passed a
+  literal `{verify, none}`, so the option was decorative. macula 11.5.0 fixes
+  that bug and honours the target's value, which would have turned a default
+  nobody chose into a real X.509 chain check against the built-in public roots
+  on every station dial.
+
+  Nothing is lost. What binds a station link to the node it dialled is the D16
+  handshake pin: `expected_node_id` is required and a link without one refuses
+  to start. 11.5.0's own `dial_opts/1` states it plainly, that a station's leaf
+  is self-signed or issued by an unrelated PKI and the signed handshake binds
+  the connection rather than the chain. Checking the chain as well adds nothing
+  the pin does not give, and it makes reaching the mesh depend on a public CA
+  and on a renewal nobody is watching: a lapsed or rotated certificate would
+  take every mcl-* pool offline for a reason with nothing to do with the mesh,
+  and nobody would look there first. macula-station reached the same conclusion
+  for its own outbound links in `e07010d`; this is the consumer-side equivalent.
+
+  **This fixes every mcl-* service nobody has written yet.** The service
+  scaffold's `sys.config.src` sets no `verify` at all, so the library default is
+  what each of them silently inherits.
+
+- `MCL_OM_VERIFY=webpki` remains the opt-in for a caller that genuinely has a
+  chain worth checking, which is the shape `dial_opts/1` documents. Any other
+  value now **names the variable** with `{mcl_om_verify, {unknown_mode, V}}`
+  instead of silently selecting a mode. `verify => true` was the 10.x spelling
+  and still appears in this repo's older guides, so a stale deploy carrying it
+  is not hypothetical, and under a silent fallback it would get whichever mode
+  the fallback happened to be while its operator believed they had asked for the
+  other.
+
+- `base_pool_opts/0` is exported for the test suite. The `verify` entry of the
+  composed map is what reaches `macula:connect/2`, so asserting on that rather
+  than on `verify_mode/0` alone catches a regression in either half.
+
+
 ## [0.3.0]
 
 ### Changed
