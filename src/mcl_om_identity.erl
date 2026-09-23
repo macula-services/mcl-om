@@ -226,18 +226,20 @@ hex_shaped(Hex) ->
         match =:= re:run(Hex, <<"^[0-9a-fA-F]+$">>, [{capture, none}]).
 
 %% Load the stable on-disk service node key when `identity_key_path' is
-%% configured; `undefined' (the SDK auto-generates an ephemeral
-%% puzzle-hardened identity at connect) only when the path itself is
-%% unconfigured. First boot needs no out-of-band provisioning: a MISSING
-%% key file generates a fresh key and persists it. Any OTHER load failure
-%% stops the service and leaves the file untouched — generating a
-%% replacement would silently change the service's node id.
+%% configured; `undefined' only when the path itself is unconfigured, and
+%% then the pool connects on macula's own stored identity for the machine.
+%% First boot needs no out-of-band provisioning: a MISSING key file
+%% generates a fresh key and persists it, and a key that cannot be
+%% persisted stops the service. Any OTHER load failure stops the service
+%% and leaves the file untouched — generating a replacement would silently
+%% change the service's node id.
 load_node_key() ->
     node_key_from(application:get_env(mcl_om, identity_key_path)).
 
 -spec node_key_from({ok, file:filename_all()} | undefined) ->
     macula_node_keys:node_key() | undefined |
-    {error, {identity_key_unloadable, file:filename_all(), term()}}.
+    {error, {identity_key_unloadable, file:filename_all(), term()}} |
+    {error, {identity_key_unsaveable, file:filename_all(), term()}}.
 node_key_from(undefined) ->
     undefined;
 node_key_from({ok, Path}) ->
@@ -262,10 +264,14 @@ generate_and_save(Path) ->
     {ok, Key} = macula_node_keys:generate(
                   identity, profile(),
                   #{puzzle_difficulty => macula_node_keys:puzzle_difficulty()}),
-    save_result(macula_node_keys:save(Path, Key), Key).
+    save_result(macula_node_keys:save(Path, Key), Key, Path).
 
-save_result(ok, Key) -> Key;
-save_result({error, _Reason}, _Key) -> undefined.
+%% A key that cannot be saved stops the service rather than running it on
+%% a throwaway identity: the next start would generate another, so the
+%% node id would change on every restart with nothing reporting it.
+save_result(ok, Key, _Path) -> Key;
+save_result({error, Reason}, _Key, Path) ->
+    {error, {identity_key_unsaveable, Path, Reason}}.
 
 %% Org name from the `org' app env; `<<"_">>' when unset.
 load_org() ->

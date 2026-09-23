@@ -27,6 +27,7 @@
 -export([generates_every_expected_file/1,
          health_script_is_executable/1,
          sys_config_configures_a_stable_identity/1,
+         stable_identity_survives_a_recreate/1,
          no_unrendered_variable_survives/1,
          generated_workflow_keeps_actions_syntax/1,
          leaks_no_house_specifics/1,
@@ -46,6 +47,7 @@ all() ->
     [generates_every_expected_file,
      health_script_is_executable,
      sys_config_configures_a_stable_identity,
+     stable_identity_survives_a_recreate,
      no_unrendered_variable_survives,
      generated_workflow_keeps_actions_syntax,
      leaks_no_house_specifics,
@@ -206,6 +208,19 @@ sys_config_configures_a_stable_identity(Config) ->
     Path = filename:join(?config(root, Config), "config/sys.config.src"),
     {ok, Bin} = file:read_file(Path),
     ?assert(binary:match(Bin, <<"identity_key_path">>) =/= nomatch).
+
+%% The identity path above only helps if the file outlives the container. The
+%% image declares /etc/mcl/secrets a VOLUME, and with nothing mounted there
+%% docker gives each new container a fresh anonymous volume, so every
+%% watchtower recreate generated a new key: a new node id per image, with the
+%% service looking healthy throughout. The compose file must mount a NAMED
+%% volume there, and name it itself so a different `-p' cannot fork it.
+stable_identity_survives_a_recreate(Config) ->
+    Path = filename:join(?config(root, Config), "deploy/docker-compose.yml"),
+    {ok, Bin} = file:read_file(Path),
+    ?assertNotEqual(nomatch, binary:match(Bin, <<"- secrets:/etc/mcl/secrets\n">>)),
+    ?assertNotEqual(nomatch,
+                    binary:match(Bin, <<"\nvolumes:\n  secrets:\n    name: ", ?REPO, "-secrets\n">>)).
 
 %% A variable named in a file but not declared in the manifest renders as empty
 %% and reports success, so the only way to see it is to look for what is left

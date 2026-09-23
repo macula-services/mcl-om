@@ -3,6 +3,25 @@
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [SemVer](https://semver.org/).
 
+## [0.26.2]
+
+### Fixed
+
+- **A first-boot key that could not be saved ran the service on a throwaway
+  identity.** When `identity_key_path` names a missing file, mcl_om generates
+  the key and saves it. If the save failed (a read-only secrets directory, for
+  one), it carried on with the unsaved key, so the next start generated
+  another: a new node id on every restart, nothing stable to attribute the
+  service's records to, and nothing reporting it. It now stops with
+  `{identity_key_unsaveable, Path, Reason}`, the same way an unloadable key
+  file already did.
+- **The service scaffold's compose file now mounts a named volume at
+  `/etc/mcl/secrets`**, called `<repo>-secrets`, and names it itself so a
+  different `docker compose -p` cannot fork it. The image declares that path a
+  VOLUME, and with nothing mounted docker gave each recreated container a fresh
+  anonymous volume, which is a new identity per watchtower roll. A service
+  generated earlier needs the same two lines added to its own compose file.
+
 ## [0.26.1]
 
 ### Fixed

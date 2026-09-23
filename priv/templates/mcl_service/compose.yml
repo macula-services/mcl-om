@@ -25,8 +25,14 @@ services:
     # connects and then sits there with no healthy links, looking fine. If you
     # do want a bridge, give it IPv6 explicitly.
     network_mode: host
-<%#store%>
     volumes:
+      # ⚠ THE SERVICE'S IDENTITY LIVES HERE. mcl_om generates the node key on
+      # first boot and loads it on every boot after. The image declares this
+      # path a VOLUME, and with nothing mounted docker gives each new container
+      # a fresh anonymous one, so every recreate (watchtower does them as
+      # routine) would mint a new node id while the service looks healthy.
+      - secrets:/etc/mcl/secrets
+<%#store%>
       # ⚠ REQUIRED, BECAUSE THIS SERVICE OPENS A STORE. Without the mount the
       # record lives inside the container and every recreate destroys it, which
       # is the same as not keeping one, and watchtower recreates containers as a
@@ -68,3 +74,10 @@ services:
       # appended by mcl_om, so the store itself is at /data/<%name%>_store.
       - MCL_DATA_DIR=/data
 <%/store%>
+
+# The identity volume, NAMED HERE rather than left to the project name, so a
+# `docker compose -p` with a different name reuses the same key instead of
+# quietly starting a second identity. Deleting it retires the node id.
+volumes:
+  secrets:
+    name: <%repo%>-secrets

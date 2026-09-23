@@ -89,6 +89,22 @@ key_path_that_is_a_directory_is_refused_test() ->
     ?assertEqual({ok, []}, file:list_dir(Path)),
     file:del_dir(Path).
 
+%% A first boot whose new key cannot be SAVED is refused, naming the path.
+%% It used to carry on with the unsaved key, so the service ran on a
+%% throwaway identity: a new node id on every restart, nothing stable to
+%% attribute its records to, and no sign of it but a changed id. A directory
+%% at the write's temporary path makes the save fail even when the tests
+%% run as root, where an unwritable mode would not.
+unsaveable_new_key_is_refused_naming_the_path_test() ->
+    Path = tmp_path(),
+    Tmp = <<Path/binary, ".tmp">>,
+    ok = file:make_dir(Tmp),
+
+    ?assertMatch({error, {identity_key_unsaveable, Path, _}},
+                 mcl_om_identity:node_key_from({ok, Path})),
+    ?assertEqual(false, filelib:is_regular(Path)),
+    file:del_dir(Tmp).
+
 %% At boot the refusal stops mcl_om_identity itself, so mcl_om_sup,
 %% and with it the service, does not start -- and the file stays as it was.
 unloadable_key_file_stops_the_identity_process_test_() ->
