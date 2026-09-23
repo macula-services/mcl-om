@@ -90,15 +90,21 @@ message(Identity, Timestamp, Procedure)
 %% derive `Identity' as its node id AND sign the message -- a node id
 %% earns no trust on its own, only after a signature by the same
 %% carried key has verified.
+%%
+%% The fields are read through `mcl_om_wire:field/2': a proof decoded by
+%% macula's codec arrives with every key as `{text, Key}', and one read
+%% with `maps:find(timestamp, _)' is missing all three, so every proof a
+%% real caller sent was refused as `missing_proof'.
 -spec verify(binary(), map(), binary()) -> ok | {error, atom()}.
 verify(Identity, Proof, Procedure)
   when is_binary(Identity), byte_size(Identity) =:= 32, is_map(Proof), is_binary(Procedure) ->
-    checked_fields(maps:find(timestamp, Proof), maps:find(signature, Proof),
-                   maps:find(public, Proof), Identity, Procedure);
+    checked_fields(mcl_om_wire:field(timestamp, Proof), mcl_om_wire:field(signature, Proof),
+                   mcl_om_wire:field(public, Proof), Identity, Procedure);
 verify(_Identity, _Proof, _Procedure) ->
     {error, invalid_identity}.
 
-checked_fields({ok, Ts}, {ok, Sig}, {ok, Pub}, Identity, Procedure) when is_integer(Ts) ->
+checked_fields(Ts, Sig, Pub, Identity, Procedure)
+  when is_integer(Ts), Sig =/= undefined, Pub =/= undefined ->
     decoded_fields(bytes_of(unwrap_text(Sig)), bytes_of(unwrap_text(Pub)),
                    Ts, Identity, Procedure);
 checked_fields(_Ts, _Sig, _Pub, _Identity, _Procedure) ->

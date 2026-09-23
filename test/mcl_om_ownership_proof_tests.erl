@@ -115,3 +115,33 @@ accepts_a_genuine_proof_shaped_exactly_like_the_wire_test() ->
                   public => binary:encode_hex(macula_node_keys:public_key(Key), lowercase)},
     DecodedIdentity = mcl_om_ownership_proof:decode_identity(WireIdentity),
     ?assertEqual(ok, mcl_om_ownership_proof:verify(DecodedIdentity, WireProof, ?PROC)).
+
+%% The proof a desk really receives: sent inside a CALL payload and decoded by
+%% macula's own codec, which delivers every map key as `{text, Key}'. The test
+%% above builds the "wire" shape by hand, with atom keys, and passed while every
+%% proof a real caller sent was refused as missing_proof.
+accepts_a_genuine_proof_decoded_by_macula_s_own_codec_test() ->
+    Key = node_key(),
+    Identity = node_id(Key),
+    #{{text, <<"proof">>} := Delivered} = delivered(#{proof => fresh_proof(Key, Identity, ?PROC)}, Key),
+    ?assertEqual(ok, mcl_om_ownership_proof:verify(Identity, Delivered, ?PROC)).
+
+refuses_a_forged_proof_decoded_by_macula_s_own_codec_test() ->
+    Owner = node_key(),
+    Impostor = node_key(),
+    Identity = node_id(Owner),
+    #{{text, <<"proof">>} := Delivered} =
+        delivered(#{proof => fresh_proof(Impostor, Identity, ?PROC)}, Impostor),
+    ?assertEqual({error, bad_signature}, mcl_om_ownership_proof:verify(Identity, Delivered, ?PROC)).
+
+%% `Payload' as the handler of a CALL from `Caller' receives it.
+delivered(Payload, Caller) ->
+    Spec = #{request_id => crypto:strong_rand_bytes(16),
+             realm => crypto:hash(sha256, <<"io.macula">>),
+             procedure => ?PROC,
+             target => node_id(node_key()),
+             deadline => erlang:system_time(millisecond) + 60_000,
+             payload => Payload},
+    {ok, Decoded, <<>>} = macula_frame:decode(macula_frame:encode(macula_frame:call(Spec, Caller))),
+    {ok, #{payload := Delivered}} = macula_frame:verify_request(Decoded, profile()),
+    Delivered.

@@ -3,6 +3,21 @@
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [SemVer](https://semver.org/).
 
+## [0.26.6]
+
+### Fixed
+
+- **An ownership proof sent by a real caller verifies.** `mcl_om_ownership_proof:verify/3`
+  read `timestamp`, `signature` and `public` with `maps:find/2` on atom keys,
+  but a proof decoded by macula's codec carries every key as `{text, Key}`, so
+  every proof a caller actually sent was refused as `missing_proof`: forged
+  and genuine alike, before any signature was checked. It reads the three
+  fields through `mcl_om_wire:field/2` now. The suite's "shaped exactly like
+  the wire" test built that shape by hand, with atom keys, and passed
+  throughout; two new tests send the proof inside a CALL through
+  `macula_frame` and verify what comes out. Found porting hecate-graph's
+  `asserted_by` provenance to mcl-graph.
+
 ## [0.26.5]
 
 **There is no 0.26.4 on hex.** The tag `v0.26.4` (on `164456c`) exists, but
