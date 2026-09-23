@@ -14,15 +14,15 @@
 %%% resolves the delegation independently once it exists.
 %%%
 %%% No credentials travel: there is nothing to configure here beyond
-%%% the optional informational labels (`service_name', `box', app env)
-%%% the realm's operator sees on the pending row.
+%%% the informational labels the realm's operator sees on the pending
+%%% row, `service_name' and `box' (see labels/0).
 %%%
 %%% See PLAN_PROVIDER_AUTHORIZATION_FLOW.md §3.2 (macula-realm).
 %%%-------------------------------------------------------------------
 -module(mcl_om_claim).
 -behaviour(gen_server).
 
--export([start_link/0]).
+-export([start_link/0, labels/0]).
 
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
 
@@ -114,9 +114,33 @@ claim_target() ->
     end.
 
 payload(Org) ->
-    #{<<"org">> => Org,
-      <<"service_name">> => application:get_env(mcl_om, service_name, <<>>),
-      <<"box">> => application:get_env(mcl_om, box, <<>>)}.
+    (labels())#{<<"org">> => Org}.
+
+%% @doc The labels a claim carries, so the realm's operator can tell what is
+%% asking and where it runs. Each is mcl_om's app env if set, else an OS
+%% variable the deploy sets (`MCL_SERVICE_NAME', `MCL_BOX'); `service_name'
+%% then falls back to the service's own name from info/0, `box' to empty.
+%% Only the app env existed before, which two services set and the template
+%% did not, so most claims arrived unlabelled.
+-spec labels() -> #{binary() => binary()}.
+labels() ->
+    #{<<"service_name">> => label(service_name, "MCL_SERVICE_NAME", fun service_info_name/0),
+      <<"box">> => label(box, "MCL_BOX", fun() -> <<>> end)}.
+
+label(Key, Var, Default) ->
+    from_app_env(application:get_env(mcl_om, Key), Var, Default).
+
+from_app_env({ok, Value}, _Var, _Default) -> iolist_to_binary(Value);
+from_app_env(undefined, Var, Default) -> from_os_env(os:getenv(Var), Default).
+
+from_os_env(Unset, Default) when Unset =:= false; Unset =:= "" -> Default();
+from_os_env(Value, _Default) -> unicode:characters_to_binary(Value).
+
+service_info_name() ->
+    info_name(mcl_om:service_module()).
+
+info_name(undefined) -> <<>>;
+info_name(ServiceMod) -> maps:get(name, ServiceMod:info()).
 
 retry(State) ->
     State#state{retry_ref = erlang:send_after(?RETRY_MS, self(), claim)}.

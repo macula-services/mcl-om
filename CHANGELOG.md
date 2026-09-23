@@ -43,6 +43,12 @@ A service without a read model needs no change beyond the version.
 
 ### Fixed
 
+- **Boot claims carry their labels.** The `service_name` and `box` a claim
+  shows the realm's operator came only from mcl_om's app env, which two
+  services set and the template did not, so most claims arrived unlabelled.
+  `mcl_om_claim:labels/0` now falls back to the `MCL_SERVICE_NAME` and
+  `MCL_BOX` OS variables, and `service_name` finally to the service's own name
+  from `info/0`. The template's compose file sets both.
 - **The scaffold.** Generated services run dialyzer in CI with macula in the
   PLT, ignore the `data/` directory barrel_docdb writes during tests, and say
   in their CHANGELOG what build-push does (a `v*` tag publishes its own version

@@ -69,6 +69,11 @@ services:
       - MCL_COOKIE=<%name%>
       # Host networking means a port already bound on this host fails SILENTLY.
       - MCL_HEALTH_PORT=<%health_port%>
+      # Labels on the claim this service sends the realm at boot, which the
+      # realm's operator sees on the pending row: what is asking, and from
+      # which box. MCL_BOX comes from the host that deploys it.
+      - MCL_SERVICE_NAME=<%repo%>
+      - MCL_BOX=${MCL_BOX:-}
 <%#store%>
       # Where the store lands, matching the volume above. `store_id/0' is
       # appended by mcl_om, so the store itself is at /data/<%name%>_store.
