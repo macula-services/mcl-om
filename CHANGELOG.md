@@ -3,7 +3,26 @@
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [SemVer](https://semver.org/).
 
-## [Unreleased]
+## [0.26.3]
+
+### Added
+
+- **/health reports whether each org-namespaced procedure holds its D25
+  provider grant.** A provider without one used to look healthy while
+  serving nothing: the advertise path asked `macula:provider_authorization/3`
+  on every republish tick, dropped the refusal and retried quietly. The answer
+  is kept per procedure now (`mcl_om_capabilities:provider_grants/0`) and
+  judged by `mcl_om_provider_grant`:
+  - no `procedure_delegation` naming this node: degraded at once, because an
+    operator has to grant it;
+  - no `org_directory`, or any other refusal: `waiting` for
+    `provider_grant_grace_ms` (default 60 s) from the first failure, then
+    degraded. The realm republishes an absent chain within seconds, so a gap
+    past the window is a real fault, and a failed lookup does not flap /health.
+  macula's reason is reported as given. Every /health body, ok included,
+  carries a `provider_grants` list, so a service inside its window says why
+  it is not granted yet. A degraded service answers 503 as before, so the
+  image HEALTHCHECK marks it unhealthy.
 
 ### Fixed
 

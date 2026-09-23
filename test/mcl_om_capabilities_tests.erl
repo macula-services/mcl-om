@@ -423,6 +423,28 @@ live_pool_handler_capability_test_() ->
          ]
       end}}.
 
+%% The provider_authorization answer the advertise path asks for on every
+%% tick is KEPT, per org procedure, for /health. It used to be dropped, so a
+%% provider with no grant looked healthy while serving nothing. Against this
+%% zero-seed pool the chain cannot resolve, so the entry must exist and say
+%% not granted, with macula's own reason.
+live_pool_records_the_provider_grant_test_() ->
+    {timeout, 15,
+     {setup, fun start_live/0, fun stop_live/1,
+      fun(_) ->
+         Cap = #{name => <<"svc.answer">>, version => 1,
+                 handler => {?MODULE, []}},
+         [fun() ->
+             ?assertEqual(#{}, mcl_om_capabilities:provider_grants()),
+             ok = mcl_om_capabilities:register([Cap]),
+             Grants = mcl_om_capabilities:provider_grants(),
+             ?assertEqual([<<"_/svc.answer">>], maps:keys(Grants)),
+             ?assertMatch(#{result := {not_granted, _}, since := Since}
+                            when is_integer(Since),
+                          maps:get(<<"_/svc.answer">>, Grants))
+          end]
+      end}}.
+
 init(_Args) -> {ok, []}.
 handle_request(_Payload, State) -> {reply, ok, State}.
 handle_open(_StreamArgs, State) -> {ok, State}.

@@ -135,7 +135,7 @@
 -module(mcl_om_capabilities).
 -behaviour(gen_server).
 
--export([start_link/0, register/1, publish/0, lookup/1, list/0,
+-export([start_link/0, register/1, publish/0, lookup/1, list/0, provider_grants/0,
          list_org_capabilities/1]).
 -export([call_capability/5, call_capability/7]).
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
@@ -193,6 +193,8 @@
 %% find/2's DHT-propagation-lag retry budget -- same values as
 %% macula_direct_dial's own private find_records_retry/3, see find/2.
 -define(RESOLVE_RETRIES, 50).
+%% One row per org procedure: its last provider_authorization answer.
+-define(GRANTS, mcl_om_provider_grants).
 -define(RESOLVE_RETRY_MS, 100).
 
 -record(state, {
@@ -211,6 +213,18 @@ start_link() ->
 
 register(Caps) when is_list(Caps) ->
     gen_server:call(?MODULE, {register, Caps}).
+
+%% @doc The last `macula:provider_authorization/3' answer for each
+%% org-namespaced procedure this service advertises, as
+%% `mcl_om_provider_grant' entries. Read from a table, not by a call, so
+%% /health never waits behind a republish tick. `#{}' before anything was
+%% advertised.
+-spec provider_grants() -> #{binary() => mcl_om_provider_grant:entry()}.
+provider_grants() ->
+    grants_in(ets:whereis(?GRANTS)).
+
+grants_in(undefined) -> #{};
+grants_in(_Tid)      -> maps:from_list(ets:tab2list(?GRANTS)).
 
 publish() ->
     gen_server:call(?MODULE, publish).
@@ -276,10 +290,15 @@ list() ->
 %%% gen_server
 
 init([]) ->
+    ?GRANTS = ets:new(?GRANTS, [set, protected, named_table,
+                                {read_concurrency, true}]),
     {ok, arm_timer(#state{})}.
 
 handle_call({register, Caps}, _From, #state{advertise_sups = Sups} = S) ->
     log_unguarded(Caps),
+    %% A new capability set: a procedure no longer advertised must not keep
+    %% degrading /health.
+    true = ets:delete_all_objects(?GRANTS),
     NewSups = do_advertise(Caps, Sups),
     {reply, ok, S#state{capabilities = Caps, advertise_sups = NewSups}};
 
@@ -508,9 +527,11 @@ advertise_one(Pool, Key, Realm, Org,
     %% the record never lands and every mcl_om caller resolves
     %% no_provider.
     OrgProcedure = org_procedure(Org, Name),
+    Authorization = recorded_authorization(
+                      OrgProcedure,
+                      macula:provider_authorization(Pool, Realm, OrgProcedure)),
     Opts = maps:merge(maps:merge(auth_opts(Cap), stream_opts(Cap)),
-                      maps:merge(resolved_authorization(Pool, Realm,
-                                                        OrgProcedure),
+                      maps:merge(Authorization,
                                  reuse_sup_opts(maps:get(OrgProcedure, Sups, undefined)))),
     Result = Provider:advertise_direct(Pool, Realm, OrgProcedure, Mod,
                                        Args, Key, Opts),
@@ -526,11 +547,23 @@ advertise_one(Pool, Key, Realm, Org, Cap, Sups) ->
 %% publishes. `#{}' when the chain is not published yet: the wire
 %% advertise then fails fast with its own `{provider_authorization,
 %% _}' error, and the next republish tick retries the whole thing.
-resolved_authorization(Pool, Realm, OrgProcedure) ->
-    case macula:provider_authorization(Pool, Realm, OrgProcedure) of
-        {ok, Authorization} -> #{authorization => Authorization};
-        {error, _Reason}    -> #{}
-    end.
+%%
+%% The answer is recorded either way, for /health: a provider with no
+%% grant must not look healthy while serving nothing (see
+%% `mcl_om_provider_grant').
+recorded_authorization(OrgProcedure, Answer) ->
+    Previous = previous_grant(ets:lookup(?GRANTS, OrgProcedure)),
+    Entry = mcl_om_provider_grant:observed(Answer,
+                                           erlang:monotonic_time(millisecond),
+                                           Previous),
+    true = ets:insert(?GRANTS, {OrgProcedure, Entry}),
+    authorization_opts(Answer).
+
+previous_grant([{_Proc, Entry}]) -> Entry;
+previous_grant([])               -> undefined.
+
+authorization_opts({ok, Authorization}) -> #{authorization => Authorization};
+authorization_opts({error, _Reason})    -> #{}.
 
 %% @doc The org-qualified wire-level procedure string a handler-bearing
 %% capability's SECOND `advertise_direct' registration uses. Deliberately
