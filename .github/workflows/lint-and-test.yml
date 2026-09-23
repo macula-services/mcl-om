@@ -16,9 +16,10 @@
 # pass. Nobody started the run, so nobody saw it. This workflow deploys
 # nothing; a docs-only push skips it through paths-ignore.
 #
-# THE TOOLCHAIN IS THE IMAGE, pinned by its dated tag rather than :latest, so a
-# rebuilt image cannot change this gate between two runs of the same commit.
-# macula-io/macula-ci-images builds it (OTP 28.4.2, the team standard; an
+# THE TOOLCHAIN IS THE IMAGE, pinned by its dated tag AND digest rather than
+# :latest, so a rebuilt image cannot change this gate between two runs of the
+# same commit.
+# macula-io/macula-ci-images builds it (OTP 28.4.3, the team standard; an
 # OpenSSL with ML-DSA, which every PQ node key needs; rebar3, Rust, cmake) and
 # refuses to publish one whose crypto lacks mldsa87. This job used to build
 # OpenSSL 3.6.4 and OTP 28.1 from source to get the same thing, and 28.1 was a
@@ -52,11 +53,11 @@ permissions:
 
 jobs:
   check:
-    name: lint + eunit + ct (OTP 28.4.2)
+    name: lint + eunit + ct (OTP 28.4.3)
     runs-on: ubuntu-latest
     timeout-minutes: 90
     container:
-      image: ghcr.io/macula-io/macula-ci-otp:20260923-0912
+      image: ghcr.io/macula-io/macula-ci-otp:20260923-1347@sha256:b2260d084a3d3c5e0b74932c4ee052a0cadfddddb6587d5d2214873e6bb06330
     steps:
       - uses: actions/checkout@v4
 
@@ -69,7 +70,7 @@ jobs:
             Mldsa = lists:member(mldsa87, crypto:supports(public_keys)),
             io:format("OTP ~s, mldsa87 ~p~n", [Otp, Mldsa]),
             case {Otp, Mldsa} of
-                {<<"28.4.2">>, true} -> halt(0);
+                {<<"28.4.3">>, true} -> halt(0);
                 _                    -> halt(1)
             end.'
 

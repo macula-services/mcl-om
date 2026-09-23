@@ -3,6 +3,29 @@
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [SemVer](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+
+- **The service scaffold is pinned to one OTP, 28.4.3, everywhere.** The
+  builder was `erlang:28-alpine` and lint `erlang:28`, both floating; when
+  Docker Hub moved them on 2026-09-22, mcl-echo (generated from this) shipped
+  OTP 28.5 without anyone choosing it. The builder is now
+  `hexpm/erlang:28.4.3-alpine-3.22.6` (the runtime stage's Alpine) and lint
+  `hexpm/erlang:28.4.3-debian-trixie-20260918`, each pinned by digest, and
+  lint's first step refuses anything but exactly 28.4.3 with mldsa87. Public
+  images, so a stranger's generated service depends on nothing of ours
+  (Docker's own `erlang` publishes no 28.4.3).
+- **The generated service's runtime guard compares full releases, not
+  majors,** and requires the builder and lint digests; it passed on 28 vs
+  28.5. It also could not parse a pinned lint image, which would have failed
+  every newly scaffolded service's first `rebar3 eunit`. The template suite
+  now RUNS the generated guard instead of only compiling it, which is how
+  that was caught before release. A service generated earlier keeps its own
+  pins.
+- mcl-om's own CI runs in `macula-ci-otp:20260923-1347` (OTP 28.4.3) pinned by
+  digest, and the hex publish uses OTP 28.4.3.
+
 ## [0.26.3]
 
 ### Added

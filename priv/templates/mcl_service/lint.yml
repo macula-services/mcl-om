@@ -19,10 +19,26 @@ jobs:
   check:
     runs-on: ubuntu-latest
     container:
-      # ⚠ MUST MATCH THE `Containerfile' beside it. See the note there.
-      image: erlang:28
+      # ⚠ MUST MATCH THE `Containerfile' beside it: OTP 28.4.3, pinned by tag
+      # and digest. `erlang:28' floats, and a floating lint image tests a
+      # release nobody ships. hexpm's Debian trixie build, whose OpenSSL 3.5
+      # has the ML-DSA every PQ node key needs; the step below refuses
+      # anything else.
+      image: docker.io/hexpm/erlang:28.4.3-debian-trixie-20260918@sha256:956e41bfb44cf505bb526265d594ff91a3cc9945a5d32e1e8a8fbf1521d6707f
     steps:
       - uses: actions/checkout@v4
+      - name: Verify the toolchain is the one we think it is
+        run: |
+          openssl version
+          rebar3 version
+          erl -noshell -eval '
+            Otp = string:trim(element(2, file:read_file(filename:join([code:root_dir(), "releases", erlang:system_info(otp_release), "OTP_VERSION"])))),
+            Mldsa = lists:member(mldsa87, crypto:supports(public_keys)),
+            io:format("OTP ~s, mldsa87 ~p~n", [Otp, Mldsa]),
+            case {Otp, Mldsa} of
+                {<<"28.4.3">>, true} -> halt(0);
+                _                    -> halt(1)
+            end.'
       # cmake, build-essential: mcl_om pulls in rocksdb (via barrel_docdb)
       # and khepri/ra transitively, UNCONDITIONALLY -- needed even for a
       # storeless, producer-only service. libssl-dev is not listed because

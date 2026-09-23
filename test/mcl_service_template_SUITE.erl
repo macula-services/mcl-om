@@ -31,6 +31,8 @@
          image_build_decides_from_the_pushed_range/1,
          docs_only_gate_decides_each_push_shape/1,
          release_tag_does_not_move_latest/1,
+         generated_service_is_pinned_to_one_otp/1,
+         generated_runtime_guard_passes/1,
          no_unrendered_variable_survives/1,
          generated_workflow_keeps_actions_syntax/1,
          leaks_no_house_specifics/1,
@@ -54,6 +56,8 @@ all() ->
      image_build_decides_from_the_pushed_range,
      docs_only_gate_decides_each_push_shape,
      release_tag_does_not_move_latest,
+     generated_service_is_pinned_to_one_otp,
+     generated_runtime_guard_passes,
      no_unrendered_variable_survives,
      generated_workflow_keeps_actions_syntax,
      leaks_no_house_specifics,
@@ -300,6 +304,51 @@ docs_only_gate_decides_each_push_shape(Config) ->
     ?assertEqual(<<"build=true\n">>,  Gate(Lic3, Code4)),     %% code
     ?assertEqual(<<"build=true\n">>,  Gate(Docs2, Code4)),    %% docs and code
     ?assertEqual(<<"build=true\n">>,  Gate(Unknown, Code4)).  %% before not in history
+
+%% ONE OTP, NAMED THREE TIMES, NONE OF THEM FLOATING. The builder was
+%% `erlang:28-alpine' and lint `erlang:28'; when Docker Hub moved them on
+%% 2026-09-22, mcl-echo (generated from this) shipped OTP 28.5 without anyone
+%% choosing it. The builder and the lint image are both pinned by tag and
+%% digest, public hexpm images a stranger can pull (never ours: see
+%% leaks_no_house_specifics/1; Docker's own `erlang' has no 28.4.3), the
+%% builder on the same Alpine as the runtime stage, lint's first step refuses
+%% anything but 28.4.3 with mldsa87, and .tool-versions names the same release.
+generated_service_is_pinned_to_one_otp(Config) ->
+    Root = ?config(root, Config),
+    Containerfile = read(filename:join(Root, "Containerfile")),
+    Lint = read(filename:join(Root, ".github/workflows/lint.yml")),
+    ?assertMatch({match, _},
+                 re:run(Containerfile,
+                        "^FROM docker\\.io/hexpm/erlang:28\\.4\\.3-alpine-3\\.22\\.[0-9]+@sha256:[0-9a-f]{64} AS builder$",
+                        [multiline])),
+    ?assertMatch({match, _},
+                 re:run(Lint, "image: docker\\.io/hexpm/erlang:28\\.4\\.3-debian-trixie-[0-9]{8}@sha256:[0-9a-f]{64}$",
+                        [multiline])),
+    ?assertNotEqual(nomatch, binary:match(Lint, <<"{<<\"28.4.3\">>, true} -> halt(0);">>)),
+    ?assertMatch({match, _},
+                 re:run(read(filename:join(Root, ".tool-versions")), "^erlang 28\\.4\\.3$",
+                        [multiline])).
+
+%% THE GENERATED SERVICE'S OWN RUNTIME GUARD, RUN FOR REAL. This suite used to
+%% compile the generated sources and never run the generated tests, so a pin
+%% the guard could no longer parse passed here and would have failed every
+%% newly scaffolded service on its first `rebar3 eunit'. The guard finds the
+%% pinned files relative to its own beam, so it is compiled inside the
+%% generated repository. It also compares against the running VM, which is
+%% this suite's own: mcl_om's CI and the scaffold name the same release.
+generated_runtime_guard_passes(Config) ->
+    Root = ?config(root, Config),
+    Src = filename:join([Root, "apps", ?APP, "test", ?APP "_service_tests.erl"]),
+    Out = filename:join(Root, "guard_ebin"),
+    ok = filelib:ensure_path(Out),
+    {ok, Mod} = compile:file(Src, [{outdir, Out}, return_errors, debug_info]),
+    {module, Mod} = code:load_abs(filename:join(Out, atom_to_list(Mod))),
+    try
+        ok = Mod:the_runtime_agrees_between_the_image_the_ci_and_this_vm_test()
+    after
+        code:purge(Mod),
+        code:delete(Mod)
+    end.
 
 %% TWO CHANNELS: main publishes :latest, a v* tag publishes its own version and
 %% NOTHING ELSE. Watchtower rolls every box on :latest, so a tag that also
