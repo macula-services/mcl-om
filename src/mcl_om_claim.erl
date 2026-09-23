@@ -44,8 +44,10 @@ init([]) ->
         [] ->
             %% No seeds configured: the pool never exists, there is
             %% nothing to claim, and the service keeps its no-mesh
-            %% degrade contract. Stop normally.
-            {stop, normal};
+            %% degrade contract. `ignore', not `{stop, normal}': a
+            %% supervisor treats a stop from init/1 as a failed start and
+            %% takes the whole application down with it.
+            ignore;
         _ ->
             {ok, claim(#state{retry_ref = undefined})}
     end.

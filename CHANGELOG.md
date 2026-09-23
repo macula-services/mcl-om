@@ -3,6 +3,27 @@
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [SemVer](https://semver.org/).
 
+## [0.26.1]
+
+### Fixed
+
+- **A service with no seeds configured booted nothing.** `mcl_om_claim:init/1`
+  returned `{stop, normal}` when there was nothing to claim, and a supervisor
+  treats any stop from `init/1` as a failed start, so the whole application
+  went down with `{failed_to_start_child, mcl_om_claim, normal}` instead of
+  degrading to the documented no-mesh contract. It now returns `ignore`.
+  Deployed services all configure seeds, so none was affected.
+- **`mcl_om_mesh_pool_SUITE` can pass again**, and it is the only test that
+  starts a real macula pool through mcl-om. Its seeded cases never configured
+  realm trust, which mcl-om has required since it stopped falling through to
+  an empty map, so they failed on configuration before reaching macula. They
+  now pin a freshly generated realm key. Checked by mutation: putting
+  `verify => none` back into `base_pool_opts/0` turns the suite red with
+  `{refused, {verify, one_verification_mode}}`.
+
+Both failures were already on main before the macula 12 port and went unseen
+because the lint-and-test workflow only runs when started by hand.
+
 ## [0.26.0]
 
 The version follows 0.4.0 directly. It jumps to 0.26.0 because this repo
