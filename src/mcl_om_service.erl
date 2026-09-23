@@ -8,8 +8,8 @@ callbacks let a service own a reckon-db store, a barrel_docdb read model,
 mesh subscriptions and human-facing capability descriptions. Health wiring,
 capability advertisement and the optional stores are handled by the rest of
 mcl_om; a new service repository (release, Containerfile, CI workflows,
-compose file) is generated with `rebar3 new hecate_service` from
-`priv/templates/hecate_service/`.
+compose file) is generated with `rebar3 new mcl_service` from
+`priv/templates/mcl_service/` (see `scripts/scaffold-service.sh`).
 
 When a service exports the optional `c:store_id/0` and `c:data_dir/0`
 callbacks, `mcl_om:boot/1` does the following before it calls

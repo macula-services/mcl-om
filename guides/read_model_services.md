@@ -1,8 +1,8 @@
-# How to build a mesh-fact-driven read model with hecate-om
+# How to build a mesh-fact-driven read model with mcl_om
 
 A "read-model service" is one whose whole job is: listen for mesh facts of a given kind,
 maintain a queryable local copy, and serve it back out (usually via a `capabilities/0`
-RPC). `hecate-services/hecate-stations` is the running example this guide is built from —
+RPC). `macula-services/mcl-stations` is the running example this guide is built from —
 station directory-by-geo. A capability directory would be the same shape, subscribing to
 `procedure_advertisement` facts instead of `node_record` ones.
 
@@ -175,5 +175,5 @@ refresh on the order of hours, not seconds.
 - [`hecate-corpus/examples/MESH_FACT_READ_MODELS.md`](https://github.com/hecate-social/hecate-corpus/blob/main/examples/MESH_FACT_READ_MODELS.md) — the pattern, the "why," and the real bug it's drawn from
 - [`mesh_native_services.md`](mesh_native_services.md) — subscribing/publishing/calling over the mesh, the layer this guide builds on
 - [`service_anatomy.md`](service_anatomy.md) — the boot lifecycle this guide assumes
-- `hecate-services/hecate-stations` — the real, currently-shipping example this whole
-  guide was extracted from finding a genuine gap in, not a clean-room design
+- `macula-services/mcl-stations` — the running example, ported from the hecate-stations
+  service this guide was extracted from finding a genuine gap in, not a clean-room design

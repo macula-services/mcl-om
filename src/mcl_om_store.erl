@@ -1,4 +1,4 @@
-%%% @doc Canonical reckon-db + evoq wiring helper for hecate-services.
+%%% @doc Canonical reckon-db + evoq wiring helper for mcl services.
 %%%
 %%% Encapsulates the "start a store, wait for it, start the
 %%% per-store evoq subscription" pattern documented as MANDATORY in

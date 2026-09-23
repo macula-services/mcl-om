@@ -346,7 +346,7 @@ is the second layer this guide's other chapters have: a `mcl_om`-
 level facade that resolves `mesh_handles/0` for you and picks a
 default callback shape. It doesn't exist because exactly one service
 in the whole workspace survey uses streaming at all
-(`hecate-services/hecate-tube`, for video), and its callback logic —
+(`macula-services/mcl-tube`, for video), and its callback logic —
 chunking a specific video file off disk — is genuinely
 service-specific in a way a generic wrapper can't cleanly generalize
 from a single example. A second real exemplar would make building one
@@ -492,7 +492,7 @@ and non-blocking.
   that keeps it from serving stale entries forever, and the discovery-at-
   scale reasoning behind relying on the subscription rather than a
   `find_records_by_type` crawl.
-- `hecate-services/hecate-tube` — the fullest real exemplar of a
+- `macula-services/mcl-tube` — the fullest real exemplar of a
   service using every primitive in this guide, including the two
   chapters 4–5 note aren't wrapped yet (streaming, and content's
   put/get before `mcl_om_content` existed) — built directly against

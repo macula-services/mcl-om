@@ -1,4 +1,4 @@
-%%% @doc Canonical barrel_docdb read-model wiring for hecate-services.
+%%% @doc Canonical barrel_docdb read-model wiring for mcl services.
 %%%
 %%% Encapsulates "open (or create) a database at data_dir/read_model_id".
 %%% Services don't call this module directly — `mcl_om:boot/1'
