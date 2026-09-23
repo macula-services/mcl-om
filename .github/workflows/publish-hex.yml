@@ -6,8 +6,10 @@ name: Publish to hex
 # checks that the checkout is the clean, pushed release tag, builds the
 # package and docs, publishes, and checks that hex serves the tagged code.
 #
-# - A pushed tag vX.Y.Z runs `verify`. Then `publish` waits in the
-#   `hex-publish` environment until its required reviewer approves it.
+# - A pushed tag vX.Y.Z runs `verify`, then `publish` runs at once. NO ONE
+#   REVIEWS IT: pushing the tag IS the release, by design. The `hex-publish`
+#   environment only holds HEX_API_KEY and restricts which refs may use it
+#   (tags matching v*.*.*); it has no required reviewers.
 # - A manual dispatch is a dry run: it runs `verify` for the given tag and
 #   never publishes. GitHub only dispatches a workflow that is on the
 #   default branch.
@@ -75,8 +77,8 @@ jobs:
         run: rebar3 hex build
 
       # The publish job's command as a dry run, with a placeholder key. It
-      # fails here, before anyone is asked to approve, if the command does
-      # not read a key from HEX_API_KEY; it cannot tell whether the real key
+      # fails here, before the publish job starts, if the command does not
+      # read a key from HEX_API_KEY; it cannot tell whether the real key
       # works. The dead API URL keeps the placeholder away from hex.pm.
       - name: Dry-run the publish command
         working-directory: pkg
