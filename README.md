@@ -213,7 +213,7 @@ Generates a repository that compiles, tests and deploys:
 - `config/sys.config.src` and `config/vm.args.src`
 - `Containerfile` (multi-stage, macula's QUIC NIF built from source)
 - `deploy/docker-compose.yml` — the service's own run contract, **not** the
-  deployed file; fleet placement lives in `macula-demo`. It mounts a named
+  deployed file; fleet placement lives in `macula-io/macula-fleet`. It mounts a named
   volume, `<repo>-secrets`, at `/etc/mcl/secrets`, where the service's identity
   key lives, so the node id survives a container recreate
 - `.github/workflows/` — `lint` and `build-push` to ghcr.io
@@ -238,17 +238,36 @@ created **private**, and the pull then fails on the host with a bare
 ### Deploying on the BEAM Campus fleet
 
 Ours, and deliberately not part of the scaffold. `deploy/docker-compose.yml` in
-a generated service carries what the service knows about itself; the fleet's
-GitOps state lives in `macula-demo` and carries **placement**.
+a generated service carries what the service knows about itself;
+`macula-io/macula-fleet` carries **placement**: which box, which station pins,
+which realm key, which secret file. The boxes pull it; nothing is pushed to them.
 
-1. Add a compose file under `macula-demo/infrastructure/scripts/` with the node,
-   the station seed, the realm, the secret file and the compose project name.
-2. Add a line to that node's `reconcile.manifest`.
-3. Seed the node's secret at `~/.hecate/secrets/`, 0600. A manifest entry
-   without it is a silent no-op that looks exactly like a successful deploy.
+**How a box runs its services.** Each box has macula-fleet checked out at
+`~/gitops/macula-fleet`. The `hecate-reconcile` systemd `--user` timer runs
+`edge/gitops/reconcile.sh` every 2 minutes: it fast-forwards the checkout and
+runs `docker compose up -d` for every row of `edge/<box>/reconcile.manifest`.
+Who updates images is set per box in `edge/<box>/reconcile.options`. The
+default is watchtower, which polls every 60 s and rolls any container labelled
+`com.centurylinklabs.watchtower.enable=true` onto a new `:latest`; the
+reconciler then applies config only.
 
-Health ports already bound across the fleet: 8450, 8471, 8481, 8482, 8483. Host
-networking makes a collision a silent bind failure.
+**To put a new service on a box:**
+
+1. Add `edge/scripts/docker-compose.<service>.yml` to macula-fleet: the image,
+   `network_mode: host`, the named identity volume at `/etc/mcl/secrets`, the
+   watchtower label, and the environment the service reads.
+2. Add a row to `edge/<box>/reconcile.manifest`:
+   `<project> <compose> <config-env|-> <secret-file|-> <prep|->`. Public per-box
+   configuration, such as `MCL_REALM_KEY` (the realm's public key), goes in a
+   committed `edge/<box>/<service>-config.env`.
+3. Seed the secrets once, on the box, at `~/.hecate/secrets/<name>.env`, 0600,
+   never committed (`MCL_COOKIE`, for one). A row whose secret file is missing
+   starts nothing: the reconciler logs `[reconcile] FAILED: <project>`, and only
+   `journalctl --user -u hecate-reconcile` shows it.
+4. Push macula-fleet. The box picks it up on its next tick, within 2 minutes.
+
+Health ports bound on beam00 today: 8450, 8461 (mcl-echo), 8484, 8494. Host
+networking turns a collision into a silent bind failure.
 
 ## Status
 

@@ -377,7 +377,8 @@ leaks_no_house_specifics(Config) ->
                  <<"hecate-services">>,   %% the parent org -- a leak here
                                           %% means the rename missed one
                  <<"ghcr.io/">>,          %% our registry, as a path prefix
-                 <<"macula-demo">>,       %% our GitOps repository
+                 <<"macula-demo">>,       %% our old GitOps repository
+                 <<"macula-fleet">>,      %% our GitOps repository
                  <<"beam0">>,             %% our node names
                  <<"reconcile.manifest">> %% our deployment mechanism
                 ],
