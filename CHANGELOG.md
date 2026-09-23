@@ -3,6 +3,55 @@
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [SemVer](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+
+- **Ported to macula 12** (`{macula, "~> 12.0"}`).
+- **The pool no longer composes a `verify` entry at all**, and
+  `mcl_om_identity:verify_mode/0`, `verify_mode_of/1` and the `MCL_OM_VERIFY`
+  environment variable are gone with it. macula 12 has ONE verification mode:
+  a client verifies the station's own ML-DSA-87 certificate and nothing else.
+  It refuses `verify` in any value, on a seed, at `connect` and in
+  `call_station` opts, with
+  `{error, {refused, {verify, one_verification_mode}}}`. So this is not a
+  changed default: a pool that still passed one would fail to start.
+
+  The three-way choice 0.4.0 documented (`none`, `webpki`, and a named error
+  for anything else) existed because 11.4.0 ignored the option and 11.5.0
+  honoured it, which made a stale `webpki` a live hazard. One mode removes
+  that class of drift. Nothing is lost, for the reason 0.4.0 already gave:
+  what binds a station link to the node it dialled is the D16 handshake pin,
+  `expected_node_id`, still required on every seed.
+- `mcl_om_capabilities` no longer passes `verify => none` to
+  `macula:call_station/8`. In 12 that call keeps `maps:with([expected_node_id],
+  Opts)` and refuses `verify` and `pin_tls_cert` by name.
+- **`{macula, puzzle_difficulty, _}` removed from `config/test.sys.config` and
+  from the service scaffold `priv/templates/mcl_service/sys.config.src`.**
+  macula 12 (D30) makes the difficulty one constant for the fleet,
+  `macula_node_keys:puzzle_difficulty()` (currently 8, unchanged), and raises
+  `{bad_config, {macula, puzzle_difficulty, {not_a_setting, Value}}}` at
+  application start when the setting is present, WHATEVER its value: a node
+  that set one would believe it had chosen a difficulty nothing reads. The
+  scaffold change matters most, because every mcl-* service yet to be written
+  inherits it. The `#{puzzle_difficulty => N}` OPTION to
+  `macula_node_keys:generate/3` is untouched and still valid; tests still pass
+  `0` there to skip the grind.
+- **`config/test.sys.config` now sets `node_identity_path`.** Raf's ruling of
+  2026-09-23 gives a machine ONE stored identity, so `connect/2` with no
+  `node_identity` loads `~/.local/share/macula/identity.key` instead of
+  grinding a fresh key per pool. A suite that leaves the path unset reads, and
+  on a fresh machine writes, the identity of whatever is running it, and fails
+  outright when that file's profile differs from the suite's.
+
+### Testing
+
+- The three `pool_verify_*` tests are replaced by
+  `pool_opts_carry_no_verify_entry_test_`, which asserts the new contract
+  directly: no `verify` key, and the realm trust anchor still composed in. The
+  second assertion is there because the absence check alone would pass on an
+  empty map.
+
 ## [0.4.0]
 
 ### Changed

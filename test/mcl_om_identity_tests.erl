@@ -310,77 +310,38 @@ realm_key_that_is_not_hex_names_the_variable_test_() ->
      end}.
 
 %%%-------------------------------------------------------------------
-%%% The pool's TLS verify mode
+%%% The pool's trust options
 %%%
-%%% ⚠ THE DEFAULT IS `none', AND THAT IS THE SAFE DIRECTION. It used to
-%%% be `webpki'. That was harmless only because macula 11.4.0's dial
-%%% builder discarded whatever the caller asked for and passed a literal
-%%% `{verify, none}'. 11.5.0 fixes that bug, so the value becomes a real
-%%% X.509 chain check against the QUIC NIF's built-in public roots, and
-%%% a default nobody chose would start deciding whether a pool can reach
-%%% the mesh at all.
+%%% ⚠ NO `verify' ENTRY, AND THAT IS NOW A HARD CONTRACT. macula 12 has
+%%% ONE verification mode: a client verifies the station's own ML-DSA-87
+%%% certificate and nothing else. It refuses `verify' in any value, on a
+%%% seed, at `connect' and in `call_station' opts, with
+%%% `{error, {refused, {verify, one_verification_mode}}}'. A pool that
+%%% still composed one would not quietly get a different TLS policy --
+%%% it would fail to start.
 %%%
-%%% Nothing is lost by defaulting to `none'. What binds a station link
-%%% to the node it dialled is the D16 handshake pin (`expected_node_id',
-%%% required), not the certificate chain -- see
-%%% `macula_peering_conn:dial_opts/1' in 11.5.0, whose own doc says a
-%%% station's leaf is self-signed or issued by an unrelated PKI. A chain
-%%% check adds nothing the pin does not already give, and it makes the
-%%% mesh depend on a public CA and on a renewal nobody is watching: a
-%%% lapsed or rotated certificate would take every mcl-* pool offline
-%%% for a reason with nothing to do with the mesh, and nobody would look
-%%% there first.
-%%%
-%%% macula-station reached the same conclusion for its own outbound
-%%% links in `e07010d'. mcl_om is the consumer that never got the
-%%% equivalent, and the scaffold's `sys.config.src' sets nothing, so
-%%% every mcl-* service yet to be written inherits whatever this is.
+%%% The three modes this suite used to assert over (`none', `webpki',
+%%% and a named error for anything else) are gone with the option, and
+%%% `MCL_OM_VERIFY' with them. What binds a station link to the node it
+%%% dialled is unchanged, and is what was always doing the work: the D16
+%%% handshake pin, `expected_node_id', required on every seed.
 %%%-------------------------------------------------------------------
 
-pool_verify_defaults_to_none_test_() ->
-    {setup, fun save_verify_env/0, fun restore_verify_env/1,
+%% The regression guard for the 12 port. Composing a `verify' entry back
+%% into the pool opts breaks the service at start on a live deploy, and
+%% this is the cheapest place to catch it.
+pool_opts_carry_no_verify_entry_test_() ->
+    {setup, fun save_realm_env/0, fun restore_realm_env/1,
      fun(_) ->
-        [?_assertMatch(#{verify := none}, pool_opts_with(false))]
+        [?_assertNot(maps:is_key(verify, pool_opts())),
+         %% The trust anchor is still composed in. Asserting only the
+         %% absence above would pass just as well on an empty map.
+         ?_assertEqual(1, map_size(maps:get(realm_trust, pool_opts())))]
      end}.
 
-%% The opt-in still works, for a caller that genuinely has a chain worth
-%% checking -- exactly the shape `dial_opts/1' documents.
-pool_verify_webpki_is_opt_in_test_() ->
-    {setup, fun save_verify_env/0, fun restore_verify_env/1,
-     fun(_) ->
-        [?_assertMatch(#{verify := webpki}, pool_opts_with("webpki")),
-         ?_assertMatch(#{verify := none}, pool_opts_with("none"))]
-     end}.
-
-%% A value that is neither names the variable instead of silently
-%% picking a mode. `verify => true' was the 10.x spelling and is still
-%% in this repo's own older guides, so a stale deploy carrying it is not
-%% hypothetical -- and under a silent fallback it would select whichever
-%% mode the fallback happened to be, in a deploy whose operator believed
-%% they had asked for the other one.
-pool_verify_unknown_value_names_the_variable_test_() ->
-    {setup, fun save_verify_env/0, fun restore_verify_env/1,
-     fun(_) ->
-        [?_assertError({mcl_om_verify, {unknown_mode, "true"}},
-                       pool_opts_with("true"))]
-     end}.
-
-%% Realm trust is set alongside because base_pool_opts/0 composes the
-%% two and refuses to build without a trust anchor.
-pool_opts_with(Verify) ->
+pool_opts() ->
     set_realm_env(binary:encode_hex(?TRUST_REALM, lowercase), ?TRUST_KEY_HEX),
-    set_env("MCL_OM_VERIFY", Verify),
     mcl_om_identity:base_pool_opts().
-
-save_verify_env() ->
-    {save_realm_env(), os:getenv("MCL_OM_VERIFY")}.
-
-%% Restores an UNSET variable by unsetting it. The older `restore_env/2'
-%% above returns ok for `false' and so leaves a variable this suite set
-%% behind for whatever runs next; not reused here for that reason.
-restore_verify_env({RealmEnv, Verify}) ->
-    restore_realm_env(RealmEnv),
-    set_env("MCL_OM_VERIFY", Verify).
 
 save_realm_env() ->
     {application:get_env(mcl_om, realm), application:get_env(mcl_om, realm_key)}.

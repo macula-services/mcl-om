@@ -785,9 +785,10 @@ call_capability_via(_Pool, _Realm, _Org, _CapName, _Payload, _TimeoutMs, _Opts) 
 
 %% @doc Explicit-pool form (testable without mcl_om_identity).
 %% `Opts': `ucan_token => binary()' (presented to a gated provider).
-%% The 10.x `verify => true' cert-chain mode is gone with the cert
-%% authorization form: in 11.x the trust check is the D25 authorization
-%% the pool verifies against its realm_trust keys, and the pinned
+%% There is no TLS mode to choose. The 10.x `verify => true' cert-chain
+%% form went with the cert authorization form, and macula 12 refuses
+%% `verify' in any value: the trust check is the D25 authorization the
+%% pool verifies against its realm_trust keys, plus the pinned
 %% expected_node_id below.
 -spec call_capability(pid(), binary(), binary(), binary(), term(),
                       pos_integer(), map()) -> {ok, term()} | {error, term()}.
@@ -813,16 +814,16 @@ call_providers([#{serving_station := Station, advertiser := Advertiser,
 %% CONNECT/HELLO handshake refuses any other identity, and a station's
 %% TLS cert has no relationship to its macula identity. The CALL's
 %% target is the PROVIDER's node id (the station routes by it, and the
-%% reply verifies as answered by that exact target); the endpoint's IP
-%% literal has no IP SAN, so TLS verification is none -- the pinned
-%% handshake is the whole transport trust, exactly macula's own
-%% direct-dial caller (macula_station_gated_call_SUITE's call/6).
+%% reply verifies as answered by that exact target); the station proves
+%% only that it holds the key of the self-signed ML-DSA-87 certificate
+%% it presents, so the pinned handshake is the whole transport trust,
+%% exactly macula's own direct-dial caller
+%% (macula_station_gated_call_SUITE's call/6).
 dial_provider({ok, Url}, Station, Advertiser, Procedure, Rest, Pool, Realm,
               CapName, Payload, TimeoutMs, Ucan) ->
     CallResult = macula:call_station(Pool, Url, Advertiser, Realm, Procedure,
                                      Payload, TimeoutMs,
                                      #{ucan_token => Ucan,
-                                       verify => none,
                                        expected_node_id => Station}),
     failover(CallResult, Rest, Pool, Realm, CapName, Payload, TimeoutMs, Ucan);
 dial_provider({error, _}, _Station, _Advertiser, _Procedure, Rest, Pool, Realm,

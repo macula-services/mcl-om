@@ -30,10 +30,10 @@
 -export([start_link/0, macula_client/0, realm/0, identity_key/0, org/0]).
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
 %% Exported for mcl_om_identity_tests.erl — pure resolution logic.
-%% `base_pool_opts/0' is the composed map that reaches `macula:connect/2',
-%% and its `verify' entry decides whether a station link does a real X.509
-%% chain check; asserting on the composed result rather than on
-%% `verify_mode/0' alone is what catches a regression in either half.
+%% `base_pool_opts/0' is the composed map that reaches `macula:connect/2'.
+%% Under macula 12 what matters about it is what it does NOT carry: a
+%% `verify' entry is refused in any value, so composing one back in is a
+%% start-time failure rather than a silently different TLS policy.
 -export([node_key_from/1, realm_trust_opts/0, base_pool_opts/0]).
 %% Exported for mcl_om_sup.erl and as the mesh pool child's start function.
 -export([configured_seeds/0, start_mesh_pool/0]).
@@ -168,7 +168,7 @@ pool_opts(NodeKey) ->
     maps:merge(base_pool_opts(), #{node_identity => NodeKey}).
 
 base_pool_opts() ->
-    maps:merge(#{verify => verify_mode()}, realm_trust_opts()).
+    realm_trust_opts().
 
 %% The realm key the pool pins for org-namespaced advertisement
 %% verification (D25): `#{RealmId => RealmKey}', the realm's public
@@ -224,47 +224,6 @@ realm_key_decoded(false, KeyHex) ->
 hex_shaped(Hex) ->
     byte_size(Hex) rem 2 =:= 0 andalso
         match =:= re:run(Hex, <<"^[0-9a-fA-F]+$">>, [{capture, none}]).
-
-%% The pool's TLS policy for every station link it dials.
-%%
-%% ⚠ `none' IS THE DEFAULT AND IS THE SAFE DIRECTION HERE. It was
-%% `webpki', which was harmless only by accident: macula 11.4.0's
-%% `macula_peering_conn:start_dial/1' discarded the caller's value and
-%% passed a literal `{verify, none}', so the option was decorative. 11.5.0
-%% fixes that bug and honours the target's value, which turns this default
-%% into a real X.509 chain check against the QUIC NIF's built-in public
-%% roots on every station dial.
-%%
-%% Nothing is lost by not checking the chain. What binds a link to the
-%% node it dialled is the D16 handshake pin: `expected_node_id' is
-%% required and a link without one refuses to start. 11.5.0's own
-%% `dial_opts/1' says it plainly -- a station's leaf is self-signed or
-%% issued by an unrelated PKI, and the signed handshake is what binds the
-%% connection, not the certificate chain. Checking the chain as well adds
-%% nothing the pin does not already give, and it makes reaching the mesh
-%% depend on a public CA and on a certificate renewal nobody is watching.
-%% A lapsed or rotated cert would take every mcl-* pool offline for a
-%% reason with nothing to do with the mesh, and nobody would look there
-%% first.
-%%
-%% macula-station reached the same conclusion for its own outbound links
-%% in `e07010d'. This is the consumer-side equivalent, and because the
-%% service scaffold's `sys.config.src' sets no `verify' at all, this
-%% default is what every mcl-* service yet to be written will inherit.
-%%
-%% `MCL_OM_VERIFY=webpki' remains the opt-in for a caller that genuinely
-%% has a chain worth checking. Anything else NAMES THE VARIABLE rather
-%% than silently picking a mode: `verify => true' was the 10.x spelling
-%% and still appears in this repo's older guides, so a stale deploy
-%% carrying it is not hypothetical, and under a silent fallback it would
-%% get whichever mode the fallback happened to be while its operator
-%% believed they had asked for the other.
-verify_mode() ->
-    verify_mode_of(os:getenv("MCL_OM_VERIFY", "none")).
-
-verify_mode_of("none")   -> none;
-verify_mode_of("webpki") -> webpki;
-verify_mode_of(Other)    -> error({mcl_om_verify, {unknown_mode, Other}}).
 
 %% Load the stable on-disk service node key when `identity_key_path' is
 %% configured; `undefined' (the SDK auto-generates an ephemeral
