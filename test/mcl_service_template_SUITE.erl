@@ -33,6 +33,8 @@
          release_tag_does_not_move_latest/1,
          generated_service_is_pinned_to_one_otp/1,
          generated_runtime_guard_passes/1,
+         generated_lint_toolchain_runs_in_its_image/1,
+         generated_rebar3_is_pinned_by_sha256/1,
          no_unrendered_variable_survives/1,
          generated_workflow_keeps_actions_syntax/1,
          leaks_no_house_specifics/1,
@@ -58,6 +60,8 @@ all() ->
      release_tag_does_not_move_latest,
      generated_service_is_pinned_to_one_otp,
      generated_runtime_guard_passes,
+     generated_lint_toolchain_runs_in_its_image,
+     generated_rebar3_is_pinned_by_sha256,
      no_unrendered_variable_survives,
      generated_workflow_keeps_actions_syntax,
      leaks_no_house_specifics,
@@ -347,8 +351,58 @@ generated_runtime_guard_passes(Config) ->
         ok = Mod:the_runtime_agrees_between_the_image_the_ci_and_this_vm_test()
     after
         code:purge(Mod),
-        code:delete(Mod)
+        code:delete(Mod),
+        %% Gone before the cases that scan every generated file: a compiled
+        %% beam is binary, and its bytes can contain `{{' or a house name by
+        %% chance, which made no_unrendered_variable_survives flaky.
+        ok = file:del_dir_r(Out)
     end.
+
+%% THE GENERATED LINT JOB'S TOOLCHAIN STEP, RUN IN THE IMAGE IT NAMES. Every
+%% other check here reads the workflow's TEXT, and the text was right while the
+%% pinned image had no rebar3, git or curl: a generated service's first push
+%% died on `rebar3 version'. scripts/is_lint_toolchain_runnable.sh runs that
+%% step for real. It needs podman or docker; without either (mcl_om's own CI
+%% container) this case is skipped by name, and the `template-lint-image' job
+%% in lint-and-test.yml runs the same script on a host that has one.
+generated_lint_toolchain_runs_in_its_image(Config) ->
+    Lint = filename:join(?config(root, Config), ".github/workflows/lint.yml"),
+    Script = filename:join([filename:dirname(?FILE), "..", "scripts",
+                            "is_lint_toolchain_runnable.sh"]),
+    Port = erlang:open_port({spawn_executable, Script},
+                            [{args, [Lint]}, exit_status, stderr_to_stdout, binary]),
+    lint_toolchain_outcome(collect_status(Port, <<>>)).
+
+lint_toolchain_outcome({0, Out}) ->
+    ?assertNotEqual(nomatch, binary:match(Out, <<"OTP 28.4.3, mldsa87 true">>)),
+    ok;
+lint_toolchain_outcome({3, _Out}) ->
+    {skip, no_container_runtime_here_covered_by_the_template_lint_image_ci_job};
+lint_toolchain_outcome({Status, Out}) ->
+    ct:fail({lint_toolchain_failed_in_its_image, Status, Out}).
+
+collect_status(Port, Acc) ->
+    receive
+        {Port, {data, Bin}}      -> collect_status(Port, <<Acc/binary, Bin/binary>>);
+        {Port, {exit_status, N}} -> {N, Acc}
+    after 900000 ->
+        ct:fail({lint_toolchain_timeout, Acc})
+    end.
+
+%% rebar3 is a tool in the build and test path, pinned like the images: one
+%% release, verified by sha256, the SAME in the image build and in lint. The
+%% image build fetched it from an S3 URL that serves whatever was published
+%% last.
+generated_rebar3_is_pinned_by_sha256(Config) ->
+    Root = ?config(root, Config),
+    Pinned = [read(filename:join(Root, F))
+              || F <- ["Containerfile", ".github/workflows/lint.yml"]],
+    Sums = [re:run(B, "\\b([0-9a-f]{64})  /usr/local/bin/rebar3", [{capture, all_but_first, binary}])
+            || B <- Pinned],
+    ?assertMatch([{match, [Sum]}, {match, [Sum]}], Sums),
+    [?assertNotEqual(nomatch,
+                     binary:match(B, <<"releases/download/3.27.0/rebar3">>)) || B <- Pinned],
+    [?assertEqual(nomatch, binary:match(B, <<"s3.amazonaws.com/rebar3">>)) || B <- Pinned].
 
 %% TWO CHANNELS: main publishes :latest, a v* tag publishes its own version and
 %% NOTHING ELSE. Watchtower rolls every box on :latest, so a tag that also

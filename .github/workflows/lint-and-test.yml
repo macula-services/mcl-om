@@ -95,3 +95,15 @@ jobs:
       # mcl_service_template_SUITE shells out to `rebar3 new', so rebar3 must
       # be on PATH (the image installs it to /usr/local/bin).
       - run: rebar3 ct
+
+  # The scaffold's lint job, run in the image it names. The template suite runs
+  # the same script, but mcl_om's own `check' job is itself a container with no
+  # podman or docker inside, so there the suite skips that case by name. This
+  # job, on the runner itself, is what keeps it from being a skip everywhere.
+  template-lint-image:
+    name: scaffold lint toolchain runs in its pinned image
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - run: scripts/is_lint_toolchain_runnable.sh priv/templates/mcl_service/lint.yml

@@ -26,9 +26,44 @@ jobs:
       # anything else.
       image: docker.io/hexpm/erlang:28.4.3-debian-trixie-20260918@sha256:956e41bfb44cf505bb526265d594ff91a3cc9945a5d32e1e8a8fbf1521d6707f
     steps:
-      - uses: actions/checkout@v4
-      - name: Verify the toolchain is the one we think it is
+      # BEFORE checkout, because the image is OTP and little else: no git (so
+      # checkout would fall back to the REST API, with no real clone and no
+      # tags), no curl, no C toolchain, no rebar3. rebar3 is pinned to a
+      # release and its sha256, the same way the images are pinned: an
+      # unpinned tool in this path is how a publish was lost once already.
+      #
+      # cmake, build-essential: mcl_om pulls in rocksdb (via barrel_docdb)
+      # and khepri/ra transitively, UNCONDITIONALLY -- needed even for a
+      # storeless, producer-only service.
+      #
+      # libssl-dev: rocksdb's CMake links OpenSSL::Crypto and fails to
+      # configure without it ("Could NOT find OpenSSL"). It is the same
+      # Debian package version as the libcrypto this image's OTP links, so
+      # the VM still holds exactly one libcrypto.
+      #
+      # libsnappy-dev liblz4-dev libzstd-dev libbz2-dev: rocksdb's CMakeLists
+      # auto-detects each of these via find_package() and, if one is
+      # missing, silently disables it rather than failing the build -- so
+      # the compile step goes green while producing a NIF whose runtime
+      # config (barrel_docdb defaults document-body/BlobDB compression to
+      # snappy) can't actually open: `db_open' fails with "The specified
+      # blob compression type Snappy is not available." Install all four,
+      # not just whichever one happened to be exercised first.
+      #
+      # mcl_om's template suite runs the block between the markers in this
+      # image (scripts/is_lint_toolchain_runnable.sh), so a tool missing here
+      # fails there first.
+      - name: Install and verify the toolchain
         run: |
+          # toolchain-begin
+          apt-get update -qq
+          apt-get install -y -qq --no-install-recommends git curl ca-certificates \
+            cmake build-essential libssl-dev libsnappy-dev liblz4-dev libzstd-dev libbz2-dev
+          curl -fsSL -o /usr/local/bin/rebar3 \
+            https://github.com/erlang/rebar3/releases/download/3.27.0/rebar3
+          echo "af85aab41f9fd74bdd6341ebdf6fe9c88077aab9f8eac82371583fa02f2b0bdf  /usr/local/bin/rebar3" \
+            | sha256sum -c -
+          chmod +x /usr/local/bin/rebar3
           openssl version
           rebar3 version
           erl -noshell -eval '
@@ -39,25 +74,8 @@ jobs:
                 {<<"28.4.3">>, true} -> halt(0);
                 _                    -> halt(1)
             end.'
-      # cmake, build-essential: mcl_om pulls in rocksdb (via barrel_docdb)
-      # and khepri/ra transitively, UNCONDITIONALLY -- needed even for a
-      # storeless, producer-only service. libssl-dev is not listed because
-      # the debian-based erlang image already ships it; alpine (the
-      # Containerfile's runtime base) does not, which is why it's explicit
-      # there.
-      #
-      # libsnappy-dev liblz4-dev libzstd-dev libbz2-dev: rocksdb's CMakeLists
-      # auto-detects each of these via find_package() and, if one is
-      # missing, silently disables it rather than failing the build -- so
-      # the compile step goes green while producing a NIF whose runtime
-      # config (barrel_docdb defaults document-body/BlobDB compression to
-      # snappy) can't actually open: `db_open' fails with "The specified
-      # blob compression type Snappy is not available." Hit for real in
-      # mcl_om's own CI (see its lint-and-test.yml for the incident) and
-      # again in hecate-stations, the first scaffolded service to actually
-      # exercise read_model_id/0 in CI -- install all four, not just
-      # whichever one happened to be exercised first.
-      - run: apt-get update && apt-get install -y --no-install-recommends cmake build-essential libsnappy-dev liblz4-dev libzstd-dev libbz2-dev curl
+          # toolchain-end
+      - uses: actions/checkout@v4
       - name: Install Rust toolchain
         run: |
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \

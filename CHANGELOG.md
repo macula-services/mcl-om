@@ -7,6 +7,24 @@ Versioning: [SemVer](https://semver.org/).
 
 ### Fixed
 
+- **A service generated from the scaffold passes its first CI run.** The
+  pinned lint image (`hexpm/erlang:28.4.3-debian-trixie`) is OTP and little
+  else: no rebar3, git, curl, C toolchain or OpenSSL headers, so a generated
+  service's first push died on `rebar3 version`, and checkout without git
+  made no real clone. A toolchain step now runs before checkout: it installs
+  git, curl, cmake, build-essential, libssl-dev and the codec libs, and
+  rebar3 3.27.0 verified by sha256, then checks OTP 28.4.3 with mldsa87. The
+  image build installs the same rebar3, same checksum, instead of whatever
+  the S3 URL served. The image stays public on purpose: the scaffold depends
+  on nothing of ours.
+- **The template suite RUNS the generated lint job's toolchain step in its
+  image** (`scripts/is_lint_toolchain_runnable.sh`, podman or docker), instead
+  of only reading the workflow's text, which was correct while the image could
+  not run it. mcl-om's own CI job is a container without a runtime, so there
+  the case skips by name and a `template-lint-image` job on the runner runs the
+  script. Verified once end to end on a freshly generated service in the
+  pinned image: lint passes, its 10 tests pass, its image builds on 28.4.3.
+
 - **The service scaffold is pinned to one OTP, 28.4.3, everywhere.** The
   builder was `erlang:28-alpine` and lint `erlang:28`, both floating; when
   Docker Hub moved them on 2026-09-22, mcl-echo (generated from this) shipped
