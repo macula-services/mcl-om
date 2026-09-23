@@ -1,11 +1,10 @@
 -module(mcl_om_service).
 -moduledoc """
-The behaviour every hecate-service implements.
+The behaviour every mcl service implements.
 
 Six callbacks are required: `c:info/0`, `c:start/1`, `c:stop/1`,
 `c:health/0`, `c:capabilities/0` and `c:identity_spec/0`. The optional
-callbacks let a service own a reckon-db store, a barrel_docdb read model,
-mesh subscriptions and human-facing capability descriptions. Health wiring,
+callbacks let a service own a reckon-db store, mesh subscriptions and human-facing capability descriptions. Health wiring,
 capability advertisement and the optional stores are handled by the rest of
 mcl_om; a new service repository (release, Containerfile, CI workflows,
 compose file) is generated with `rebar3 new mcl_service` from
@@ -115,31 +114,6 @@ Producer-only services (no event store) omit both callbacks. See
      "loaded, so provision the key before enabling.".
 -callback store_integrity() -> disabled | map().
 
--doc "OPTIONAL. The barrel_docdb database name this service's read model "
-     "lives in (lowercase alphanumerics/underscore/hyphen, 1-63 chars — see "
-     "barrel_docdb:validate_db_name/1). When exported alongside data_dir/0, "
-     "mcl_om:boot/1 opens the database at data_dir/read_model_id before "
-     "calling ServiceMod:start/1. PRJ code writes to it with barrel_docdb "
-     "directly, using this same name as the database handle — there is no "
-     "separate accessor to call first. Independent of store_id/0: a service "
-     "may have a read model, an event store, both, or neither.".
--callback read_model_id() -> binary().
-
--doc "OPTIONAL. The barrel_docdb TTL sweep config for this service's read "
-     "model: `disabled` (default, no automatic expiry -- today's behavior "
-     "for every service), or `#{interval_ms := pos_integer(), batch := "
-     "pos_integer()}` to turn on barrel_docdb's native per-document TTL "
-     "sweeper. `interval_ms` is how often it folds the expiry index; "
-     "`batch` caps how many due documents it hard-deletes per pass. This "
-     "only arms the sweeper -- a document still needs `expires_at` set "
-     "(a unix-ms deadline) in its own `barrel_docdb:put_doc/3` `Opts` to "
-     "ever expire; omitting it on a write preserves whatever expiry the "
-     "document already had. When exported alongside read_model_id/0 + "
-     "data_dir/0, mcl_om:boot/1 threads this into the database's "
-     "create_db config. Omit for a read model where nothing expires.".
--callback read_model_ttl_sweep() -> disabled | #{interval_ms := pos_integer(),
-                                                 batch := pos_integer()}.
-
 -doc "OPTIONAL. Topics this service subscribes to at boot: a list of "
      "{Topic, HandlerModule, Args} triples, HandlerModule implementing "
      "the `macula_subscriber` behaviour. mcl_om:boot/1 wires each "
@@ -190,7 +164,6 @@ Producer-only services (no event store) omit both callbacks. See
 -callback describe_pubsub_capabilities() -> [pubsub_capability_doc()].
 
 -optional_callbacks([store_id/0, data_dir/0, store_indexes/0, store_mode/0,
-                     store_integrity/0, read_model_id/0,
-                     read_model_ttl_sweep/0, subscriptions/0,
+                     store_integrity/0, subscriptions/0,
                      describe_rpc_capabilities/0,
                      describe_pubsub_capabilities/0]).

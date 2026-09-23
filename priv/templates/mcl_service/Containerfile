@@ -31,11 +31,10 @@ WORKDIR /build
 # recorded glibc trap: the fetched artifact loads on the build host and fails on
 # alpine at runtime.
 #
-# openssl-dev/zstd-dev/snappy-dev/lz4-dev: mcl_om pulls in rocksdb (via
-# barrel_docdb) and khepri/ra transitively, UNCONDITIONALLY -- confirmed on a
-# storeless, producer-only service (no store_id/0 or data_dir/0 exported),
-# which still failed to build without these. Not specific to a service that
-# owns its own reckon-db store.
+# openssl-dev/zstd-dev/snappy-dev/lz4-dev: for rocksdb, which arrives only
+# when the service adds a read model of its own (barrel_docdb); mcl_om no
+# longer brings it (0.27.0). Kept so that adding one does not first fail the
+# image build.
 RUN apk add --no-cache git curl bash build-base cmake perl linux-headers \
         openssl-dev zstd-dev snappy-dev lz4-dev
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
@@ -69,8 +68,9 @@ FROM docker.io/alpine:3.22
 # names nothing and sends you looking in the wrong place.
 LABEL org.opencontainers.image.source="https://github.com/<%org%>/<%repo%>"
 # zstd-libs/snappy/lz4-libs: the RUNTIME shared libraries for rocksdb's
-# compression backends, compiled against in the builder stage above via
-# their -dev packages. Missing here crashes the release outright on
+# compression backends, for a service that adds barrel_docdb, compiled against
+# in the builder stage above via their -dev packages. Missing here crashes the
+# release outright on
 # boot -- rocksdb's on_load NIF init fails with "Failed to load NIF
 # library: Error loading shared library liblz4.so.1: No such file or
 # directory" and the whole node exits, since kernel can't start.

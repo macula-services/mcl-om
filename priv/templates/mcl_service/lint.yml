@@ -32,9 +32,10 @@ jobs:
       # release and its sha256, the same way the images are pinned: an
       # unpinned tool in this path is how a publish was lost once already.
       #
-      # cmake, build-essential: mcl_om pulls in rocksdb (via barrel_docdb)
-      # and khepri/ra transitively, UNCONDITIONALLY -- needed even for a
-      # storeless, producer-only service.
+      # cmake, build-essential, and the rocksdb lines below: for a service
+      # that adds a read model of its own (barrel_docdb brings rocksdb).
+      # mcl_om no longer brings it (0.27.0); they stay so that adding one does
+      # not first fail CI.
       #
       # libssl-dev: rocksdb's CMake links OpenSSL::Crypto and fails to
       # configure without it ("Could NOT find OpenSSL"). It is the same

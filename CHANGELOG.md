@@ -3,6 +3,62 @@
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [SemVer](https://semver.org/).
 
+## [0.27.0]
+
+**Breaking.** mcl_om no longer depends on barrel_docdb, and so not on rocksdb.
+
+### Removed
+
+- **The read-model wiring.** The optional `read_model_id/0` and
+  `read_model_ttl_sweep/0` callbacks, `mcl_om:read_model/0`, and
+  `mcl_om_read_model` are gone, with the `barrel_docdb` dependency. barrel
+  brings the erlang `rocksdb` binding, whose C++ build every service paid for,
+  in CI, image builds and local tests, whether it had a read model or not;
+  three services use one. `data_dir/0` stays: the reckon-db store still uses
+  it.
+
+### Migrating a service that had a read model
+
+1. Declare `{barrel_docdb, "~> 1.5"}` in `rebar.config` and `barrel_docdb` in
+   the `.app.src` `applications`.
+2. Open the database in the service's own `start/1`, before the supervisor
+   whose processes write it: `barrel_docdb:create_db(Name, #{data_dir =>
+   filename:join(DataDir, Name)})`, treating `{error, already_exists}` as
+   success (a restart reopens it).
+3. Set barrel's `data_dir` app env under the service's data directory first.
+   Its default is the relative `"data/barrel_docdb"`, where barrel keeps the
+   system database recording each database's location: in a container,
+   /app/data, outside any volume.
+4. Replace `mcl_om:read_model()` with the service's own database name, and
+   drop `read_model_id/0` / `read_model_ttl_sweep/0` from the service module
+   (pass the TTL sweep options to `create_db/2` directly).
+5. On the macula-services fleet, link rocksdb against the system library
+   rather than compiling it: an `overrides` entry for rocksdb's `pre_hooks`
+   adding `-DWITH_SYSTEM_ROCKSDB=ON`, built in
+   `ghcr.io/macula-io/macula-ci-otp-rocksdb` and run on
+   `ghcr.io/macula-io/macula-pq-runtime-rocksdb`. `macula-services/mcl-stations`
+   is the worked example.
+
+A service without a read model needs no change beyond the version.
+
+### Fixed
+
+- **The scaffold.** Generated services run dialyzer in CI with macula in the
+  PLT, ignore the `data/` directory barrel_docdb writes during tests, and say
+  in their CHANGELOG what build-push does (a `v*` tag publishes its own version
+  only). The template's rocksdb build packages now say they are there for a
+  service that adds a read model.
+- **The template suite tests this checkout's templates.** It rendered whatever
+  was installed in `~/.config/rebar3/templates`, which from a worktree is
+  another checkout's, and passed or failed on files it never read. It now
+  refuses unless the installed templates are its own.
+- The `mcl_om_service` moduledoc named `rebar3 new hecate_service`; it is
+  `mcl_service`. The guides' running examples are mcl-stations and mcl-tube.
+
+### Changed
+
+- lint-and-test runs dialyzer, and no longer installs rocksdb's codec libs.
+
 ## [0.26.6]
 
 ### Fixed

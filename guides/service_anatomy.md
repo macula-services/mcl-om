@@ -122,42 +122,17 @@ mcl_om:maybe_wire_store/1   (store_id/0 + data_dir/0 present?)
 hecate_X_service:start/1 → hecate_X_sup:start_link()   (store already up)
 ```
 
-## Read-model-backed services (optional)
+## Read-model-backed services
 
-A service that wants a persistent, queryable read model (PRJ code writing
-denormalized views, the kind of thing that used to be hand-rolled ETS or
-esqlite) exports two more **optional** callbacks. When both
-`read_model_id/0` and `data_dir/0` are present, `mcl_om:boot/1` opens a
-`barrel_docdb` database during `maybe_wire_read_model`, *before* `start/1`
-runs. Independent of the store callbacks above — a service may have a read
-model, an event store, both, or neither.
-
-```erlang
--export([read_model_id/0, data_dir/0]).
-
-read_model_id() -> <<"my_service_chunks">>.        %% data at <data_dir>/<read_model_id>/
-data_dir()      -> "/var/lib/hecate-my-service".
-```
-
-There is no separate accessor to fetch a "handle" first: `barrel_docdb`
-takes the database name and the pid interchangeably everywhere, so PRJ code
-just calls `barrel_docdb:put_doc(read_model_id(), Doc)` directly (or
-`mcl_om:read_model()` if it's more convenient than re-deriving the name).
-Unlike a store, restarting doesn't lose anything — RocksDB reopens from the
-same on-disk directory; there's no evoq-projection-rebuild-on-boot dance to
-get right, which is exactly the class of bug that made ETS-backed read
-models a recurring problem.
-
-Boot order with a read model:
-
-```
-hecate_X_app:start/2 → mcl_om:boot(hecate_X_service)
-   ↓
-mcl_om:maybe_wire_read_model/1   (read_model_id/0 + data_dir/0 present?)
-   └── barrel_docdb:create_db(read_model_id(), #{data_dir => ...})
-   ↓
-hecate_X_service:start/1 → hecate_X_sup:start_link()   (read model already open)
-```
+A persistent, queryable read model is the service's own business. mcl_om
+opened a `barrel_docdb` database for it until 0.27.0; it no longer depends on
+barrel_docdb at all, because barrel brings rocksdb, whose C++ build every
+service then paid for whether it used a read model or not. A service that
+wants one declares `barrel_docdb` in its own `rebar.config` and `.app.src`,
+opens the database in its own `start/1` (before starting the processes that
+write it), and points barrel's `data_dir` app env under its data directory so
+barrel's system database does not land in a relative `data/`.
+`macula-services/mcl-stations` is the worked example.
 
 ## Vertical slicing inside
 

@@ -74,15 +74,6 @@ jobs:
                 _                    -> halt(1)
             end.'
 
-      # barrel_docdb pulls in rocksdb, which builds its NIF from source via
-      # CMake, and rocksdb's own CMake silently disables Snappy/lz4/zstd/bz2
-      # when their dev libs are missing, producing a NIF the runtime config
-      # cannot open. The image carries cmake but not these four.
-      - name: Install rocksdb codec dev libs
-        run: |
-          apt-get update -qq
-          apt-get install -y -qq --no-install-recommends libsnappy-dev liblz4-dev libzstd-dev libbz2-dev
-
       - name: Cache the hex package cache
         uses: actions/cache@v4
         with:
@@ -95,6 +86,7 @@ jobs:
       # mcl_service_template_SUITE shells out to `rebar3 new', so rebar3 must
       # be on PATH (the image installs it to /usr/local/bin).
       - run: rebar3 ct
+      - run: rebar3 dialyzer
 
   # The scaffold's lint job, run in the image it names. The template suite runs
   # the same script, but mcl_om's own `check' job is itself a container with no

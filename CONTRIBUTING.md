@@ -6,17 +6,21 @@ Trunk-based. Commit directly to `main`. No PRs.
 
 ```bash
 rebar3 compile
+rebar3 eunit
 rebar3 ct
+rebar3 lint
+rebar3 dialyzer
 ```
 
 ## Style
 
 - Erlang: `warnings_as_errors`, dialyzer clean
 - Vertical slicing — no `services/`, no `helpers/`
-- Every `hecate-services/hecate-X` repo MUST depend on this library
-  via `{hecate_om, "~> 0.1"}` and implement the `hecate_om_service`
-  behaviour. Don't write a new "service runner" — extend this one.
+- Every `macula-services/mcl-X` service depends on this library via
+  `{mcl_om, "~> 0.27"}` and implements the `mcl_om_service` behaviour.
+  Scaffold one with `scripts/scaffold-service.sh`. Don't write a new
+  "service runner": extend this one.
 
 ## Issues
 
-https://github.com/hecate-services/hecate-om/issues
+https://github.com/macula-services/mcl-om/issues

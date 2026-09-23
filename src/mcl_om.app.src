@@ -1,6 +1,6 @@
 {application, mcl_om, [
     {description, "PQ-only over-mesh substrate for the macula-services/mcl-* daemons"},
-    {vsn, "0.26.6"},
+    {vsn, "0.27.0"},
     {registered, [mcl_om_sup]},
     {mod, {mcl_om_app, []}},
     {applications, [
@@ -15,12 +15,7 @@
         %% get the canonical reckon-db + evoq wiring for free.
         reckon_db,
         evoq,
-        reckon_evoq,
-
-        %% Used by mcl_om_read_model when a service module exports
-        %% read_model_id/0 + data_dir/0. Same shape as the reckon-db deps
-        %% above: starts idle (no database opened) until a service asks.
-        barrel_docdb
+        reckon_evoq
     ]},
     {env, [
         %% Service-principal cert path. The container mounts
