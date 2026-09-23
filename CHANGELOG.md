@@ -7,6 +7,13 @@ Versioning: [SemVer](https://semver.org/).
 
 ### Fixed
 
+- **The publish preflight asks whether the key may write.** It asked hex.pm
+  `/api/users/me`, which answers 404 for a key with no user behind it. This
+  package publishes with an organisation key, so the check refused a key that
+  had published 0.26.1 to 0.26.3 the same day, and the first `v0.26.4` run
+  published nothing. It now asks `/api/auth?domain=api&resource=write`: 200 or
+  204 accepts, 401 and 403 and anything else refuse, and the key is never
+  printed. Tested against a fake hex API for every answer.
 - **No org, no advertisement.** `mcl_om_identity:org/0` answers `_` when no
   org is configured, and `mcl_om_capabilities` advertised under it anyway:
   `_/Name`, a procedure in no org that no realm grants, from a service that
