@@ -438,10 +438,38 @@ live_pool_records_the_provider_grant_test_() ->
              ?assertEqual(#{}, mcl_om_capabilities:provider_grants()),
              ok = mcl_om_capabilities:register([Cap]),
              Grants = mcl_om_capabilities:provider_grants(),
-             ?assertEqual([<<"_/svc.answer">>], maps:keys(Grants)),
+             ?assertEqual([<<"acme/svc.answer">>], maps:keys(Grants)),
              ?assertMatch(#{result := {not_granted, _}, since := Since}
                             when is_integer(Since),
-                          maps:get(<<"_/svc.answer">>, Grants))
+                          maps:get(<<"acme/svc.answer">>, Grants))
+          end]
+      end}}.
+
+%% NO ORG, NO ADVERTISEMENT. mcl_om_identity:org/0 answers `_' when nothing set
+%% it, and that used to be advertised as `_/Name': a procedure in no org, which
+%% no realm grants, from a service that looked healthy. Now nothing is
+%% advertised and each procedure is recorded as not granted for that reason,
+%% which /health reports as degraded at once (an operator sets the org).
+unset_org_advertises_nothing_and_says_so_test_() ->
+    {timeout, 15,
+     {setup,
+      fun() ->
+          Live = start_live(),
+          ok = meck:expect(mcl_om_identity, org, fun() -> <<"_">> end),
+          ok = meck:new(macula_response, []),
+          ok = meck:expect(macula_response, advertise_direct,
+                           fun(_, _, _, _, _, _, _) -> {ok, self()} end),
+          Live
+      end,
+      fun(Live) -> meck:unload(macula_response), stop_live(Live) end,
+      fun(_) ->
+         Cap = #{name => <<"svc.answer">>, version => 1, handler => {?MODULE, []}},
+         [fun() ->
+             ok = mcl_om_capabilities:register([Cap]),
+             ?assertEqual(0, meck:num_calls(macula_response, advertise_direct, '_')),
+             ?assertMatch(#{<<"_/svc.answer">> :=
+                              #{result := {not_granted, {org_unset, <<"_">>}}}},
+                          mcl_om_capabilities:provider_grants())
           end]
       end}}.
 
@@ -546,6 +574,10 @@ start_live() ->
     ok = meck:expect(mcl_om_identity, macula_client, fun() -> {ok, Pool} end),
     ok = meck:expect(mcl_om_identity, realm, fun() -> {ok, Realm} end),
     ok = meck:expect(mcl_om_identity, identity_key, fun() -> {ok, Key} end),
+    %% A real org: under mcl_om's `_' placeholder nothing is advertised at
+    %% all, so these tests would stop reaching the SDK boundary and pass
+    %% for the wrong reason. The `_' case has its own test.
+    ok = meck:expect(mcl_om_identity, org, fun() -> <<"acme">> end),
     %% A real mcl_om_identity too -- do_advertise/2 also calls org/0,
     %% which passthrough would otherwise route to a real gen_server:call
     %% with nothing registered to answer it.

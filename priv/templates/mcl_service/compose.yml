@@ -58,7 +58,7 @@ services:
       # unreachable. Public material, so it belongs here and not in secrets.
       - MCL_REALM_KEY=${MCL_REALM_KEY:?set MCL_REALM_KEY to the hex-encoded public realm signing key}
       # No default either: naming a realm costs nothing, dialling somebody's
-      # production station from every dev clone does. The 11.x dial is PINNED:
+      # production station from every dev clone does. The dial is PINNED:
       # every seed host pairs with its station's node id, index for index
       # (D5) -- mcl_om refuses to boot a pool with an unpinned seed, since
       # that dial could never connect anyway.

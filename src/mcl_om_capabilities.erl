@@ -366,9 +366,7 @@ advertise_opts() ->
     #{ttl_ms => ?ADVERTISEMENT_TTL_MS}.
 
 advertise_with({ok, Pool}, {ok, Key}, {ok, Realm}, Org, Caps, Sups) ->
-    lists:foldl(fun(Cap, Acc) ->
-                    advertise_one_safely(Pool, Key, Realm, Org, Cap, Acc)
-                end, Sups, Caps);
+    advertise_in_org(valid_org(Org), Pool, Key, Realm, Org, Caps, Sups);
 %% Missing pool / keypair / realm: cannot reach the mesh or sign. No-op;
 %% the timer retries once all three are present. Existing sups (if any)
 %% are kept as-is — a transient mesh gap does not invalidate them.
@@ -388,6 +386,32 @@ advertise_with(PoolR, KeyR, RealmR, _Org, _Caps, Sups) ->
 error_of({ok, _}) -> ok;
 error_of({error, Reason}) -> Reason.
 
+%% NO ORG, NO ADVERTISEMENT. mcl_om_identity:org/0 answers `_' when nothing
+%% set it, and that used to go out as `_/Name': a procedure in no org, which
+%% no realm grants, from a service that looked healthy. An org must be a wire
+%% segment (`^[a-z0-9][a-z0-9._-]*$'), which `_' and an unsubstituted
+%% `${MCL_ORG}' are not. Without one, nothing is advertised, and each
+%% handler-bearing procedure is recorded as not granted for that reason, which
+%% /health reports as degraded at once (mcl_om_provider_grant).
+advertise_in_org(true, Pool, Key, Realm, Org, Caps, Sups) ->
+    lists:foldl(fun(Cap, Acc) ->
+                    advertise_one_safely(Pool, Key, Realm, Org, Cap, Acc)
+                end, Sups, Caps);
+advertise_in_org(false, _Pool, _Key, _Realm, Org, Caps, Sups) ->
+    log_advertise_gate_once({org_unset, Org}),
+    Now = erlang:monotonic_time(millisecond),
+    [record_org_unset(org_procedure(Org, Name), Org, Now)
+     || #{name := Name} = Cap <- Caps, has_handler(Cap)],
+    Sups.
+
+record_org_unset(OrgProcedure, Org, Now) ->
+    Previous = previous_grant(ets:lookup(?GRANTS, OrgProcedure)),
+    Entry = mcl_om_provider_grant:observed({error, {org_unset, Org}}, Now, Previous),
+    true = ets:insert(?GRANTS, {OrgProcedure, Entry}).
+
+valid_org(Org) ->
+    match =:= re:run(Org, <<"^[a-z0-9][a-z0-9._-]*$">>, [{capture, none}]).
+
 %% Logs at most once per distinct (Pool, KeyPair, Realm) error triple per
 %% process lifetime -- a persistent boot problem calls advertise_with/7
 %% every 30s forever, and an unthrottled warning there is exactly the
@@ -399,12 +423,20 @@ log_advertise_gate_once(Reasons) ->
         Reasons -> ok;
         _ ->
             put(?ADVERTISE_GATE_LOG_KEY, Reasons),
-            logger:warning(
-              "mcl_om_capabilities: advertise skipped, not all of "
-              "pool/keypair/realm are ready yet: ~p (pool_error, "
-              "keypair_error, realm_error -- 'ok' means that one is fine)",
-              [Reasons])
+            log_advertise_gate(Reasons)
     end.
+
+log_advertise_gate({org_unset, Org}) ->
+    logger:warning(
+      "mcl_om_capabilities: advertise skipped, no org configured (got ~p): "
+      "set mcl_om's `org' to this service's org; /health reports it as "
+      "operator_must_set_org", [Org]);
+log_advertise_gate(Reasons) ->
+    logger:warning(
+      "mcl_om_capabilities: advertise skipped, not all of "
+      "pool/keypair/realm are ready yet: ~p (pool_error, "
+      "keypair_error, realm_error -- 'ok' means that one is fine)",
+      [Reasons]).
 
 %% @doc Whether `Cap' carries a handler (and so should be advertised via
 %% `advertise_direct', not just written to the DHT as a bare discovery

@@ -3,9 +3,29 @@
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [SemVer](https://semver.org/).
 
-## [Unreleased]
+## [0.26.4]
 
 ### Fixed
+
+- **No org, no advertisement.** `mcl_om_identity:org/0` answers `_` when no
+  org is configured, and `mcl_om_capabilities` advertised under it anyway:
+  `_/Name`, a procedure in no org that no realm grants, from a service that
+  looked healthy. It now advertises nothing unless the org is a wire segment
+  (`^[a-z0-9][a-z0-9._-]*$`; `_` and an unsubstituted `${MCL_ORG}` are not),
+  logs it once, and records each handler-bearing procedure as not granted with
+  `{org_unset, Org}`, which /health reports as degraded at once
+  (`operator_must_set_org`).
+- **The service scaffold sets its org**: `{org, <<"<repo>">>}` in
+  `config/sys.config.src`, one org per service named after the repository, fixed
+  in the release rather than an environment variable someone can forget.
+- **What the scaffold says is current.** Its README, compose file and
+  `sys.config.src` described "the 11.x dial" and "11.x client model", said a
+  missing crypto profile falls back to a classical one (macula 12 refuses:
+  `crypto_profile_missing`), and said CI publishes `:latest` plus the semver tag.
+  The README now states the two channels (`main` publishes `:latest`, a `v*` tag
+  publishes its own version and nothing else, a docs-only push builds nothing)
+  and where the org comes from. Comments no longer name obsolete services; the
+  house-specifics test now forbids that prefix in generated output.
 
 - **A service generated from the scaffold passes its first CI run.** The
   pinned lint image (`hexpm/erlang:28.4.3-debian-trixie`) is OTP and little

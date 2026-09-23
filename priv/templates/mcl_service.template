@@ -51,8 +51,7 @@
 {template, "mcl_service/gitignore",          "{{repo}}/.gitignore"}.
 %% Pinned to the SAME OTP major (28) Containerfile and lint.yml pin below.
 %% Without this, a dev machine whose asdf/rebar3 global points at a newer
-%% OTP (29, in the four repos that hit this in one day: reckon-db, evoq,
-%% hecate-sentinel, hecate-echo) compiles a dependency's deprecated bare
+%% OTP (29, in the four repos that hit this in one day) compiles a dependency's deprecated bare
 %% `catch' syntax under a version that turns it into a hard build failure
 %% via `warnings_as_errors' -- a failure that has nothing to do with the
 %% generated service's own code, and reproduces nowhere the pin is honored

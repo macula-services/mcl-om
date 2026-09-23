@@ -21,6 +21,12 @@
         %% shell and expecting that to be enough has cost a sibling service an
         %% hour, because nothing translates between the two by itself.
         {realm,             <<"${MCL_REALM}">>},
+        %% ONE ORG PER SERVICE, NAMED AFTER THE REPOSITORY: the `Org' in every
+        %% procedure it offers (`Org/Name'), and the org the realm's grant
+        %% names. Fixed here rather than read from the environment, because it
+        %% is a property of the service, not of where it runs. Without it
+        %% mcl_om answers `_' and advertises nothing.
+        {org,               <<"<%repo%>">>},
         %% ⚠ THE TRUST ANCHOR, AND IT IS NOT OPTIONAL. MCL_REALM above is an
         %% IDENTIFIER (sha256 of the realm name); this is the realm's public
         %% SIGNING KEY, 64-hex-per-32-bytes, as carried. mcl_om decodes it and
@@ -49,9 +55,9 @@
     %% ==========================================================================
     %%
     %% ⚠ MANDATORY. The macula app starts before the service reads anything,
-    %% and without this block it boots on the classical profile while every
-    %% PQ station closes the CONNECT/HELLO handshake as puzzle_invalid --
-    %% forever, silently. The 11.x client model: a puzzle-8 identity key
+    %% and without this block macula 12 has no crypto profile
+    %% (`crypto_profile_missing') and nothing peers. The client model: a
+    %% puzzle-8 identity key
     %% (generated and persisted by mcl_om_identity when the path above is
     %% missing) and the pq_hybrid crypto profile every wire signature is
     %% checked under. mcl_om is a library; each service's own release

@@ -43,6 +43,14 @@ a_missing_delegation_degrades_at_once_test() ->
                                                      cause := operator_must_grant}]}},
                  verdict(Entries, ?T0)).
 
+%% An unset org is a configuration fault only an operator can fix, like a
+%% missing delegation: degraded at once, not after a grace window.
+an_unset_org_degrades_at_once_test() ->
+    Entries = #{<<"_/svc.answer">> => observe({error, {org_unset, <<"_">>}}, ?T0)},
+    ?assertMatch({degraded, #{provider_grants := [#{status := not_granted,
+                                                     cause := operator_must_set_org}]}},
+                 verdict(Entries, ?T0)).
+
 a_missing_org_directory_waits_out_the_grace_window_test() ->
     Entries = #{?PROC => observe(no_org_directory(), ?T0)},
     ?assertEqual(ok, verdict(Entries, ?T0 + ?GRACE - 1)),

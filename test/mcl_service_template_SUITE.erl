@@ -35,6 +35,8 @@
          generated_runtime_guard_passes/1,
          generated_lint_toolchain_runs_in_its_image/1,
          generated_rebar3_is_pinned_by_sha256/1,
+         generated_service_has_its_org/1,
+         generated_text_is_current/1,
          no_unrendered_variable_survives/1,
          generated_workflow_keeps_actions_syntax/1,
          leaks_no_house_specifics/1,
@@ -62,6 +64,8 @@ all() ->
      generated_runtime_guard_passes,
      generated_lint_toolchain_runs_in_its_image,
      generated_rebar3_is_pinned_by_sha256,
+     generated_service_has_its_org,
+     generated_text_is_current,
      no_unrendered_variable_survives,
      generated_workflow_keeps_actions_syntax,
      leaks_no_house_specifics,
@@ -404,6 +408,28 @@ generated_rebar3_is_pinned_by_sha256(Config) ->
                      binary:match(B, <<"releases/download/3.27.0/rebar3">>)) || B <- Pinned],
     [?assertEqual(nomatch, binary:match(B, <<"s3.amazonaws.com/rebar3">>)) || B <- Pinned].
 
+%% ONE ORG PER SERVICE, NAMED AFTER THE REPOSITORY, fixed in the release rather
+%% than left to an environment variable someone can forget. Without it
+%% mcl_om_identity:org/0 answers `_', and mcl_om now refuses to advertise
+%% under that: the service would announce nothing.
+generated_service_has_its_org(Config) ->
+    SysConfig = read(filename:join(?config(root, Config), "config/sys.config.src")),
+    ?assertMatch({match, _},
+                 re:run(SysConfig, "\\{org,\\s*<<\"" ?REPO "\">>\\}")).
+
+%% What the generated files say must be true of the platform they generate
+%% for: macula 12, and an image policy of two channels.
+generated_text_is_current(Config) ->
+    Root = ?config(root, Config),
+    Stale = [{filename:basename(F), S}
+             || F <- all_files(Root),
+                S <- [<<"11.x">>, <<"plus the semver tag">>],
+                binary:match(read(F), S) =/= nomatch],
+    ?assertEqual([], Stale),
+    Readme = read(filename:join(Root, "README.md")),
+    ?assertMatch({match, _},
+                 re:run(Readme, "publishes\\s+its\\s+own\\s+version\\s+and\\s+nothing\\s+else")).
+
 %% TWO CHANNELS: main publishes :latest, a v* tag publishes its own version and
 %% NOTHING ELSE. Watchtower rolls every box on :latest, so a tag that also
 %% moved :latest made cutting a release the same act as deploying one.
@@ -434,7 +460,8 @@ leaks_no_house_specifics(Config) ->
                  <<"macula-demo">>,       %% our old GitOps repository
                  <<"macula-fleet">>,      %% our GitOps repository
                  <<"beam0">>,             %% our node names
-                 <<"reconcile.manifest">> %% our deployment mechanism
+                 <<"reconcile.manifest">>,%% our deployment mechanism
+                 <<"hecate">>             %% the obsolete services' prefix
                 ],
     Leaks = [{filename:basename(F), S}
              || F <- all_files(Root),

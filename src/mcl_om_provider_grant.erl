@@ -10,6 +10,8 @@
 %%% - no `procedure_delegation' naming this node: degraded at once. The
 %%%   realm has the service's claim on file and an operator has to grant
 %%%   it; nothing will change until someone does.
+%%% - no org configured (`org_unset', recorded by mcl_om_capabilities, which
+%%%   then advertises nothing): degraded at once; an operator sets the org.
 %%% - no `org_directory', or any other refusal: waiting for a grace window
 %%%   (`provider_grant_grace_ms', default 60 s), then degraded. The realm
 %%%   republishes an absent chain within seconds, so a gap that outlasts the
@@ -90,13 +92,16 @@ waited(true, _Elapsed) -> not_granted;
 waited(false, true)    -> not_granted;
 waited(false, false)   -> waiting.
 
-%% Only a missing delegation is past waiting from the start: the realm has
-%% published everything it will until an operator grants this node.
+%% Past waiting from the start: a missing delegation (the realm has published
+%% everything it will until an operator grants this node) and an unset org
+%% (nothing is advertised until an operator sets one).
 immediate({provider_authorization, {procedure_delegation, not_found}}) -> true;
+immediate({org_unset, _Org})                                           -> true;
 immediate(_Other)                                                      -> false.
 
 cause({provider_authorization, {procedure_delegation, not_found}}) -> operator_must_grant;
 cause({provider_authorization, {org_directory, not_found}})       -> realm_has_not_published;
+cause({org_unset, _Org})                                           -> operator_must_set_org;
 cause(Reason)                                                      -> Reason.
 
 sorted(Entries) ->
