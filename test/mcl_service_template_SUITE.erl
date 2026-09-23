@@ -28,6 +28,9 @@
          health_script_is_executable/1,
          sys_config_configures_a_stable_identity/1,
          stable_identity_survives_a_recreate/1,
+         image_build_decides_from_the_pushed_range/1,
+         docs_only_gate_decides_each_push_shape/1,
+         release_tag_does_not_move_latest/1,
          no_unrendered_variable_survives/1,
          generated_workflow_keeps_actions_syntax/1,
          leaks_no_house_specifics/1,
@@ -48,6 +51,9 @@ all() ->
      health_script_is_executable,
      sys_config_configures_a_stable_identity,
      stable_identity_survives_a_recreate,
+     image_build_decides_from_the_pushed_range,
+     docs_only_gate_decides_each_push_shape,
+     release_tag_does_not_move_latest,
      no_unrendered_variable_survives,
      generated_workflow_keeps_actions_syntax,
      leaks_no_house_specifics,
@@ -178,6 +184,7 @@ generates_every_expected_file(Config) ->
          "config/sys.config.src", "config/vm.args.src",
          "deploy/docker-compose.yml",
          "scripts/health.sh",
+         "scripts/is_image_push.sh",
          "apps/" ?APP "/src/" ?APP ".app.src",
          "apps/" ?APP "/src/" ?APP "_app.erl",
          "apps/" ?APP "/src/" ?APP "_sup.erl",
@@ -250,7 +257,59 @@ generated_workflow_keeps_actions_syntax(Config) ->
     ?assertNotEqual(nomatch,
                     binary:match(Body, <<"${{ secrets.GITHUB_TOKEN }}">>)),
     ?assertNotEqual(nomatch,
-                    binary:match(Body, <<"${{ steps.tag.outputs.tag }}">>)).
+                    binary:match(Body, <<"${{ steps.tag.outputs.tags }}">>)).
+
+%% A DOCS-ONLY PUSH MUST NOT ROLL THE FLEET, AND A NEW BRANCH MUST ALWAYS BUILD.
+%% Both used to be answered with `paths-ignore', which gets the second wrong:
+%% on the push that CREATES a branch GitHub compares against nothing and
+%% evaluates the filter on the head commit alone, so a first push ending in a
+%% README edit built no image at all (hit on mcl-warden). The decision is made
+%% by a script from the pushed range instead, so the workflow carries no path
+%% filter and every image step waits on the script's answer.
+image_build_decides_from_the_pushed_range(Config) ->
+    Body = read(filename:join(?config(root, Config),
+                              ".github/workflows/build-push.yml")),
+    ?assertEqual(nomatch, binary:match(Body, <<"paths-ignore:">>)),
+    ?assertEqual(nomatch, binary:match(Body, <<"paths:">>)),
+    ?assertNotEqual(nomatch,
+                    binary:match(Body, <<"scripts/is_image_push.sh \"${{ github.event.before }}\" \"${{ github.sha }}\"">>)),
+    ?assertNotEqual(nomatch, binary:match(Body, <<"fetch-depth: 0">>)),
+    ?assertNotEqual(nomatch,
+                    binary:match(Body, <<"if: steps.gate.outputs.build == 'true'">>)),
+    Mode = file_mode(filename:join(?config(root, Config), "scripts/is_image_push.sh")),
+    ?assertEqual(8#100, Mode band 8#100).
+
+%% The script against a real history, one push shape at a time.
+docs_only_gate_decides_each_push_shape(Config) ->
+    Script = filename:join(?config(root, Config), "scripts/is_image_push.sh"),
+    Repo = filename:join(?config(priv_dir, Config), "gate_repo"),
+    ok = filelib:ensure_path(Repo),
+    git(Repo, "init -q"),
+    Code0 = commit(Repo, "src/svc.erl", "a"),
+    Docs1 = commit(Repo, "README.md", "a"),
+    Docs2 = commit(Repo, "docs/guide.txt", "a"),
+    Lic3  = commit(Repo, "LICENSE", "a"),
+    Code4 = commit(Repo, "src/svc.erl", "b"),
+    Zero = lists:duplicate(40, $0),
+    Unknown = lists:duplicate(40, $d),
+    Gate = fun(Before, After) -> gate(Script, Repo, Before, After) end,
+    ?assertEqual(<<"build=true\n">>,  Gate(Zero, Docs1)),     %% branch created
+    ?assertEqual(<<"build=true\n">>,  Gate("", Docs1)),       %% no before at all
+    ?assertEqual(<<"build=false\n">>, Gate(Code0, Docs1)),    %% README only
+    ?assertEqual(<<"build=false\n">>, Gate(Code0, Lic3)),     %% docs, guide, licence
+    ?assertEqual(<<"build=true\n">>,  Gate(Lic3, Code4)),     %% code
+    ?assertEqual(<<"build=true\n">>,  Gate(Docs2, Code4)),    %% docs and code
+    ?assertEqual(<<"build=true\n">>,  Gate(Unknown, Code4)).  %% before not in history
+
+%% TWO CHANNELS: main publishes :latest, a v* tag publishes its own version and
+%% NOTHING ELSE. Watchtower rolls every box on :latest, so a tag that also
+%% moved :latest made cutting a release the same act as deploying one.
+release_tag_does_not_move_latest(Config) ->
+    Body = read(filename:join(?config(root, Config),
+                              ".github/workflows/build-push.yml")),
+    ?assertNotEqual(nomatch,
+                    binary:match(Body, <<"tags=" ?REGISTRY "/" ?ORG "/" ?REPO ":${GITHUB_REF#refs/tags/v}\"">>)),
+    ?assertEqual(1, length(binary:matches(Body, <<":latest\"">>))).
 
 %% THE SCAFFOLD MUST BE USABLE BY SOMEONE WHO IS NOT US, and the first version
 %% was not: it hardcoded our organisation, our registry, our GitOps repository
@@ -325,3 +384,23 @@ all_files(Root) ->
 read(Path) ->
     {ok, Bin} = file:read_file(Path),
     Bin.
+
+file_mode(Path) ->
+    {ok, #file_info{mode = Mode}} = file:read_file_info(Path),
+    Mode.
+
+git(Repo, Args) ->
+    os:cmd("git -C " ++ Repo ++ " -c user.email=t@example.test -c user.name=t "
+           "-c commit.gpgsign=false " ++ Args).
+
+%% Writes one file and commits it, returning the new commit's sha.
+commit(Repo, Rel, Content) ->
+    Path = filename:join(Repo, Rel),
+    ok = filelib:ensure_dir(Path),
+    ok = file:write_file(Path, Content),
+    git(Repo, "add -A"),
+    git(Repo, "commit -q -m " ++ filename:basename(Rel)),
+    string:trim(git(Repo, "rev-parse HEAD")).
+
+gate(Script, Repo, Before, After) ->
+    run(Script, [Before, After], Repo).

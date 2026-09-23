@@ -79,6 +79,8 @@
 %% Scripts
 {template, "mcl_service/health.sh",          "{{repo}}/scripts/health.sh"}.
 {chmod,                                         "{{repo}}/scripts/health.sh", 8#755}.
+{template, "mcl_service/is_image_push.sh",    "{{repo}}/scripts/is_image_push.sh"}.
+{chmod,                                         "{{repo}}/scripts/is_image_push.sh", 8#755}.
 
 %% Documentation
 {template, "mcl_service/README.md",          "{{repo}}/README.md"}.

@@ -1,8 +1,21 @@
 {{=<% %>=}}# Build the OCI image for <%repo%> and push to the registry.
 #
-# Pushes BOTH :latest and the semver tag. The deployed compose tracks :latest
-# under watchtower for zero-touch deploys, and the semver tags stay published so a
-# bad release can be pinned back to a known one.
+# TWO CHANNELS, AND A TAG PUSH MUST NOT TOUCH THE DEPLOY ONE.
+#
+#   push to main : publishes :latest        <- the deploy channel
+#   push of v*   : publishes :<semver> ONLY <- the rollback archive
+#
+# The deployed compose tracks :latest under watchtower for zero-touch deploys,
+# and the semver tags stay published so a bad release can be pinned back to a
+# known one. A tag that also moved :latest would roll every box the moment a
+# release was cut, so cutting a release and deploying one are separate acts.
+#
+# NO PATH FILTER, ON PURPOSE. A docs-only push should not rebuild :latest and
+# restart every box, but `paths-ignore' cannot be trusted with that: on the push
+# that CREATES a branch GitHub evaluates it on the head commit alone, so a first
+# push ending in a README edit silently built no image. scripts/is_image_push.sh
+# decides from the pushed range instead, and builds whenever it cannot tell.
+# If an image is ever missing anyway, run this workflow by hand.
 #
 # NOTE ON PUSHING THIS FILE. An HTTPS push that creates or updates anything under
 # .github/workflows/ needs a token carrying the `workflow' scope, and the error
@@ -34,30 +47,39 @@ jobs:
       packages: write
 
     steps:
+      # The whole history, so the gate below can diff the pushed range.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Does this push need an image?
+        id: gate
+        run: scripts/is_image_push.sh "${{ github.event.before }}" "${{ github.sha }}" >> "$GITHUB_OUTPUT"
 
       - name: Log in to the registry
+        if: steps.gate.outputs.build == 'true'
         uses: docker/login-action@v3
         with:
           registry: <%registry%>
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Set tag
+      # Emits the COMPLETE tag list, so the condition governs all of it.
+      - name: Set tags
+        if: steps.gate.outputs.build == 'true'
         id: tag
         run: |
           if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
-            echo "tag=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
+            echo "tags=<%registry%>/<%org%>/<%repo%>:${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
           else
-            echo "tag=latest" >> "$GITHUB_OUTPUT"
+            echo "tags=<%registry%>/<%org%>/<%repo%>:latest" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Build and push
+        if: steps.gate.outputs.build == 'true'
         uses: docker/build-push-action@v6
         with:
           context: .
           file: Containerfile
           push: true
-          tags: |
-            <%registry%>/<%org%>/<%repo%>:latest
-            <%registry%>/<%org%>/<%repo%>:${{ steps.tag.outputs.tag }}
+          tags: ${{ steps.tag.outputs.tags }}

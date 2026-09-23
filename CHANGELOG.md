@@ -3,6 +3,24 @@
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [SemVer](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+
+- **The service scaffold's `build-push` no longer lets a release tag move
+  `:latest`.** It published `:latest` on every push, tags included, and
+  watchtower rolls every box on `:latest`, so cutting a release deployed it.
+  A `v*` tag now publishes its own version and nothing else.
+- **A docs-only push no longer rebuilds the image, and a new branch always
+  does.** The generated `scripts/is_image_push.sh` decides from the pushed
+  range and prints `build=true|false`; the image steps wait on it. It builds
+  whenever it cannot show that every changed path is documentation: a new
+  branch or tag (the all-zeros before sha), a manual run, a before sha not in
+  the history, an empty diff. It replaces `paths-ignore` rather than adding
+  it: on the push that creates a branch GitHub evaluates that filter on the
+  head commit alone, so a first push ending in a README edit built no image
+  (hit on mcl-warden). A service generated earlier keeps its old workflow.
+
 ## [0.26.2]
 
 ### Fixed
