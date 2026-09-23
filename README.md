@@ -1,9 +1,9 @@
 # mcl-om
 
 **Over-mesh substrate for the PQ fleet**: the shared library every
-`macula-services/mcl-X` service daemon stands on. The PQ-only fork of the
-hectate-om line: `hecate-om` keeps serving the classical fleet on the 10.x
-wire untouched; the `mcl-*` services ride this on the 11.x wire.
+`macula-services/mcl-X` service daemon stands on, built on macula 12
+(`{macula, "~> 12.0"}`), post-quantum only. The `mcl-*` services it carries
+replace the obsolete `hecate-*` services one port at a time.
 
 Services in this org are **edge-first**. A service runs wherever its
 operator puts it (a cooperative infrastructure node, a relay box, a lab
@@ -55,20 +55,18 @@ It **is not**:
 
 - A daemon. It has no `application:start_phase` of its own beyond
   the library's facade.
-- A plugin host. Services are containerised. Plugins live in
-  `hecate-daemon` (different repo, different model).
+- A plugin host. Services are containerised.
 - A network library. Services talk to a PQ `macula-station` via the
-  11.x macula SDK like any other Macula client: **outbound only**. The
+  macula 12 SDK like any other Macula client: **outbound only**. The
   station does the peering, the DHT and the routing, which is what
   lets a service sit behind NAT at the edge and still be reachable.
 
 ## Layering position
 
 ```
-Layer 4 — apps        user-facing apps, live in hecate-daemon
+Layer 4 — apps        user-facing apps
 
-Layer 3 — session     hecate-daemon
-                      Per-identity, plugin host, UI surface
+Layer 3 — session     per-identity sessions and UI
 
 Layer 2 — services    macula-services/mcl-echo, -warden, -sentinel, …
                       Always-on, containerised, system-class workloads,
@@ -86,7 +84,7 @@ See [`philosophy/HECATE_TIER_MODEL.md`](https://github.com/hecate-social/hecate-
 in hecate-corpus for the longer cut-criteria discussion. Note that the
 tier model still phrases the L2 placement rule absolutely ("NOT on user
 laptops"); read that as a policy about where the realm's own shared
-services belong, not as a limit on what a hecate-om service can do.
+services belong, not as a limit on what an mcl-om service can do.
 
 ## The contract
 
@@ -156,7 +154,7 @@ Producer-only services (no store) omit these and pay nothing.
 %% Atom store id. Data lands at <data_dir>/<store_id>/.
 store_id() -> my_service_store.
 
-data_dir() -> "/var/lib/hecate-my-service".
+data_dir() -> "/var/lib/mcl-my-service".
 
 %% reckon-db secondary index declarations installed on the store. This is
 %% how CCC payload indexes get declared — without it the store starts with
@@ -170,14 +168,11 @@ store_indexes() ->
 `store_indexes/0` is itself optional: export it only when the store needs
 secondary indexes. Omit it (or return `[]`) for a store with none.
 
-> Requires `mcl_om >= 0.3.4`. (0.3.3 introduced the callback but failed
-> to export the helper it calls, crashing boot — use 0.3.4+.)
-
 ## Scaffold a new service
 
 ```bash
 # From the directory that will hold the new repository,
-# typically ~/work/github.com/hecate-services:
+# typically ~/work/github.com/macula-services:
 scripts/scaffold-service.sh mcl-newservice "Does X over the mesh" 8484
 ```
 
@@ -202,7 +197,7 @@ rebar3 new mcl_service repo=mcl-newservice name=mcl_newservice \
 
 **The scaffold is not house-specific.** `org` and `registry` are variables, and
 nothing generated names our organisation, our registry, our deployment
-repository or our hosts. If you are building a hecate service for your own mesh,
+repository or our hosts. If you are building a service for your own mesh,
 set those two and everything else follows. `scaffold-service.sh` defaults them
 to ours because that is who runs it most; `MCL_ORG` and `MCL_REGISTRY`
 override. A test generates a service as a stranger and fails if any of our own
@@ -218,8 +213,10 @@ Generates a repository that compiles, tests and deploys:
 - `config/sys.config.src` and `config/vm.args.src`
 - `Containerfile` (multi-stage, macula's QUIC NIF built from source)
 - `deploy/docker-compose.yml` — the service's own run contract, **not** the
-  deployed file; fleet placement lives in `macula-demo`
-- `.github/workflows/` — `lint-and-test` and `build-push` to ghcr.io
+  deployed file; fleet placement lives in `macula-demo`. It mounts a named
+  volume, `<repo>-secrets`, at `/etc/mcl/secrets`, where the service's identity
+  key lives, so the node id survives a container recreate
+- `.github/workflows/` — `lint` and `build-push` to ghcr.io
 - `scripts/health.sh`, executable
 - `README.md`, `CHANGELOG.md`, `LICENSE`, `.gitignore`
 
@@ -255,14 +252,16 @@ networking makes a collision a silent bind failure.
 
 ## Status
 
-**Working library — v0.14.2.** The behaviour and all helpers are implemented
+**Working library — 0.26.x, on macula 12.** The behaviour and all helpers are implemented
 (`mcl_om_identity`, `mcl_om_capabilities`, `mcl_om_store`,
 `mcl_om_health`), the boot path (`mcl_om:boot/1` with auto store-wiring)
 is exercised by a Common Test suite (`mcl_om_SUITE`), and `rebar3 new
 mcl_service` generates a service that compiles, tests and deploys, guarded
 by a suite that generates one for real. `mcl_om:mesh_handles/0` gives every
 service the shared `{Pool, Realm}` pair its own PubSub/RPC/Content code needs,
-alongside `realm/0` and `keypair/0` on the same public facade.
+alongside `realm/0` and `identity_key/0` on the same public facade.
+Lint, EUnit and the Common Test suites run on every pull request and every
+push to main.
 
 The behaviour surface has grown since the first cut: the store-wiring
 callbacks are `store_id/0` + `data_dir/0` (required together) plus optional
@@ -273,10 +272,9 @@ and `store_integrity/0` (per-store HMAC event tamper-resistance). See the
 Known gap: the store-wiring callbacks are the part of the contract with no test
 of their own. `mcl_om_SUITE` boots a producer-only dummy service.
 
-First consumers are onboarding: `hecate-services/hecate-spartan` links against
-the store-wiring path, and `hecate-services/hecate-rag` follows when the RAG
-daemon is extracted from `hecate-app-rag`. Not yet burned in under sustained
-production load.
+Consumers: `mcl-echo`, deployed, and `mcl-warden` and `mcl-sentinel`, being
+ported from their obsolete `hecate-*` predecessors. Not yet burned in under
+sustained production load.
 
 ## License
 
