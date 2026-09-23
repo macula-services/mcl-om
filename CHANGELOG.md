@@ -3,7 +3,12 @@
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [SemVer](https://semver.org/).
 
-## [0.26.4]
+## [0.26.5]
+
+**There is no 0.26.4 on hex.** The tag `v0.26.4` (on `164456c`) exists, but
+its publish stopped at the key preflight, which refused a working key (the
+first entry below), so nothing was published. 0.26.5 is that release plus the
+preflight fix. The tag is left in place rather than moved.
 
 ### Fixed
 
