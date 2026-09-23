@@ -63,6 +63,35 @@ existing_keypair_is_loaded_not_regenerated_test() ->
     ?assertEqual(Original, Loaded),
     file:delete(Path).
 
+%% A key written by macula 11.4 is what every deployed service holds: mcl-echo's
+%% on beam00 is 10401 bytes, 11.4's size (12 writes about 5540). Crossing to
+%% 12 must LOAD it: the same node id, since the realm's delegation is bound to
+%% it, and the file left exactly as it was. Refusing it stops the service;
+%% regenerating it would be a new node the realm has never seen. The fixture
+%% is a throwaway key written by macula 11.4.0's own macula_node_keys:save/2,
+%% and the node id below is the one 11.4.0 computed for it.
+-define(KEY_11_4_FIXTURE, "fixtures/identity_written_by_macula_11_4.key").
+-define(KEY_11_4_NODE_ID,
+        <<"006412ba68d6aa642e6cdaaacce9cd23f5a663fd2f5ec6b106fc1b3f1b4ef3d8">>).
+
+key_written_by_macula_11_4_loads_as_the_same_node_test() ->
+    Path = tmp_path(),
+    {ok, Written} = file:read_file(
+                      filename:join(filename:dirname(?FILE), ?KEY_11_4_FIXTURE)),
+    ok = file:write_file(Path, Written),
+    %% macula refuses a key file its group or others can read.
+    ok = file:change_mode(Path, 8#600),
+
+    Key = mcl_om_identity:node_key_from({ok, Path}),
+
+    ?assertMatch(#{purpose := identity, profile := pq_hybrid}, Key),
+    {ok, NodeId} = macula_node_keys:node_id(Key),
+    ?assertEqual(?KEY_11_4_NODE_ID, binary:encode_hex(NodeId, lowercase)),
+    ?assert(macula_node_keys:puzzle_solved(NodeId,
+                                           macula_node_keys:puzzle_difficulty())),
+    ?assertEqual({ok, Written}, file:read_file(Path)),
+    file:delete(Path).
+
 %% A key file that exists but will not load is refused and left untouched.
 %% Regenerating would give the service a new node id and overwrite its
 %% real key: macula refuses key files readable by group or others, so a
