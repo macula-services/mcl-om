@@ -129,8 +129,8 @@
 %%% not authoritative" limitation rather than pretending to a DHT-wide
 %%% index this record type cannot support.
 %%%
-%%% Signing needs the service's stable keypair
-%%% (`mcl_om_identity:keypair/0'); an ephemeral service cannot sign
+%%% Signing needs the service's stable identity key
+%%% (`mcl_om_identity:identity_key/0'); an ephemeral service cannot sign
 %%% and is correctly not advertised.
 -module(mcl_om_capabilities).
 -behaviour(gen_server).

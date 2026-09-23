@@ -3,7 +3,12 @@
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [SemVer](https://semver.org/).
 
-## [Unreleased]
+## [0.26.0]
+
+The version follows 0.4.0 directly. It jumps to 0.26.0 because this repo
+already carries tags v0.5.0 to v0.25.0 from its hecate_om days, and those
+tags are kept as they are. The service scaffold now asks for
+`{mcl_om, "~> 0.26"}`, so a new service cannot resolve a pre-macula-12 mcl_om.
 
 ### Changed
 

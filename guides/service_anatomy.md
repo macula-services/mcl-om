@@ -15,7 +15,7 @@ README for how to install the template.
 ├── LICENSE
 ├── CHANGELOG.md
 ├── Containerfile                ← multi-stage Erlang build
-├── rebar.config                 ← deps incl. {mcl_om, "~> 0.9"}, relx release
+├── rebar.config                 ← deps incl. {mcl_om, "~> 0.26"}, relx release
 ├── apps/hecate_x/
 │   ├── src/
 │   │   ├── hecate_x.app.src     ← `applications: [mcl_om, …]`
