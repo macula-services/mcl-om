@@ -2,3 +2,7 @@
 rebar.lock
 *.beam
 erl_crash.dump
+
+# barrel_docdb's system databases. A service with a read model starts
+# barrel_docdb in its eunit suite, and it writes them to the working directory.
+/data/

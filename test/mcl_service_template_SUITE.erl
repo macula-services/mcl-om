@@ -36,6 +36,8 @@
          generated_lint_toolchain_runs_in_its_image/1,
          generated_rebar3_is_pinned_by_sha256/1,
          generated_service_has_its_org/1,
+         generated_ci_runs_dialyzer_with_macula_in_view/1,
+         generated_gitignore_covers_what_the_tests_write/1,
          generated_text_is_current/1,
          no_unrendered_variable_survives/1,
          generated_workflow_keeps_actions_syntax/1,
@@ -65,6 +67,8 @@ all() ->
      generated_lint_toolchain_runs_in_its_image,
      generated_rebar3_is_pinned_by_sha256,
      generated_service_has_its_org,
+     generated_ci_runs_dialyzer_with_macula_in_view,
+     generated_gitignore_covers_what_the_tests_write,
      generated_text_is_current,
      no_unrendered_variable_survives,
      generated_workflow_keeps_actions_syntax,
@@ -135,12 +139,32 @@ install_templates(Dest) ->
 link_entry(Src, Dest) ->
     link_entry(file:read_link_info(Dest), Src, Dest).
 
-%% Already there: leave it alone and do not claim it for cleanup.
-link_entry({ok, _Info}, _Src, _Dest) ->
-    false;
+%% Already there: leave it alone and do not claim it for cleanup, provided it is
+%% THIS checkout's template. An installation from another checkout (the main
+%% one, while this is a worktree, or the other way round) would have this suite
+%% render and assert THOSE files, and pass or fail on templates it never
+%% looked at. Refuse, naming both, rather than test the wrong thing.
+link_entry({ok, _Info}, Src, Dest) ->
+    installed_from_here(same_file(Src, Dest), Src, Dest);
 link_entry({error, enoent}, Src, Dest) ->
     ok = file:make_symlink(Src, Dest),
     {true, Dest}.
+
+installed_from_here(true, _Src, _Dest) ->
+    false;
+installed_from_here(false, Src, Dest) ->
+    ct:fail({templates_installed_from_another_checkout,
+             #{installed => Dest, points_at => file:read_link(Dest), this_checkout => Src,
+               fix => "run scripts/install-templates.sh from this checkout"}}).
+
+%% Whether two paths reach the same file once every link is followed. A link
+%% target compared as text never matches: priv_dir is reached through
+%% _build/<profile>/lib/mcl_om/priv, itself a link to the checkout's priv.
+same_file(A, B) ->
+    identity(file:read_file_info(A)) =:= identity(file:read_file_info(B)).
+
+identity({ok, #file_info{major_device = Dev, inode = Inode}}) -> {Dev, Inode};
+identity(Other) -> Other.
 
 %% The outer run's rebar environment is cleared so the nested invocation cannot
 %% inherit this suite's own build state, profile or config. HOME is deliberately
@@ -417,18 +441,44 @@ generated_service_has_its_org(Config) ->
     ?assertMatch({match, _},
                  re:run(SysConfig, "\\{org,\\s*<<\"" ?REPO "\">>\\}")).
 
+%% DIALYZER IS A GATE, SO CI RUNS IT. A service's handler implements
+%% `macula_response' and calls `macula' directly, but macula reaches the
+%% service only through mcl_om, so it is not in the PLT: dialyzer reports
+%% every macula call as unknown and the behaviour's callbacks as unavailable.
+%% `plt_extra_apps' puts it in view.
+generated_ci_runs_dialyzer_with_macula_in_view(Config) ->
+    Root = ?config(root, Config),
+    ?assertMatch({match, _},
+                 re:run(read(filename:join(Root, ".github/workflows/lint.yml")),
+                        "^      - run: rebar3 dialyzer$", [multiline])),
+    {ok, Terms} = file:consult(filename:join(Root, "rebar.config")),
+    Dialyzer = proplists:get_value(dialyzer, Terms, []),
+    ?assert(lists:member(macula, proplists:get_value(plt_extra_apps, Dialyzer, []))).
+
+%% A service with a read model starts barrel_docdb in its tests, and
+%% barrel_docdb writes its system databases to `data/' in the working
+%% directory: the repository root. Unignored, they get committed.
+generated_gitignore_covers_what_the_tests_write(Config) ->
+    Ignore = read(filename:join(?config(root, Config), ".gitignore")),
+    ?assertMatch({match, _}, re:run(Ignore, "^/data/$", [multiline])).
+
 %% What the generated files say must be true of the platform they generate
-%% for: macula 12, and an image policy of two channels.
+%% for: macula 12, and an image policy of two channels. Whitespace is folded
+%% first, because a stale phrase wrapped across two lines is just as stale.
 generated_text_is_current(Config) ->
     Root = ?config(root, Config),
     Stale = [{filename:basename(F), S}
              || F <- all_files(Root),
-                S <- [<<"11.x">>, <<"plus the semver tag">>],
-                binary:match(read(F), S) =/= nomatch],
+                S <- [<<"11.x">>, <<"plus the semver tag">>,
+                      <<"both `:latest` and the semver tag">>],
+                binary:match(folded(read(F)), S) =/= nomatch],
     ?assertEqual([], Stale),
     Readme = read(filename:join(Root, "README.md")),
     ?assertMatch({match, _},
                  re:run(Readme, "publishes\\s+its\\s+own\\s+version\\s+and\\s+nothing\\s+else")).
+
+folded(Bin) ->
+    re:replace(Bin, "\\s+", " ", [global, {return, binary}]).
 
 %% TWO CHANNELS: main publishes :latest, a v* tag publishes its own version and
 %% NOTHING ELSE. Watchtower rolls every box on :latest, so a tag that also
