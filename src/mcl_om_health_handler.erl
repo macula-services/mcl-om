@@ -5,14 +5,15 @@
 %%% Kubernetes-style liveness probes consume this.
 -module(mcl_om_health_handler).
 
--export([init/2, routes/0, body/3]).
+-export([init/2, routes/0, body/4]).
 
 routes() ->
     [{"/health", ?MODULE, []}].
 
 init(Req0, State) ->
     Health = mcl_om:health(),
-    Body = body(Health, service_info(mcl_om:service_module()), grant_report()),
+    Body = body(Health, service_info(mcl_om:service_module()), grant_report(),
+                mcl_om_pubsub:failed_publishes()),
     Req = cowboy_req:reply(code(Health),
                            #{<<"content-type">> => <<"application/json">>},
                            jsx:encode(Body), Req0),
@@ -20,14 +21,16 @@ init(Req0, State) ->
 
 %% @doc The JSON body for a health verdict. Every state lists the provider
 %% grants, so a service still inside its waiting window answers ok and says
-%% which procedure is not granted yet and why.
--spec body(mcl_om_service:health(), map(), [map()]) -> map().
-body(ok, Info, Grants) ->
-    Info#{status => <<"ok">>, provider_grants => Grants};
-body({degraded, Reason}, _Info, Grants) ->
-    unhealthy(<<"degraded">>, Reason, Grants);
-body({down, Reason}, _Info, Grants) ->
-    unhealthy(<<"down">>, Reason, Grants).
+%% which procedure is not granted yet and why, and the number of publishes
+%% whose publisher exited before resolving (mcl_om_pubsub:failed_publishes/0).
+-spec body(mcl_om_service:health(), map(), [map()], non_neg_integer()) -> map().
+body(ok, Info, Grants, FailedPublishes) ->
+    Info#{status => <<"ok">>, provider_grants => Grants,
+          failed_publishes => FailedPublishes};
+body({degraded, Reason}, _Info, Grants, FailedPublishes) ->
+    (unhealthy(<<"degraded">>, Reason, Grants))#{failed_publishes => FailedPublishes};
+body({down, Reason}, _Info, Grants, FailedPublishes) ->
+    (unhealthy(<<"down">>, Reason, Grants))#{failed_publishes => FailedPublishes}.
 
 unhealthy(Status, Reason, Grants) ->
     #{status          => Status,

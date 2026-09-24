@@ -20,18 +20,21 @@ a_degraded_service_keeps_its_own_reason_test() ->
 
 %% /health lists the grants in EVERY state. A service inside its waiting
 %% window answers ok and still says which procedure is not granted and why.
+%% It also counts the publishes whose publisher exited before resolving, so a
+%% service that publishes into a dead pool is visible without its logs.
 -define(REPORT, [#{procedure => <<"acme/x">>, status => <<"waiting">>}]).
 
 ok_body_carries_the_service_info_and_the_grants_test() ->
-    ?assertEqual(#{name => <<"svc">>, status => <<"ok">>, provider_grants => ?REPORT},
-                 mcl_om_health_handler:body(ok, #{name => <<"svc">>}, ?REPORT)).
+    ?assertEqual(#{name => <<"svc">>, status => <<"ok">>, provider_grants => ?REPORT,
+                   failed_publishes => 0},
+                 mcl_om_health_handler:body(ok, #{name => <<"svc">>}, ?REPORT, 0)).
 
 degraded_body_carries_the_reason_and_the_grants_test() ->
     ?assertEqual(#{status => <<"degraded">>, reason => <<"slow">>,
-                   provider_grants => ?REPORT},
-                 mcl_om_health_handler:body({degraded, slow}, #{}, ?REPORT)).
+                   provider_grants => ?REPORT, failed_publishes => 3},
+                 mcl_om_health_handler:body({degraded, slow}, #{}, ?REPORT, 3)).
 
 down_body_carries_the_reason_and_the_grants_test() ->
     ?assertEqual(#{status => <<"down">>, reason => <<"crashed">>,
-                   provider_grants => []},
-                 mcl_om_health_handler:body({down, crashed}, #{}, [])).
+                   provider_grants => [], failed_publishes => 0},
+                 mcl_om_health_handler:body({down, crashed}, #{}, [], 0)).

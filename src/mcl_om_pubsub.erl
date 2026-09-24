@@ -24,6 +24,7 @@
 -module(mcl_om_pubsub).
 
 -export([publish/2, publish/3, publish_many/2, publish_many/3]).
+-export([publish_on/5, failed_publishes/0]).
 -export([start_publisher/3, start_publisher/4, start_publisher/5]).
 -export([ensure_subscriptions/1]).
 
@@ -43,7 +44,11 @@
 -type publish_opts() :: #{
     realm   => binary(),
     mode    => mode(),
-    timeout => pos_integer()
+    timeout => pos_integer(),
+    %% Passed to macula_publisher:start_link/7: `announce' (default true;
+    %% false publishes the payload without the start/completed facts),
+    %% `publish', `fact_publish'.
+    publisher_opts => map()
 }.
 
 -export_type([mode/0, publish_opts/0]).
@@ -78,15 +83,25 @@ publish(Topic, Payload) ->
 %%   `timeout' — `sync' mode only. Milliseconds to wait for the
 %%               outcome before returning `{error, timeout}'. Default
 %%               5000.
+%%   `publisher_opts' — macula_publisher's own start options, passed
+%%               through: `announce => false' publishes the payload alone,
+%%               one frame instead of three.
+%%
+%% A PUBLISHER THAT DIES IS A FAILED PUBLISH, NEVER THE CALLER'S DEATH.
+%% Each publisher runs under a watcher of its own rather than linked to the
+%% caller. macula 12.2 returns `{ok, Pid}' before the start announcement, so
+%% a failed announcement ends the publisher after the start; a crashed publish
+%% worker ends it too. Linked to the caller, either exit killed the service
+%% process that published. The watcher logs the exit, counts it
+%% (failed_publishes/0, and on /health), and answers a `sync' caller
+%% `{error, {publisher_exited, Reason}}' at once.
 -spec publish(binary(), term(), publish_opts()) -> ok | {error, term()}.
 publish(Topic, Payload, Opts)
   when is_binary(Topic), is_map(Opts) ->
     do_publish(mcl_om:mesh_handles(), Topic, Payload, Opts).
 
 do_publish({ok, Pool, DefaultRealm}, Topic, Payload, Opts) ->
-    Realm = resolve_realm(Opts, DefaultRealm),
-    Mode  = resolve_mode(Opts),
-    publish_with_mode(Mode, Pool, Realm, Topic, Payload, Opts);
+    publish_on(Pool, resolve_realm(Opts, DefaultRealm), Topic, Payload, Opts);
 do_publish({error, mesh_unavailable} = Err, _Topic, _Payload, _Opts) ->
     Err.
 
@@ -102,24 +117,22 @@ resolve_realm(Opts, DefaultRealm) ->
 resolve_mode(Opts) ->
     maps:get(mode, Opts, async_silent).
 
+%% @doc Publish on an explicit pool and realm, with `publish/3''s options.
+%% `publish/2,3' resolve the pool and realm and come here.
+-spec publish_on(pid(), binary(), binary(), term(), publish_opts()) -> ok | {error, term()}.
+publish_on(Pool, Realm, Topic, Payload, Opts) ->
+    publish_with_mode(resolve_mode(Opts), Pool, Realm, Topic, Payload, Opts).
+
 publish_with_mode(sync, Pool, Realm, Topic, Payload, Opts) ->
-    sync_publish(Pool, Realm, Topic, Payload, Opts);
-publish_with_mode(Mode, Pool, Realm, Topic, Payload, _Opts) ->
-    started(macula_publisher:start_link(?MODULE, Pool, Realm, Topic, Payload,
-                                        {Mode, Topic})).
-
-started({ok, _Pid}) -> ok;
-started({error, _Reason} = Err) -> Err.
-
-sync_publish(Pool, Realm, Topic, Payload, Opts) ->
     Ref     = make_ref(),
     Timeout = maps:get(timeout, Opts, ?DEFAULT_SYNC_TIMEOUT_MS),
-    reply_or_timeout(
-      macula_publisher:start_link(?MODULE, Pool, Realm, Topic, Payload,
-                                  {sync, self(), Ref}),
-      Ref, Timeout).
+    reply_or_timeout(watched(Pool, Realm, Topic, Payload, {sync, self(), Ref}, Opts,
+                             {self(), Ref}),
+                     Ref, Timeout);
+publish_with_mode(Mode, Pool, Realm, Topic, Payload, Opts) ->
+    watched(Pool, Realm, Topic, Payload, {Mode, Topic}, Opts, none).
 
-reply_or_timeout({ok, _Pid}, Ref, Timeout) ->
+reply_or_timeout(ok, Ref, Timeout) ->
     receive
         {?MODULE, Ref, Result} -> Result
     after Timeout ->
@@ -127,6 +140,74 @@ reply_or_timeout({ok, _Pid}, Ref, Timeout) ->
     end;
 reply_or_timeout({error, _Reason} = Err, _Ref, _Timeout) ->
     Err.
+
+%% Start the publisher in a watcher that traps its exit, and return how the
+%% START went: `ok', or the start's own error. The caller monitors the watcher,
+%% so a start that raises (macula refuses a bad `announce' with
+%% function_clause) answers the caller instead of leaving it waiting.
+watched(Pool, Realm, Topic, Payload, Args, Opts, Notify) ->
+    Caller = self(),
+    Tag = make_ref(),
+    PublisherOpts = maps:get(publisher_opts, Opts, #{}),
+    {Watcher, Mon} =
+        spawn_monitor(fun() ->
+                          process_flag(trap_exit, true),
+                          Start = macula_publisher:start_link(?MODULE, Pool, Realm, Topic,
+                                                              Payload, Args, PublisherOpts),
+                          Caller ! {Tag, start_result(Start)},
+                          watch(Start, Topic, Notify)
+                      end),
+    receive
+        {Tag, Started} ->
+            erlang:demonitor(Mon, [flush]),
+            Started;
+        {'DOWN', Mon, process, Watcher, Reason} ->
+            {error, {publisher_not_started, Reason}}
+    end.
+
+start_result({ok, _Pid}) -> ok;
+start_result({error, _Reason} = Err) -> Err.
+
+watch({ok, Pid}, Topic, Notify) ->
+    receive
+        {'EXIT', Pid, Reason} -> exited(clean_exit(Reason), Reason, Topic, Notify)
+    end;
+watch({error, _Reason}, _Topic, _Notify) ->
+    ok.
+
+clean_exit(normal) -> true;
+clean_exit(shutdown) -> true;
+clean_exit({shutdown, _}) -> true;
+clean_exit(_Abnormal) -> false.
+
+exited(true, _Reason, _Topic, _Notify) ->
+    ok;
+exited(false, Reason, Topic, Notify) ->
+    logger:warning("mcl_om_pubsub: publisher for ~ts exited before its publish "
+                   "resolved: ~p", [Topic, Reason]),
+    ok = counters:add(failed_counter(), 1, 1),
+    notify(Notify, Reason).
+
+notify(none, _Reason) -> ok;
+notify({Pid, Ref}, Reason) -> Pid ! {?MODULE, Ref, {error, {publisher_exited, Reason}}}, ok.
+
+%% @doc How many publishes ended with their publisher exiting abnormally since
+%% this node started. Also on /health.
+-spec failed_publishes() -> non_neg_integer().
+failed_publishes() ->
+    counters:get(failed_counter(), 1).
+
+-define(FAILED_KEY, {?MODULE, failed_publishes}).
+
+failed_counter() ->
+    counter_or_new(persistent_term:get(?FAILED_KEY, undefined)).
+
+counter_or_new(undefined) ->
+    C = counters:new(1, [atomics]),
+    persistent_term:put(?FAILED_KEY, C),
+    C;
+counter_or_new(C) ->
+    C.
 
 %% @doc Publish `Payload' on every topic in `Topics'. Convenience for a
 %% one-fact-fans-to-N-topics service (`hecate-news' publishes to a
