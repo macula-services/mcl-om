@@ -14,7 +14,8 @@ labels_test_() ->
      [fun app_env_wins/1,
       fun os_env_when_no_app_env/1,
       fun service_info_name_when_nothing_is_set/1,
-      fun an_empty_os_variable_counts_as_unset/1]}.
+      fun an_empty_os_variable_counts_as_unset/1,
+      fun an_empty_app_env_value_counts_as_unset/1]}.
 
 setup() ->
     _ = application:load(mcl_om),
@@ -66,4 +67,15 @@ an_empty_os_variable_counts_as_unset(_) ->
     true = os:putenv("MCL_BOX", ""),
     #{name := Name} = dummy_service:info(),
     ?_assertEqual(#{<<"service_name">> => Name, <<"box">> => <<>>},
+                  mcl_om_claim:labels()).
+
+%% A release whose sys.config still carries `{box, <<"${MCL_BOX}">>}' gets an
+%% EMPTY app env value when the variable is unset. That is not a label, and it
+%% must not hide the OS variable or the service name behind it.
+an_empty_app_env_value_counts_as_unset(_) ->
+    ok = application:set_env(mcl_om, service_name, <<>>),
+    ok = application:set_env(mcl_om, box, ""),
+    true = os:putenv("MCL_BOX", "beam00.lab"),
+    #{name := Name} = dummy_service:info(),
+    ?_assertEqual(#{<<"service_name">> => Name, <<"box">> => <<"beam00.lab">>},
                   mcl_om_claim:labels()).

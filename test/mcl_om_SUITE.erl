@@ -5,10 +5,12 @@
 -include_lib("stdlib/include/assert.hrl").
 
 -export([all/0, init_per_suite/1, end_per_suite/1]).
--export([behaviour_attributes/1, boot_dummy_service/1, health_snapshot/1]).
+-export([behaviour_attributes/1, boot_dummy_service/1, health_snapshot/1,
+         boot_refuses_a_service_without_an_org/1]).
 
 all() ->
-    [behaviour_attributes, boot_dummy_service, health_snapshot].
+    [behaviour_attributes, boot_dummy_service, health_snapshot,
+     boot_refuses_a_service_without_an_org].
 
 init_per_suite(Config) ->
     %% Bind the /health listener on an OS-assigned ephemeral port so the
@@ -17,6 +19,8 @@ init_per_suite(Config) ->
     %% mcl_om:health/0, not the HTTP socket, so the port is irrelevant.
     application:load(mcl_om),
     application:set_env(mcl_om, health_port, 0),
+    %% Every service boots with an org (boot_refuses_a_service_without_an_org).
+    application:set_env(mcl_om, org, <<"dummy">>),
     {ok, _} = application:ensure_all_started(mcl_om),
     Config.
 
@@ -60,3 +64,20 @@ boot_dummy_service(_Config) ->
 
 health_snapshot(_Config) ->
     ?assertEqual(ok, mcl_om:health()).
+
+%% A release whose MCL_ORG was never set carries the literal "${MCL_ORG}". The
+%% service must not come up at all: running green while advertising nothing
+%% and never claiming is how a bot on beam01 went unnoticed. mcl_om reads the
+%% org once, at start, so it is restarted around the case.
+boot_refuses_a_service_without_an_org(_Config) ->
+    ok = application:stop(mcl_om),
+    ok = application:set_env(mcl_om, org, <<"${MCL_ORG}">>),
+    {ok, _} = application:ensure_all_started(mcl_om),
+    try
+        ?assertError({mcl_om_org_not_configured, #{got := <<"${MCL_ORG}">>}},
+                     mcl_om:boot(dummy_service, #{}))
+    after
+        ok = application:stop(mcl_om),
+        ok = application:set_env(mcl_om, org, <<"dummy">>),
+        {ok, _} = application:ensure_all_started(mcl_om)
+    end.

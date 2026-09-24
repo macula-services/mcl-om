@@ -27,7 +27,7 @@
 -module(mcl_om_identity).
 -behaviour(gen_server).
 
--export([start_link/0, macula_client/0, realm/0, identity_key/0, org/0]).
+-export([start_link/0, macula_client/0, realm/0, identity_key/0, org/0, checked_org/1]).
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
 %% Exported for mcl_om_identity_tests.erl — pure resolution logic.
 %% `base_pool_opts/0' is the composed map that reaches `macula:connect/2'.
@@ -87,6 +87,18 @@ org() ->
         {error, not_booted} -> <<"_">>;
         Org                  -> Org
     end.
+
+%% @doc Whether `Org' can be a service's org: a wire segment, the `Org' in
+%% `Org/Name'. Refused: `_' (what org/0 answers when none is configured),
+%% empty, an environment variable relx left unexpanded ("${MCL_ORG}"), and
+%% anything else a procedure name cannot start with. mcl_om:boot/2 refuses to
+%% boot a service on the refusal.
+-spec checked_org(binary()) -> ok | {error, {not_an_org, binary()}}.
+checked_org(Org) when is_binary(Org) ->
+    org_shape(re:run(Org, <<"^[a-z0-9][a-z0-9._-]*$">>, [{capture, none}]), Org).
+
+org_shape(match, _Org) -> ok;
+org_shape(nomatch, Org) -> {error, {not_an_org, Org}}.
 
 safe_call(Msg) ->
     try gen_server:call(?MODULE, Msg)

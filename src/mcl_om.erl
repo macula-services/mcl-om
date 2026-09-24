@@ -37,6 +37,7 @@ boot(ServiceMod) ->
 -spec boot(module(), map()) -> {ok, pid()} | {error, term()}.
 boot(ServiceMod, Opts) when is_atom(ServiceMod), is_map(Opts) ->
     persistent_term:put(?SERVICE_MODULE_KEY, ServiceMod),
+    ok = org_configured(mcl_om_identity:org()),
     ok = maybe_wire_store(ServiceMod),
     ok = mcl_om_capabilities:register(capabilities_with_describe(ServiceMod)),
     ok = maybe_wire_subscriptions(ServiceMod),
@@ -57,6 +58,21 @@ capabilities_with_describe(ServiceMod) ->
 
 add_describe_capability(undefined, Caps)     -> Caps;
 add_describe_capability(DescribeCap, Caps)   -> [DescribeCap | Caps].
+
+%% @private A service without an org offers nothing: every procedure is
+%% `Org/Name', and the realm grants per org. It used to boot anyway, log
+%% "advertise skipped, no org configured" and run green without ever
+%% advertising or claiming. It refuses to boot now, naming the setting.
+org_configured(Org) ->
+    org_verdict(mcl_om_identity:checked_org(Org), Org).
+
+org_verdict(ok, _Org) ->
+    ok;
+org_verdict({error, _}, Org) ->
+    error({mcl_om_org_not_configured,
+           #{got => Org,
+             setting => <<"the mcl_om `org' app env, e.g. {org, <<\"${MCL_ORG}\">>} in "
+                          "sys.config with MCL_ORG set, or the repository name as a literal">>}}).
 
 %% @private When the service module exports subscriptions/0, wire each
 %% declared {Topic, HandlerMod, Args} into a supervised macula_subscriber

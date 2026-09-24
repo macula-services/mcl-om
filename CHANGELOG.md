@@ -3,6 +3,33 @@
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [SemVer](https://semver.org/).
 
+## [0.27.1]
+
+### Fixed
+
+- **A service without an org refuses to boot.** Every procedure is
+  `Org/Name` and the realm grants per org, so a service with no usable org
+  offers nothing. It used to boot anyway, log "advertise skipped, no org
+  configured" and run green without advertising or claiming; a bot on beam01
+  ran like that unnoticed. `mcl_om:boot/2` now raises
+  `{mcl_om_org_not_configured, #{got => Org, setting => ...}}` before
+  anything is wired when the org is unset, empty, `_`, an unexpanded
+  `${MCL_ORG}`, or not a wire segment (`mcl_om_identity:checked_org/1`).
+  **A deployed service without an org will crash-loop at its next rebuild
+  instead of running silently: set `MCL_ORG`, or the `org` app env.**
+- **An empty claim label counts as unset.** A sys.config line such as
+  `{box, <<"${MCL_BOX}">>}` leaves an empty app env value when the variable is
+  unset, and 0.27.0 sent that empty value instead of falling back to
+  `MCL_BOX` / `MCL_SERVICE_NAME` and the service's name. Better still, drop
+  such lines: the fallback reads the variables itself.
+
+### Migration note, 0.27.0 step 3
+
+barrel_docdb's `data_dir` default is `"data/barrel_docdb"` from its app env,
+and `/tmp/barrel_data` in its code when the app env is not loaded; neither is
+on a service's volume. Set it explicitly under the service's data directory
+either way.
+
 ## [0.27.0]
 
 **Breaking.** mcl_om no longer depends on barrel_docdb, and so not on rocksdb.

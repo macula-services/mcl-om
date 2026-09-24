@@ -130,8 +130,13 @@ labels() ->
 label(Key, Var, Default) ->
     from_app_env(application:get_env(mcl_om, Key), Var, Default).
 
-from_app_env({ok, Value}, _Var, _Default) -> iolist_to_binary(Value);
+%% An empty value is no label: a sys.config line like `{box, <<"${MCL_BOX}">>}'
+%% leaves one behind whenever the variable is unset.
+from_app_env({ok, Value}, Var, Default) -> non_empty(iolist_to_binary(Value), Var, Default);
 from_app_env(undefined, Var, Default) -> from_os_env(os:getenv(Var), Default).
+
+non_empty(<<>>, Var, Default) -> from_os_env(os:getenv(Var), Default);
+non_empty(Value, _Var, _Default) -> Value.
 
 from_os_env(Unset, Default) when Unset =:= false; Unset =:= "" -> Default();
 from_os_env(Value, _Default) -> unicode:characters_to_binary(Value).
