@@ -36,6 +36,7 @@
          generated_lint_toolchain_runs_in_its_image/1,
          generated_rebar3_is_pinned_by_sha256/1,
          generated_service_has_its_org/1,
+         generated_image_carries_its_revision/1,
          generated_ci_runs_dialyzer_with_macula_in_view/1,
          generated_gitignore_covers_what_the_tests_write/1,
          generated_text_is_current/1,
@@ -67,6 +68,7 @@ all() ->
      generated_lint_toolchain_runs_in_its_image,
      generated_rebar3_is_pinned_by_sha256,
      generated_service_has_its_org,
+     generated_image_carries_its_revision,
      generated_ci_runs_dialyzer_with_macula_in_view,
      generated_gitignore_covers_what_the_tests_write,
      generated_text_is_current,
@@ -440,6 +442,21 @@ generated_service_has_its_org(Config) ->
     SysConfig = read(filename:join(?config(root, Config), "config/sys.config.src")),
     ?assertMatch({match, _},
                  re:run(SysConfig, "\\{org,\\s*<<\"" ?REPO "\">>\\}")).
+
+%% THE IMAGE SAYS WHICH COMMIT IT WAS BUILT FROM. build-push passes the sha as
+%% REVISION and the runtime stage labels the image with it, so a digest a fleet
+%% pins can be traced to its commit without the registry's history.
+generated_image_carries_its_revision(Config) ->
+    Root = ?config(root, Config),
+    Containerfile = read(filename:join(Root, "Containerfile")),
+    ?assertMatch({match, _}, re:run(Containerfile, "^ARG REVISION=unknown$", [multiline])),
+    ?assertMatch({match, _},
+                 re:run(Containerfile,
+                        "^LABEL org\\.opencontainers\\.image\\.revision=\"\\$\\{REVISION\\}\"$",
+                        [multiline])),
+    ?assertMatch({match, _},
+                 re:run(read(filename:join(Root, ".github/workflows/build-push.yml")),
+                        "^\\s+REVISION=\\$\\{\\{ github\\.sha \\}\\}$", [multiline])).
 
 %% DIALYZER IS A GATE, SO CI RUNS IT. A service's handler implements
 %% `macula_response' and calls `macula' directly, but macula reaches the
