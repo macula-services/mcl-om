@@ -54,7 +54,8 @@ boot(ServiceMod, Opts) when is_atom(ServiceMod), is_map(Opts) ->
 capabilities_with_describe(ServiceMod) ->
     #{name := ServiceName} = ServiceMod:info(),
     Caps = ServiceMod:capabilities(),
-    add_describe_capability(mcl_om_describe:capability_for(ServiceMod, ServiceName), Caps).
+    mcl_om_info:with_info(
+      add_describe_capability(mcl_om_describe:capability_for(ServiceMod, ServiceName), Caps)).
 
 add_describe_capability(undefined, Caps)     -> Caps;
 add_describe_capability(DescribeCap, Caps)   -> [DescribeCap | Caps].

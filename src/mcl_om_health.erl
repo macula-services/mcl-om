@@ -6,7 +6,7 @@
 -module(mcl_om_health).
 -behaviour(gen_server).
 
--export([start_link/0, register/1, snapshot/0, combined/2]).
+-export([start_link/0, register/1, snapshot/0, last/0, combined/2]).
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
 
 -record(state, {
@@ -23,6 +23,15 @@ register(ServiceMod) when is_atom(ServiceMod) ->
 snapshot() ->
     gen_server:call(?MODULE, snapshot).
 
+%% @doc The verdict last computed (at registration, then by each /health
+%% request), without running the service's health probe again: what an open
+%% caller such as `info' may ask for as often as it likes.
+-spec last() -> mcl_om_service:health() | {error, not_booted}.
+last() ->
+    try gen_server:call(?MODULE, last)
+    catch exit:{noproc, _} -> {error, not_booted}
+    end.
+
 init([]) ->
     {ok, #state{last_health = {down, not_started}}}.
 
@@ -34,6 +43,8 @@ handle_call(snapshot, _From, #state{service_module = undefined} = S) ->
 handle_call(snapshot, _From, #state{service_module = Mod} = S) ->
     Health = combined(safely(fun() -> Mod:health() end), grant_verdict()),
     {reply, Health, S#state{last_health = Health}};
+handle_call(last, _From, S) ->
+    {reply, S#state.last_health, S};
 handle_call(_Msg, _From, S) ->
     {reply, {error, unknown_call}, S}.
 

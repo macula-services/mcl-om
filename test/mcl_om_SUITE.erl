@@ -6,10 +6,12 @@
 
 -export([all/0, init_per_suite/1, end_per_suite/1]).
 -export([behaviour_attributes/1, boot_dummy_service/1, health_snapshot/1,
+         a_booted_service_answers_info/1,
          boot_refuses_a_service_without_an_org/1]).
 
 all() ->
     [behaviour_attributes, boot_dummy_service, health_snapshot,
+     a_booted_service_answers_info,
      boot_refuses_a_service_without_an_org].
 
 init_per_suite(Config) ->
@@ -60,7 +62,8 @@ boot_dummy_service(_Config) ->
     {ok, _Pid} = mcl_om:boot(dummy_service, #{}),
     ?assertEqual(dummy_service, mcl_om:service_module()),
     Caps = mcl_om_capabilities:list(),
-    ?assertEqual([#{name => <<"dummy.do_thing">>, version => 1}], Caps).
+    %% Its own capability, and the `info' mcl_om adds to every service.
+    ?assertEqual([mcl_om_info:capability(), #{name => <<"dummy.do_thing">>, version => 1}], Caps).
 
 health_snapshot(_Config) ->
     ?assertEqual(ok, mcl_om:health()).
@@ -81,3 +84,13 @@ boot_refuses_a_service_without_an_org(_Config) ->
         ok = application:set_env(mcl_om, org, <<"dummy">>),
         {ok, _} = application:ensure_all_started(mcl_om)
     end.
+
+%% The info handler on a booted service: its own name and org, the verdict
+%% mcl_om_health holds, and the Org/Name of everything it advertises.
+a_booted_service_answers_info(_Config) ->
+    Reply = mcl_om_info:answer(#{}),
+    ?assertEqual({text, <<"dummy">>}, maps:get(org, Reply)),
+    ?assertMatch({text, _}, maps:get(name, Reply)),
+    ?assertEqual({text, <<"ok">>}, maps:get(status, Reply)),
+    ?assert(lists:member({text, <<"dummy/info">>}, maps:get(capabilities, Reply))),
+    ?assert(is_integer(maps:get(uptime_s, Reply))).

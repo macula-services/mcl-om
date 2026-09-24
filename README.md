@@ -139,6 +139,24 @@ endpoint wiring and mesh advertisement come from `mcl-om`; the
 release, container image, compose file and CI workflows come from the
 `mcl_service` template described below.
 
+On the wire every procedure is `Org/Name`, with the org from mcl_om's `org`
+app env; a service without a usable org refuses to boot. What every service
+gets without writing it:
+
+- **`Org/info`**, open to any mesh caller: name, version, description, the
+  claim labels (`service_name`, `box`), org, node id, macula and mcl_om
+  versions, uptime, the health word (`ok`, `degraded`, `down`, `unknown`, from
+  the verdict /health last computed, never a fresh probe) and the procedures
+  it advertises. No environment, paths, keys or reasons. It is also what makes
+  a publish-only service count as online on the realm's Providers desk. A
+  service may not declare its own `info`.
+- **`handler_timeout_ms`** on a capability, 1 to 600000: how long macula waits
+  for the handler before answering the caller `temporary_relay_failure`
+  (default 30000). Response capabilities only.
+- **`failed_publishes`** on /health: publishes whose publisher exited before
+  resolving. `mcl_om_pubsub` runs each publisher under a watcher, so such an
+  exit is counted and logged instead of killing the process that published.
+
 ## Optional: store-backed services
 
 CMD/PRJ services that own a `reckon-db` event store export three more
@@ -271,7 +289,7 @@ networking turns a collision into a silent bind failure.
 
 ## Status
 
-**Working library — 0.26.x, on macula 12.** The behaviour and all helpers are implemented
+**Working library — 0.28.x, on macula 12.2.** The behaviour and all helpers are implemented
 (`mcl_om_identity`, `mcl_om_capabilities`, `mcl_om_store`,
 `mcl_om_health`), the boot path (`mcl_om:boot/1` with auto store-wiring)
 is exercised by a Common Test suite (`mcl_om_SUITE`), and `rebar3 new
@@ -291,9 +309,8 @@ and `store_integrity/0` (per-store HMAC event tamper-resistance). See the
 Known gap: the store-wiring callbacks are the part of the contract with no test
 of their own. `mcl_om_SUITE` boots a producer-only dummy service.
 
-Consumers: `mcl-echo`, deployed, and `mcl-warden` and `mcl-sentinel`, being
-ported from their obsolete `hecate-*` predecessors. Not yet burned in under
-sustained production load.
+Consumers: the `macula-services/mcl-*` services, `mcl-echo` deployed on the
+fleet. Not yet burned in under sustained production load.
 
 ## License
 

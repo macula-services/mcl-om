@@ -74,6 +74,11 @@ Six callbacks in `<%name%>_service`, all required, all resolved **by name** by
 attribute turns a missing one into a compile error rather than an `undef` where
 nobody is watching, and the eunit suite guards the attribute itself.
 
+mcl_om adds one capability of its own to every service: `<%repo%>/info`, open to
+any mesh caller, answering the service's name, version, labels, health word and
+advertised procedures. It needs no code here, and this service may not declare
+a capability named `info`.
+
 <%#store%>### The store
 
 This service was scaffolded with `store=1`, so it owns a `reckon-db` store called
