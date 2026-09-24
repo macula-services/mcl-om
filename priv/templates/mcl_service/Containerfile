@@ -60,7 +60,12 @@ COPY config ./config
 COPY apps ./apps
 RUN rebar3 as prod release
 
-FROM docker.io/alpine:3.22
+# ⚠ PINNED BY RELEASE AND DIGEST, like the builder: `alpine:3.22' moves, and
+# then two builds of one commit run on different bases with no commit saying
+# so. The same Alpine release as the builder, whose ERTS and NIFs this runs;
+# the generated runtime guard refuses the two drifting apart. Move both on
+# purpose, never by drift.
+FROM docker.io/alpine:3.22.6@sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8
 # LINKS THE PACKAGE TO THE REPOSITORY. On registries that read it, ghcr among
 # them, a package without this label is an orphan: it does not appear on the
 # repository page and does not inherit its visibility. A service that shipped

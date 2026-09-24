@@ -355,6 +355,15 @@ generated_service_is_pinned_to_one_otp(Config) ->
                  re:run(Containerfile,
                         "^FROM docker\\.io/hexpm/erlang:28\\.4\\.3-alpine-3\\.22\\.[0-9]+@sha256:[0-9a-f]{64} AS builder$",
                         [multiline])),
+    %% What RUNS is pinned too: the runtime stage names its Alpine release and
+    %% digest, the same release the builder compiled the release against.
+    {match, [BuilderAlpine]} =
+        re:run(Containerfile, "-alpine-([0-9]+\\.[0-9]+\\.[0-9]+)@sha256:[0-9a-f]{64} AS builder$",
+               [multiline, {capture, all_but_first, binary}]),
+    {match, [RuntimeAlpine]} =
+        re:run(Containerfile, "^FROM docker\\.io/alpine:([0-9]+\\.[0-9]+\\.[0-9]+)@sha256:[0-9a-f]{64}$",
+               [multiline, {capture, all_but_first, binary}]),
+    ?assertEqual(BuilderAlpine, RuntimeAlpine),
     ?assertMatch({match, _},
                  re:run(Lint, "image: docker\\.io/hexpm/erlang:28\\.4\\.3-debian-trixie-[0-9]{8}@sha256:[0-9a-f]{64}$",
                         [multiline])),

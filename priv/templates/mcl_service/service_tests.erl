@@ -178,7 +178,15 @@ the_runtime_agrees_between_the_image_the_ci_and_this_vm_test() ->
     Tools = pinned(".tool-versions", "^erlang ([0-9]+\\.[0-9]+\\.[0-9]+)$"),
     %% Sorted and deduplicated, so a failure prints every version rather than
     %% the first pair that happened to be compared.
-    ?assertEqual([Image], lists:usort([Image, CiImage, CiCheck, Tools, running_otp()])).
+    ?assertEqual([Image], lists:usort([Image, CiImage, CiCheck, Tools, running_otp()])),
+    %% What RUNS is pinned the same way: the runtime base by release and digest,
+    %% and it is the Alpine release the builder compiled the release against, so
+    %% the ERTS and NIFs shipped match the libc they run on.
+    BuilderAlpine = pinned("Containerfile",
+                           "-alpine-([0-9]+\\.[0-9]+\\.[0-9]+)@sha256:[0-9a-f]{64} AS builder$"),
+    RuntimeAlpine = pinned("Containerfile",
+                           "^FROM docker\\.io/alpine:([0-9]+\\.[0-9]+\\.[0-9]+)@sha256:[0-9a-f]{64}$"),
+    ?assertEqual(BuilderAlpine, RuntimeAlpine).
 
 %% The full release, 28.4.3 and not 28: `otp_release' names only the major.
 running_otp() ->

@@ -3,6 +3,19 @@
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [SemVer](https://semver.org/).
 
+## [0.28.1]
+
+### Fixed
+
+- **The scaffold pins what runs, not only what builds.** The `mcl_service`
+  template's runtime stage was `FROM docker.io/alpine:3.22`, a moving tag, so
+  two builds of one commit could run on different bases with nothing saying
+  so. It is now `docker.io/alpine:3.22.6@sha256:5291449c…`, the release the
+  builder compiles against. The generated runtime guard requires the digest
+  and refuses the builder's and the runtime's Alpine releases drifting apart;
+  the template suite asserts both. A service scaffolded earlier keeps its own
+  Containerfile: pin its runtime the same way. (#4)
+
 ## [0.28.0]
 
 **Anything built against macula 12.2 needs mcl_om 0.28.0 or later.** Under
