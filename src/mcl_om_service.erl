@@ -46,7 +46,10 @@ Producer-only services (no event store) omit both callbacks. See
                                   | {ucan_required, <<_:256>>}
                                   | {realm_member_required, <<_:256>>, binary()},
                             kind => response | streamer,
-                            stream_opts => #{mode => server_stream | client_stream}}.
+                            stream_opts => #{mode => server_stream | client_stream},
+                            %% A response capability's handler budget, 1 to
+                            %% 600000 ms (macula 12.2; default 30000).
+                            handler_timeout_ms => 1..600000}.
 -type identity_spec()  :: #{scope := binary(),
                             actions := [binary()],
                             resources := [binary()],

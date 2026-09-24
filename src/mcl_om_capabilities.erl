@@ -146,7 +146,7 @@
 -export([org_procedure/2, build_advertisement/5, decode_resolved/1,
          station_url/2, has_handler/1, auth_opts/1, unguarded_capabilities/1,
          reuse_sup_opts/1, advertise_opts/0,
-         provider_module/1, stream_opts/1,
+         provider_module/1, stream_opts/1, handler_timeout_opts/1,
          discovery_key_org/3, org_scoped_full_or_any/5,
          org_capability_pattern/1, matches_org_pattern/2,
          resolve_org_capabilities/3, republish_delay_ms/0]).
@@ -504,6 +504,20 @@ provider_module(_)                  -> macula_response.
 stream_opts(#{kind := streamer, stream_opts := Opts}) -> Opts;
 stream_opts(_)                                        -> #{}.
 
+%% @doc `Cap''s `handler_timeout_ms', merged into `advertise_direct''s `Opts':
+%% how long macula_response waits for the handler before answering the caller
+%% `temporary_relay_failure' (1 to 600000 ms, macula's default 30000; macula
+%% refuses anything else). Only a response capability has one: macula_streamer
+%% takes no such option, so a streamer that sets it is refused by name rather
+%% than advertised as if it had taken effect.
+-spec handler_timeout_opts(mcl_om_service:capability()) -> map().
+handler_timeout_opts(#{kind := streamer, handler_timeout_ms := _, name := Name}) ->
+    error({handler_timeout_ms_is_for_responses, Name});
+handler_timeout_opts(#{handler_timeout_ms := Ms}) ->
+    #{handler_timeout_ms => Ms};
+handler_timeout_opts(_) ->
+    #{}.
+
 %% `advertise_one/7' does real network I/O -- a synchronous call into
 %% the station-link connection process -- for every capability on every
 %% republish tick. A single slow or timed-out call must not crash this
@@ -562,7 +576,8 @@ advertise_one(Pool, Key, Realm, Org,
     Authorization = recorded_authorization(
                       OrgProcedure,
                       macula:provider_authorization(Pool, Realm, OrgProcedure)),
-    Opts = maps:merge(maps:merge(auth_opts(Cap), stream_opts(Cap)),
+    Opts = maps:merge(maps:merge(maps:merge(auth_opts(Cap), stream_opts(Cap)),
+                                 handler_timeout_opts(Cap)),
                       maps:merge(Authorization,
                                  reuse_sup_opts(maps:get(OrgProcedure, Sups, undefined)))),
     Result = Provider:advertise_direct(Pool, Realm, OrgProcedure, Mod,

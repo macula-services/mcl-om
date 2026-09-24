@@ -591,3 +591,26 @@ stop_live({I, Pool, C}) ->
     try gen_server:stop(I) catch _:_ -> ok end,
     try macula_client:close(Pool) catch _:_ -> ok end,
     ok.
+
+%%% `handler_timeout_ms': how long macula_response waits for a capability's
+%%% handler before answering the caller temporary_relay_failure (macula 12.2).
+%%% It was a fixed 30 s, so a slow handler's success reached its caller as a
+%%% failure; mcl-git capped its own work at 25 s to stay under it.
+
+handler_timeout_opts_is_absent_when_the_capability_sets_none_test() ->
+    ?assertEqual(#{}, mcl_om_capabilities:handler_timeout_opts(
+                         #{name => <<"do">>, version => 1, handler => {my_mod, []}})).
+
+handler_timeout_opts_carries_the_capabilitys_own_timeout_test() ->
+    ?assertEqual(#{handler_timeout_ms => 120000},
+                 mcl_om_capabilities:handler_timeout_opts(
+                   #{name => <<"clone">>, version => 1, handler => {my_mod, []},
+                     handler_timeout_ms => 120000})).
+
+%% macula_streamer has no such option: a streamer capability that sets one is
+%% refused by name rather than advertised as if it had taken effect.
+handler_timeout_opts_refuses_a_streamer_capability_test() ->
+    ?assertError({handler_timeout_ms_is_for_responses, <<"watch">>},
+                 mcl_om_capabilities:handler_timeout_opts(
+                   #{name => <<"watch">>, version => 1, handler => {my_mod, []},
+                     kind => streamer, handler_timeout_ms => 60000})).
