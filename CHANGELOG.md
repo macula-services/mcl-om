@@ -3,6 +3,52 @@
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [SemVer](https://semver.org/).
 
+## [0.28.0]
+
+**Anything built against macula 12.2 needs mcl_om 0.28.0 or later.** Under
+macula 12.2, mcl_om 0.27.x lets a failed publish announcement KILL the
+service process that published (below). This release requires macula
+`~> 12.2`.
+
+Additive for existing callers: no function, callback or return value changed
+shape. `/health` gains a field, and every service gains an advertised
+procedure, `Org/info`.
+
+### Added
+
+- **`Org/info` on every service.** mcl_om:boot/2 adds an `info` capability,
+  open to any mesh caller, answering public facts: name, version,
+  description, the claim labels, org, node id, macula and mcl_om versions,
+  uptime, the health word and the procedures the service advertises. The
+  health word is the verdict /health last computed, never a fresh probe. It
+  also makes a publish-only service count as online on the realm's Providers
+  desk, which only counts a node that advertises something. **A service that
+  declares its own `info` refuses to boot** with
+  `{mcl_om_capability_name_reserved, <<"info">>}`.
+- **`handler_timeout_ms` per capability** (macula 12.2): how long
+  macula_response waits for the handler before answering the caller
+  `temporary_relay_failure`, 1 to 600000, default 30000. A streamer capability
+  that sets it is refused, since macula_streamer has no such option.
+- `publisher_opts` on `mcl_om_pubsub:publish/3`, passed to
+  macula_publisher: `announce => false` publishes the payload without the two
+  fact frames.
+- `failed_publishes` on /health and `mcl_om_pubsub:failed_publishes/0`.
+- `mcl_om_pubsub:publish_on/5`, the publish path with an explicit pool and
+  realm.
+- The template labels its image with the commit it was built from
+  (`org.opencontainers.image.revision`).
+
+### Fixed
+
+- **A publisher that dies no longer kills its caller.** mcl_om_pubsub
+  started each publisher with `start_link` from the calling process. macula
+  12.2 returns `{ok, Pid}` before announcing, so a failed announcement ends
+  the publisher after the start, and a crashed publish worker always did: the
+  link took the calling service process down with it. Each publisher now runs
+  under a watcher that traps its exit, logs and counts it, and answers a
+  `sync` caller `{error, {publisher_exited, Reason}}` at once rather than after
+  its timeout.
+
 ## [0.27.1]
 
 ### Fixed
