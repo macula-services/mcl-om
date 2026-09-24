@@ -5,6 +5,16 @@ Versioning: [SemVer](https://semver.org/).
 
 ## [0.28.1]
 
+### Retired on hex
+
+- **0.27.0 and 0.27.1 are retired** (reason `other`: "incompatible with
+  macula 12.2 (publisher and pool faults): use mcl_om >= 0.28"). Under macula
+  12.2 they let a failed publish announcement kill the publishing process,
+  and with 0.27.1 on macula 12.2 an mcl_om service's pool never came up
+  (`macula_client()` answered `{error, no_client}` in mcl-echo's pool suite).
+  A service on `~> 0.27` resolves 0.28 once hex serves it; state the floor as
+  `~> 0.28` so no build can pair macula 12.2 with an older mcl_om.
+
 ### Fixed
 
 - **The scaffold pins what runs, not only what builds.** The `mcl_service`
