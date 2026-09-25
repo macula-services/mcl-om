@@ -148,6 +148,7 @@
          reuse_sup_opts/1, advertise_opts/0,
          provider_module/1, stream_opts/1, handler_timeout_opts/1,
          discovery_key_org/3, org_scoped_full_or_any/5,
+         pinned_providers/2,
          org_capability_pattern/1, matches_org_pattern/2,
          resolve_org_capabilities/3, republish_delay_ms/0]).
 
@@ -864,7 +865,12 @@ call_capability_via(_Pool, _Realm, _Org, _CapName, _Payload, _TimeoutMs, _Opts) 
     {error, not_configured}.
 
 %% @doc Explicit-pool form (testable without mcl_om_identity).
-%% `Opts': `ucan_token => binary()' (presented to a gated provider).
+%% `Opts':
+%% - `ucan_token => binary()' (presented to a gated provider).
+%% - `advertiser => <<_:256>>' (dial ONLY the provider whose advertisement
+%%   was published by this node id -- the pin that makes one procedure with
+%%   many providers addressable, see mcl_om:call_capability/5. A pin that
+%%   matches no resolved provider fails closed with `{error, no_provider}'.)
 %% There is no TLS mode to choose. The 10.x `verify => true' cert-chain
 %% form went with the cert authorization form, and macula 12 refuses
 %% `verify' in any value: the trust check is the D25 authorization the
@@ -873,9 +879,17 @@ call_capability_via(_Pool, _Realm, _Org, _CapName, _Payload, _TimeoutMs, _Opts) 
 -spec call_capability(pid(), binary(), binary(), binary(), term(),
                       pos_integer(), map()) -> {ok, term()} | {error, term()}.
 call_capability(Pool, Realm, Org, CapName, Payload, TimeoutMs, Opts) ->
-    call_providers(resolve_full(Pool, Realm, Org, CapName),
+    call_providers(pinned_providers(maps:get(advertiser, Opts, undefined),
+                                    resolve_full(Pool, Realm, Org, CapName)),
                    Pool, Realm, CapName, Payload, TimeoutMs,
                    maps:get(ucan_token, Opts, <<>>)).
+
+%% @doc The pin: keep only the provider whose advertisement was published
+%% by `NodeId'. No pin, no filter.
+pinned_providers(undefined, Providers) ->
+    Providers;
+pinned_providers(NodeId, Providers) ->
+    [Provider || #{advertiser := Adv} = Provider <- Providers, Adv =:= NodeId].
 
 call_providers([], _Pool, _Realm, _CapName, _Payload, _TimeoutMs, _Ucan) ->
     {error, no_provider};

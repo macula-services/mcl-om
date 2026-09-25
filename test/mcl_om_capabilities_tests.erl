@@ -614,3 +614,24 @@ handler_timeout_opts_refuses_a_streamer_capability_test() ->
                  mcl_om_capabilities:handler_timeout_opts(
                    #{name => <<"watch">>, version => 1, handler => {my_mod, []},
                      kind => streamer, handler_timeout_ms => 60000})).
+
+%%% The advertiser pin: one procedure, many providers. A pin keeps only the
+%%% provider whose advertisement was published by the named node; no pin
+%%% passes everything through; a stale pin fails closed as an empty list,
+%%% which call_providers/8 turns into {error, no_provider}.
+
+pinned_providers_passes_everything_without_a_pin_test() ->
+    Providers = [provider(<<1>>), provider(<<2>>)],
+    ?assertEqual(Providers, mcl_om_capabilities:pinned_providers(undefined, Providers)).
+
+pinned_providers_keeps_only_the_named_node_test() ->
+    Providers = [provider(<<1>>), provider(<<2>>), provider(<<3>>)],
+    ?assertEqual([provider(<<2>>)],
+                 mcl_om_capabilities:pinned_providers(<<2>>, Providers)).
+
+pinned_providers_fails_closed_on_a_stale_pin_test() ->
+    ?assertEqual([],
+                 mcl_om_capabilities:pinned_providers(<<9>>, [provider(<<1>>)])).
+
+provider(NodeId) ->
+    #{advertiser => NodeId, serving_station => <<"station">>, record => placeholder}.

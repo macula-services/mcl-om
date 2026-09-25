@@ -14,7 +14,7 @@
     boot/2,
     advertise_capabilities/0,
     call_capability/4,
-    health/0,
+    call_capability/5,    health/0,
     macula_client/0,
     realm/0,
     identity_key/0,
@@ -163,6 +163,25 @@ advertise_capabilities() ->
     {ok, term()} | {error, term()}.
 call_capability(Org, CapName, Payload, TimeoutMs) ->
     mcl_om_capabilities:call_capability(Org, CapName, Payload, TimeoutMs, #{}).
+
+%% @doc As call_capability/4, with `Opts'. One caller-facing option so
+%% far, and it is the one the many-provider contract model needs:
+%%
+%%   advertiser => <<_:256>>   call ONLY the provider whose signed
+%%       advertisement was published by this node id. One org procedure
+%%       with many providers -- a thousand book clubs, one
+%%       `get_bookclub_by_id' -- resolves to whoever the DHT lists first;
+%%       a club that does not own the asked id answers `not_found', which
+%%       is a valid answer and NOT a failover signal, so the wrong club
+%%       wins by order. The fix is not a smarter retry, it is a pin: the
+%%       caller that holds the club's node id (the publisher of the facts
+%%       it consumed) names it here, and only that club is dialed. An
+%%       absent or stale pin resolves to nothing and fails closed with
+%%       `{error, no_provider}'.
+-spec call_capability(binary(), binary(), term(), pos_integer(), map()) ->
+    {ok, term()} | {error, term()}.
+call_capability(Org, CapName, Payload, TimeoutMs, Opts) ->
+    mcl_om_capabilities:call_capability(Org, CapName, Payload, TimeoutMs, Opts).
 
 %% @doc Snapshot of this service's health. Used by /health handler.
 -spec health() -> mcl_om_service:health().
