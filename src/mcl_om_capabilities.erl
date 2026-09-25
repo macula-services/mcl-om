@@ -150,8 +150,15 @@
          provider_module/1, stream_opts/1, handler_timeout_opts/1,
          discovery_key_org/3, org_scoped_full_or_any/5,
          pinned_providers/2,
+         choose_serving_station/2,
          org_capability_pattern/1, matches_org_pattern/2,
          resolve_org_capabilities/3, republish_delay_ms/0]).
+
+%% The `publish_advertisement' opt advertise_direct/7 takes (see
+%% publish_advertisement/5 below): exported so the module fun reference
+%% the advertise path passes as that opt is a genuine use, and so the
+%% record-building is testable without a live mesh.
+-export([publish_advertisement/5, advertisement_opts/1]).
 
 %% `macula_record.erl''s own `?TYPE_PROCEDURE_ADVERTISEMENT' — not
 %% exported there (no shared header defines it either), so mirrored here.
@@ -610,18 +617,59 @@ advertise_one(Pool, Key, Realm, Org,
     Authorization = recorded_authorization(
                       OrgProcedure,
                       macula:provider_authorization(Pool, Realm, OrgProcedure)),
+    %% The DHT record's serving station is mcl_om's choice (see
+    %% publish_advertisement/5), not the SDK's first-connected link:
+    %% two providers of one procedure on one station are not both
+    %% dialable, so co-org providers must spread (issue #5).
     Opts = maps:merge(maps:merge(maps:merge(auth_opts(Cap), stream_opts(Cap)),
                                  handler_timeout_opts(Cap)),
                       maps:merge(Authorization,
-                                 reuse_sup_opts(maps:get(OrgProcedure, Sups, undefined)))),
+                                 maps:merge(
+                                   reuse_sup_opts(
+                                     maps:get(OrgProcedure, Sups, undefined)),
+                                   #{publish_advertisement =>
+                                         fun mcl_om_capabilities:publish_advertisement/5}))),
     Result = Provider:advertise_direct(Pool, Realm, OrgProcedure, Mod,
                                        Args, Key, Opts),
     advertised(Result, OrgProcedure, Sups);
 advertise_one(Pool, Key, Realm, Org, Cap, Sups) ->
     %% No handler declared — discoverable-but-not-callable path,
     %% kept for a capability another mechanism serves.
-    advertise_record_only(serving_station(Pool), Pool, Key, Realm, Org, Cap),
+    advertise_record_only(serving_station(Pool, Key), Pool, Key, Realm, Org, Cap),
     Sups.
+
+%% @doc The `publish_advertisement' function advertise_direct/7
+%% publishes its DHT record with (the SDK's opt of that name; its
+%% default is macula_direct_dial:publish_advertisement/5). Same record
+%% shape and options, ONE difference: the serving station is THIS
+%% node's own pick (choose_serving_station/2) instead of the pool's
+%% first-connected link (map-term order over the seed set — alphabetical
+%% host name, nothing a deploy can steer), which is what put both
+%% bookclubs' records on one station and left only one dialable
+%% (issue #5). The wire-level ADVERTISE frame still fans out to every
+%% connected station (macula:advertise/6 registers the handler on all
+%% of them), so the station named here has the registry entry to route
+%% the call.
+publish_advertisement(Pool, Realm, Procedure, NodeIdentity, Opts) ->
+    case serving_station(Pool, NodeIdentity) of
+        {ok, Station} ->
+            Advertiser = macula_node_keys:key_id(NodeIdentity),
+            Record = macula_record:sign(
+                       macula_record:procedure_advertisement(
+                         Advertiser, Realm, Procedure, Station,
+                         advertisement_opts(Opts)),
+                       NodeIdentity),
+            macula:put_record(Pool, Record);
+        {error, _} = Error ->
+            Error
+    end.
+
+%% Forwards each opt macula_record:procedure_advertisement/5 actually
+%% recognizes, from the opts advertise_direct handed through
+%% (authorization, ttl_ms) — the same set
+%% macula_direct_dial:publish_advertisement/5 forwards.
+advertisement_opts(Opts) ->
+    maps:with([authorization, ttl_ms], Opts).
 
 %% The D25 authorization this provider's org-namespaced procedure
 %% needs, as the `authorization' opt to embed in the record the SDK
@@ -726,13 +774,39 @@ log_put_result(Proc, {error, Reason}) ->
     ok.
 
 %% One station this service is reachable through, from the pool's
-%% connected links. Slice 2 advertises ONE serving station per provider
-%% (the store dedups records by signer); multi-station is Q10 / Slice 5.
-serving_station(Pool) ->
+%% connected links -- chosen deterministically per node (see
+%% choose_serving_station/2), NOT "the first connected link": the
+%% station a provider names is the one callers dial, and a station's
+%% remote_advertise_registry holds ONE advertiser per (realm,
+%% procedure) -- last direct ADVERTISE wins (macula-station's
+%% single-provider invariant). Two providers of one procedure that
+%% both name the same station are therefore not both dialable; the
+%% per-node spread keeps co-org providers on different stations
+%% whenever there are stations to spare (issue #5). Slice 2 advertises
+%% ONE serving station per provider (the store dedups records by
+%% signer); multi-station is Q10 / Slice 5.
+serving_station(Pool, Key) ->
     case connected_node_ids(Pool) of
-        [NodeId | _] -> {ok, NodeId};
-        []           -> {error, no_station}
+        []          -> {error, no_station};
+        Connected   ->
+            {ok, NodeId} = macula_node_keys:node_id(Key),
+            {ok, choose_serving_station(NodeId, Connected)}
     end.
+
+%% @doc The serving station one node names among the connected
+%% stations: `phash2(NodeId)' over the SORTED set, so the pick is
+%% stable across republish ticks (links arrive and depart in arbitrary
+%% order; the sort removes that noise) and spreads distinct nodes
+%% across the stations. Two providers of one procedure with different
+%% node ids land on different stations whenever the station set has
+%% room -- the deployment half of the many-club contract. Pure.
+-spec choose_serving_station(<<_:256>>, [<<_:256>>]) -> <<_:256>>.
+choose_serving_station(_NodeId, [Station]) ->
+    %% One station: the choice is that station, whatever the hash.
+    Station;
+choose_serving_station(NodeId, Stations) ->
+    Sorted = lists:sort(Stations),
+    lists:nth(erlang:phash2(NodeId, length(Sorted)) + 1, Sorted).
 
 connected_node_ids(Pool) ->
     try macula:links(Pool) of

@@ -19,6 +19,20 @@ Versioning: [SemVer](https://semver.org/).
   deployment the pinned call for one club failed this way, and the
   collapsed error sent the diagnosis into the resolve path while the
   real failure was the dial timing out.)
+- **Co-org providers spread across the serving stations, so they do
+  not clobber each other.** A station's advertise registry holds ONE
+  advertiser per `(realm, procedure)` -- last direct ADVERTISE wins --
+  so two providers of one procedure that name the same serving station
+  are not both dialable. The record's serving station was the SDK's
+  own choice (the pool's first-connected link, map-term order over the
+  seed set -- alphabetical host name, nothing a deploy could steer),
+  which put both bookclubs on one station. advertise now passes
+  advertise_direct a `publish_advertisement` that names the station
+  `choose_serving_station/2` picked for THIS node (`phash2` of the
+  node id over the sorted connected stations), so providers spread
+  whenever there are stations to spare. (Issue #5's root cause,
+  root-caused live: the station is macula-station's
+  `macula_remote_advertise_registry`, single-provider by design.)
 - **A slow DHT can no longer wedge the capabilities gen_server for
   minutes.** `lookup/1` ran a resolve whose retry budget counted only
   its sleeps (50 x 100 ms) and ignored the time each `find_records`

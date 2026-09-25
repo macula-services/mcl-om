@@ -635,5 +635,57 @@ pinned_providers_fails_closed_on_a_stale_pin_test() ->
     ?assertEqual([],
                  mcl_om_capabilities:pinned_providers(<<9>>, [provider(<<1>>)])).
 
+%%% The serving-station choice: a station's registry holds ONE advertiser
+%%% per (realm, procedure), so two providers of one procedure must name
+%%% different stations whenever there are stations to spare. The choice
+%%% is deterministic per node id over the SORTED connected set, so it is
+%%% stable across republish ticks whatever order the links arrive in.
+%%% (Issue #5: both clubs' records named one station, and only the
+%%% club that re-advertised last was dialable.)
+
+%% The pick is stable under reordering: it depends on the SET, not the
+%% link order.
+choose_serving_station_is_order_independent_test() ->
+    Stations = [station(<<1>>), station(<<2>>), station(<<3>>), station(<<4>>)],
+    ?assertEqual(mcl_om_capabilities:choose_serving_station(<<1, 2, 3, 4>>, Stations),
+                 mcl_om_capabilities:choose_serving_station(<<1, 2, 3, 4>>,
+                                                            lists:reverse(Stations))).
+
+%% One station: the choice is that station, whatever the hash.
+choose_serving_station_with_one_station_is_that_station_test() ->
+    ?assertEqual(station(<<7>>),
+                 mcl_om_capabilities:choose_serving_station(<<9, 9>>,
+                                                            [station(<<7>>)])).
+
+%% THE ESTATE REGRESSION: the two beam03 clubs' node ids must land on
+%% different stations of the four-station fleet set -- the spread that
+%% keeps both dialable. If a node id or the hash ever changes and the
+%% two collide again, this is the test that says so.
+choose_serving_station_spreads_the_two_estate_clubs_test() ->
+    Erlang  = binary:decode_hex(
+                <<"00a7173074c3d0d97ea77b14707239f1a595c006273d825a8ab6668c82178af2">>),
+    Phoenix = binary:decode_hex(
+                <<"00ae5517b0b198fd8724a072dbafde5853be5b9091aff6476e154af55d45b372">>),
+    Stations = [station(binary:decode_hex(H))
+                || H <- [<<"00df68247d119685f94030afdb203ab7a2a105fb6093a964dbf0509a57e86435">>,
+                         <<"00cd0008ec2e72b6572b7bf6fc8b048d7fe83993faf1fc544370f2bc1eb71f85">>,
+                         <<"004d1f470097ccf8826ce291900e882fdb1f20375e53901facaec0f23eb4efd8">>,
+                         <<"00a9b4143e24ae42e5a058dd28c9aab585636acd17012cc4d418a3bb5413af22">>]],
+    ?assertNotEqual(
+       mcl_om_capabilities:choose_serving_station(Erlang, Stations),
+       mcl_om_capabilities:choose_serving_station(Phoenix, Stations)).
+
+%% Every station gets picked by some node (the spread actually uses the
+%% set): four distinct ids over four stations pick four stations.
+choose_serving_station_uses_the_whole_set_test() ->
+    Stations = [station(<<1>>), station(<<2>>), station(<<3>>), station(<<4>>)],
+    Picks = lists:usort(
+              [mcl_om_capabilities:choose_serving_station(<<N:256>>, Stations)
+               || N <- lists:seq(1, 32)]),
+    ?assertEqual(4, length(Picks)).
+
+station(NodeId) ->
+    NodeId.
+
 provider(NodeId) ->
     #{advertiser => NodeId, serving_station => <<"station">>, record => placeholder}.
