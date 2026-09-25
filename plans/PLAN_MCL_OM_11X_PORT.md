@@ -55,8 +55,9 @@ API below changed in 11.x.
   survive; ownership_proof needs the node_keys key_id model.
 - **mcl_om_store / mcl_om_read_model** — reckon-db side, wire-agnostic;
   should survive unchanged.
-- **mcl_om_content / content_downloader / content_feeder** — check
-  macula:mcid + the content wire in 11.x.
+- **mcl_om_content / content_downloader / content_feeder** — REMOVED in
+  0.30.0 (Raf, 2026-09-25): no service used them, and macula 12.6.0's
+  `share_content`/`get_content` are what a service calls.
 
 ## The first live test — DONE, 2026-09-18
 
@@ -108,8 +109,8 @@ Fleet findings from the smoke (not fixable in this repo):
   dropped the pooled content store (the SDK's content transfer targets
   a content-serving peer). `test_live/mcl_om_content_live_station_tests`
   was deleted: a live test that can never pass against any deployed
-  target is a lie. Restore it when a content-serving station joins the
-  fleet; mcl_om_content's unit tests stand meanwhile.
+  target is a lie. (mcl_om_content itself went in 0.30.0; macula 12.6.0
+  serves content from the sharing node.)
 - **Pubsub and RPC payload keys arrive as `{text, _}` markers** (D26)
   on the PQ wire — `mcl_om_wire:field/2,3` is the contract, and the
   live assertions read through it.

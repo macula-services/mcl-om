@@ -251,46 +251,40 @@ genuinely don't fit.
 
 ## Chapter 4: How to Upload/Download files over the mesh
 
-### Put/get (piece E)
+### Share and get: call macula directly
+
+`mcl_om` does not wrap content. It had a wrapper, `mcl_om_content`
+(piece E), removed in 0.30.0: no service used it, and macula 12.6.0
+(D27) made the SDK's own calls the simple shape a service wants. They need
+macula 12.6.0 or later, which `mcl_om` itself does not require, so a
+service that shares content states `{macula, ">= 12.6.0 and < 13.0.0"}` in
+its own `rebar.config`. Use them with the handles `mcl_om:mesh_handles/0`
+returns:
 
 ```erlang
-{ok, Mcid} = mcl_om_content:put(Bytes).
-{ok, Bytes} = mcl_om_content:get(Mcid).
+{ok, Pool, Realm} = mcl_om:mesh_handles(),
+{ok, Mcid}  = macula:share_content(Pool, Realm, Bytes, #{org => mcl_om_identity:org()}),
+{ok, Bytes} = macula:get_content(Pool, Realm, Mcid),
+ok          = macula:unshare_content(Pool, Realm, Mcid).
 ```
 
-Both block until the transfer resolves or `Opts`'s `timeout` (default
-15000ms) elapses — a timed-out transfer is genuinely cancelled, not
-just given up on locally, since it holds an open QUIC stream on the
-other end until told otherwise.
-
 **This is content-addressed storage, not a destination-addressed file
-transfer.** `put/1,2` doesn't take a filename, a path, or a recipient
-— it returns an MCID (a content identifier: a codec byte plus a hash,
-not anything human-readable), and `get/1,2` fetches by that identifier
-from *whoever* is currently serving it, not necessarily from you.
-Think "content-addressed store," not "upload this file to that
-server." If your bytes have no meaningful filename or destination —
-a thumbnail, a document, a generated report — this is exactly what
-you want.
-
-Always uses the **pooled** path (`macula_feeder:start_link/4,5`,
-`macula_download:start_link/4,5`), never `_direct`. This matters:
-`macula_download`'s direct-dial path only resolves content that has a
-`content_announcement` DHT record, and only *chunked* content gets
-one — a small blob (a logo, a thumbnail) never does, so
-`start_link_direct` would 404 even immediately after upload (confirmed
-live on beam02). Put and get through this module can never disagree
-about which path a given piece of content is reachable through.
-
-The escape hatch (`start_feeder/2,3,4` / `start_downloader/2,3,4`, a
-caller-supplied `-behaviour(macula_feeder)`/`macula_download` module)
-exists for the same reason as pubsub's — e.g. a batch upload wanting a
-per-item completion side effect without blocking the caller on each
-one — and resolves `mesh_handles/0` the same way `put/1,2` does.
+transfer.** `share_content` takes no filename, path or recipient: this
+node keeps the bytes and serves them, and returns an MCID (a codec byte
+plus a hash). `get_content` fetches by that identifier from a node that
+shares it, and verifies the bytes. Share with `#{org => Org}`: the
+content is then served on `<org>/content_v1_<node hex>`, which the
+delegation the service already holds authorizes. Without `org` it is
+served on `~<node hex>/content_v1`, which needs macula-station 0.6.4 or
+later. A node serves what it shares until it unshares it or stops, so
+unshare what you no longer need. The supervised forms,
+`macula_feeder` and `macula_download`, remain for a caller that wants
+the outcome delivered to a callback module. See macula's
+`docs/guides/content/CONTENT_GUIDE.md`.
 
 ### If you actually need "send this to a specific recipient"
 
-`mcl_om_content` is deliberately **not** what you want if the real
+Content sharing is deliberately **not** what you want if the real
 requirement is "push these bytes at a service that's already
 expecting them" rather than "store this somewhere content-addressed
 for whoever asks later." That's a genuinely different, and already
@@ -301,9 +295,8 @@ supervised, macula primitive pair: `macula_upload` (recipient) /
 chapter 5's streaming gap is — no service in this workspace has needed
 it at all, so there's no real usage to design a facade from. Call the
 supervised behaviours directly, resolving `mcl_om:mesh_handles/0`
-and `mcl_om:identity_key/0` yourself exactly the way `mcl_om_content`
-does internally — this is still the supervised macula API, just
-without a second `mcl_om`-level layer on top of it yet.
+and `mcl_om:identity_key/0` yourself — this is the supervised macula
+API, with no `mcl_om`-level layer on top of it.
 
 ```erlang
 %% Recipient: advertise an upload procedure, same advertise_direct
@@ -494,8 +487,8 @@ and non-blocking.
   `find_records_by_type` crawl.
 - `macula-services/mcl-tube` — the fullest real exemplar of a
   service using every primitive in this guide, including the two
-  chapters 4–5 note aren't wrapped yet (streaming, and content's
-  put/get before `mcl_om_content` existed) — built directly against
+  chapters 4–5 note `mcl_om` does not wrap (content and streaming) —
+  built directly against
   the SDK, and the source this whole plan was derived from.
 - `../plans/PLAN_HECATE_OM_MESH_WRAPPERS.md` — the design history,
   evidence, and every bug each piece's tests found, if you want the

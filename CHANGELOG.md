@@ -3,6 +3,19 @@
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [SemVer](https://semver.org/).
 
+## [0.30.0]
+
+### Removed
+
+- **`mcl_om_content`, with `mcl_om_content_feeder` and
+  `mcl_om_content_downloader`** (breaking: `put/1,2`, `get/1,2`,
+  `start_feeder/2,3,4`, `start_downloader/2,3,4`). No mcl service used it,
+  and macula 12.6.0 (D27) made its own `share_content`/`get_content`/
+  `unshare_content` the calls a service wants: share with
+  `#{org => Org}` so the content is served under the service's org. The
+  guide's chapter 4 shows how. `mcl_om` still requires macula `~> 12.2`; a
+  service that shares content requires 12.6.0 itself.
+
 ## [0.29.1]
 
 ### Fixed
