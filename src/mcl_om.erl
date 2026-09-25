@@ -180,7 +180,7 @@ call_capability(Org, CapName, Payload, TimeoutMs) ->
 %% @doc As call_capability/4, with `Opts'. One caller-facing option so
 %% far, and it is the one the many-provider contract model needs:
 %%
-%%   advertiser => <<_:256>>   call ONLY the provider whose signed
+%%   advertiser => `<<_:256>>'   call ONLY the provider whose signed
 %%       advertisement was published by this node id. One org procedure
 %%       with many providers -- a thousand book clubs, one
 %%       `get_bookclub_by_id' -- resolves to whoever the DHT lists first;
