@@ -86,6 +86,16 @@ tier model still phrases the L2 placement rule absolutely ("NOT on user
 laptops"); read that as a policy about where the realm's own shared
 services belong, not as a limit on what an mcl-om service can do.
 
+**Service ≠ provider.** A node that serves a procedure is not thereby a
+service: every SDK lets a client serve procedures (`pool.Serve` in
+macula-go, say). A *service* is a node under this contract — always-on,
+containerised, a claimed identity answering `Org/info` and `/health`,
+advertised capabilities, and placement through macula-fleet. For mesh
+services the org runs BEAM only, and this library is the substrate; for
+mesh clients the SDKs are enough. A daemon written in another stack
+that wants onto the fleet under this contract is ported to
+Erlang/mcl-om, or runs outside the fleet's responsibility.
+
 ## The contract
 
 ```erlang
