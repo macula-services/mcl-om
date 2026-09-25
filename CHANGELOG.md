@@ -3,6 +3,22 @@
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [SemVer](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- `mcl_om:call_capability/5` with an `advertiser` pin: one org procedure
+  with many providers -- a thousand book clubs, one `get_bookclub_by_id` --
+  is addressable. The caller names the node whose advertisement to dial;
+  a stale pin fails closed with `{error, no_provider}`.
+
+### Fixed
+
+- `boot/2` registers capabilities and subscriptions only AFTER
+  `ServiceMod:start/1` returns `{ok, Pid}`: a procedure is advertised only
+  once the service can answer it, and a service that refuses to start
+  leaves no advertisement behind. (Issue #2.)
+
 ## [0.28.1]
 
 ### Retired on hex

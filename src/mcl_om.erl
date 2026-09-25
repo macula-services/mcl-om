@@ -39,10 +39,23 @@ boot(ServiceMod, Opts) when is_atom(ServiceMod), is_map(Opts) ->
     persistent_term:put(?SERVICE_MODULE_KEY, ServiceMod),
     ok = org_configured(mcl_om_identity:org()),
     ok = maybe_wire_store(ServiceMod),
-    ok = mcl_om_capabilities:register(capabilities_with_describe(ServiceMod)),
-    ok = maybe_wire_subscriptions(ServiceMod),
     ok = mcl_om_health:register(ServiceMod),
-    ServiceMod:start(Opts).
+    %% ADVERTISE ONLY AFTER A SUCCESSFUL START. A procedure is announced
+    %% only once the service can answer it, and a service that refuses to
+    %% start leaves no advertisement behind. ServiceMod:start/1 is where
+    %% the processes its handlers call come up, so capabilities and
+    %% subscriptions are registered only once it has returned {ok, Pid}.
+    %% (Health registers before start, deliberately: the /health listener
+    %% must answer during boot, and health() reports the half-up tree
+    %% honestly.)
+    case ServiceMod:start(Opts) of
+        {ok, Pid} ->
+            ok = mcl_om_capabilities:register(capabilities_with_describe(ServiceMod)),
+            ok = maybe_wire_subscriptions(ServiceMod),
+            {ok, Pid};
+        {error, _} = Err ->
+            Err
+    end.
 
 %% @private ServiceMod's own declared capabilities, plus a synthetic
 %% `<service-name>.describe_capabilities' one when it exports either

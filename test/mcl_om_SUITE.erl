@@ -7,11 +7,13 @@
 -export([all/0, init_per_suite/1, end_per_suite/1]).
 -export([behaviour_attributes/1, boot_dummy_service/1, health_snapshot/1,
          a_booted_service_answers_info/1,
+         boot_refuses_a_service_and_advertises_nothing/1,
          boot_refuses_a_service_without_an_org/1]).
 
 all() ->
     [behaviour_attributes, boot_dummy_service, health_snapshot,
      a_booted_service_answers_info,
+     boot_refuses_a_service_and_advertises_nothing,
      boot_refuses_a_service_without_an_org].
 
 init_per_suite(Config) ->
@@ -63,7 +65,20 @@ boot_dummy_service(_Config) ->
     ?assertEqual(dummy_service, mcl_om:service_module()),
     Caps = mcl_om_capabilities:list(),
     %% Its own capability, and the `info' mcl_om adds to every service.
+    %% The dummy's capabilities/0 answers ONLY while the worker its
+    %% start/1 spawned is alive -- so this assertion IS the ordering
+    %% proof: a boot that registered capabilities before start/1 would
+    %% see an empty list here and fail red.
     ?assertEqual([mcl_om_info:capability(), #{name => <<"dummy.do_thing">>, version => 1}], Caps).
+
+%% A service whose start/1 refuses must leave NO advertisement behind:
+%% boot returns the refusal, and the refused service's procedures are
+%% nowhere in the registered set.
+boot_refuses_a_service_and_advertises_nothing(_Config) ->
+    ?assertEqual({error, refused}, mcl_om:boot(refusing_service, #{})),
+    ?assertEqual(false,
+                 lists:member(#{name => <<"refusing.never_answered">>, version => 1},
+                              mcl_om_capabilities:list())).
 
 health_snapshot(_Config) ->
     ?assertEqual(ok, mcl_om:health()).
