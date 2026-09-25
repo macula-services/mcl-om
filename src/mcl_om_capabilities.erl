@@ -761,16 +761,17 @@ wire_advertisement(Key, Realm, Procedure, Opts, Pool) ->
 
 verified_advertisement(Record, Pool, Realm) ->
     case macula_client:realm_key(Pool, Realm) of
-        {ok, RealmKey} ->
-            {ok, Profile} = macula_crypto_profile:configured(),
-            Trust = #{profile => Profile, realm_key => RealmKey},
-            case macula_record:verify_authorization(
-                   Record, Trust, erlang:system_time(millisecond)) of
-                ok -> {ok, macula_record:encode(Record)};
-                {error, _} = E -> {error, E}
-            end;
-        none ->
-            {error, no_realm_key}
+        {ok, RealmKey} -> authorization_verified(Record, RealmKey);
+        none           -> {error, no_realm_key}
+    end.
+
+authorization_verified(Record, RealmKey) ->
+    {ok, Profile} = macula_crypto_profile:configured(),
+    Trust = #{profile => Profile, realm_key => RealmKey},
+    case macula_record:verify_authorization(Record, Trust,
+                                            erlang:system_time(millisecond)) of
+        ok -> {ok, macula_record:encode(Record)};
+        {error, _} = E -> {error, E}
     end.
 
 %% The link to this node's serving station, from the pool's connected
@@ -784,17 +785,21 @@ serving_station_link(Pool, Key) ->
     end.
 
 link_for_station(Pool, Station) ->
+    link_of(pool_links(Pool), Station).
+
+pool_links(Pool) ->
     try macula:links(Pool) of
-        {ok, Links} ->
-            case [Pid || #{node_id := S, pid := Pid, connected := true} <- Links,
-                         S =:= Station, is_pid(Pid)] of
-                [Pid | _] -> {ok, Pid};
-                []        -> {error, no_station}
-            end;
-        _ ->
-            {error, no_station}
+        {ok, Links} -> Links;
+        _           -> []
     catch _:_ ->
-        {error, no_station}
+        []
+    end.
+
+link_of(Links, Station) ->
+    case [Pid || #{node_id := S, pid := Pid, connected := true} <- Links,
+                 S =:= Station, is_pid(Pid)] of
+        [Pid | _] -> {ok, Pid};
+        []        -> {error, no_station}
     end.
 
 %% The D25 authorization this provider's org-namespaced procedure
