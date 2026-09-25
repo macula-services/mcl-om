@@ -136,6 +136,7 @@
 -behaviour(gen_server).
 
 -export([start_link/0, register/1, publish/0, lookup/1, list/0, provider_grants/0,
+         advertise_liveness/0,
          list_org_capabilities/1]).
 -export([call_capability/5, call_capability/7]).
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
@@ -193,10 +194,20 @@
 
 %% find/2's DHT-propagation-lag retry budget -- same values as
 %% macula_direct_dial's own private find_records_retry/3, see find/2.
--define(RESOLVE_RETRIES, 50).
+-define(RESOLVE_BUDGET_MS, 5_000).
 %% One row per org procedure: its last provider_authorization answer.
 -define(GRANTS, mcl_om_provider_grants).
+%% One row per org procedure: its advertise loop's last outcome.
+-define(ADVERTISE, mcl_om_advertise_state).
 -define(RESOLVE_RETRY_MS, 100).
+
+%% How long a caller of the gen_server's mesh-reading calls (lookup/1,
+%% list_org_capabilities/1) waits before giving up. Deliberately longer
+%% than the gen_server call default (5s): the resolve inside is bounded
+%% at ?RESOLVE_BUDGET_MS (see find/2), and a slow DHT used to wedge the
+%% server for up to ~255s while every caller timed out at 5s (issue #5).
+%% This timeout is the CALLER's patience, not the server's work budget.
+-define(LOOKUP_CALL_TIMEOUT_MS, 15_000).
 
 -record(state, {
     capabilities   = []        :: [mcl_om_service:capability()],
@@ -227,15 +238,32 @@ provider_grants() ->
 grants_in(undefined) -> #{};
 grants_in(_Tid)      -> maps:from_list(ets:tab2list(?GRANTS)).
 
+%% @doc Whether this service's advertise loop is alive, per
+%% org-namespaced procedure, as `mcl_om_advertise_liveness' entries —
+%% the last successful advertise and the last failure. Read from a
+%% table, not by a call, for the same reason as provider_grants/0.
+%% `#{}' before anything was advertised (or attempted).
+-spec advertise_liveness() -> #{binary() => mcl_om_advertise_liveness:entry()}.
+advertise_liveness() ->
+    liveness_in(ets:whereis(?ADVERTISE)).
+
+liveness_in(undefined) -> #{};
+liveness_in(_Tid)      -> maps:from_list(ets:tab2list(?ADVERTISE)).
+
 publish() ->
     gen_server:call(?MODULE, publish).
 
 %% @doc Resolve a capability by name to the providers advertising it.
 %% `{ok, [#{advertiser := Pubkey, serving_station := Pubkey}]}'. Empty
 %% when nothing is advertised or the mesh is unreachable.
+%%
+%% The resolve runs inside the capabilities gen_server, bounded at
+%% `?RESOLVE_BUDGET_MS' wall clock (see find/2); the caller waits at
+%% most `?LOOKUP_CALL_TIMEOUT_MS', well past that bound, so a slow DHT
+%% degrades this call instead of wedging the server behind it (issue #5).
 -spec lookup(binary()) -> {ok, [map()]}.
 lookup(CapName) when is_binary(CapName) ->
-    gen_server:call(?MODULE, {lookup, CapName}).
+    gen_server:call(?MODULE, {lookup, CapName}, ?LOOKUP_CALL_TIMEOUT_MS).
 
 %% @doc Every capability `Org' has advertised — `{ok,
 %% [#{procedure_uri := binary(), advertiser := Pubkey, serving_station :=
@@ -246,7 +274,8 @@ lookup(CapName) when is_binary(CapName) ->
 %% mesh is unreachable, same as `lookup/1'.
 -spec list_org_capabilities(binary()) -> {ok, [map()]}.
 list_org_capabilities(Org) when is_binary(Org) ->
-    gen_server:call(?MODULE, {list_org_capabilities, Org}).
+    gen_server:call(?MODULE, {list_org_capabilities, Org},
+                    ?LOOKUP_CALL_TIMEOUT_MS).
 
 %% @doc Call a capability by name over the DIRECT-DIAL data path: resolve
 %% the providers of `CapName' UNDER `Org' specifically (their
@@ -293,13 +322,17 @@ list() ->
 init([]) ->
     ?GRANTS = ets:new(?GRANTS, [set, protected, named_table,
                                 {read_concurrency, true}]),
+    ?ADVERTISE = ets:new(?ADVERTISE, [set, protected, named_table,
+                                      {read_concurrency, true}]),
     {ok, arm_timer(#state{})}.
 
 handle_call({register, Caps}, _From, #state{advertise_sups = Sups} = S) ->
     log_unguarded(Caps),
     %% A new capability set: a procedure no longer advertised must not keep
-    %% degrading /health.
+    %% degrading /health -- neither as a stale grant nor as a stale
+    %% advertise loop.
     true = ets:delete_all_objects(?GRANTS),
+    true = ets:delete_all_objects(?ADVERTISE),
     NewSups = do_advertise(Caps, Sups),
     {reply, ok, S#state{capabilities = Caps, advertise_sups = NewSups}};
 
@@ -633,14 +666,40 @@ org_procedure(Org, Name) when is_binary(Org), is_binary(Name) ->
 reuse_sup_opts(undefined)            -> #{};
 reuse_sup_opts(Sup) when is_pid(Sup) -> #{reuse_sup => Sup}.
 
-advertised({ok, Sup}, Name, Sups)   -> Sups#{Name => Sup};
+advertised({ok, Sup}, Name, Sups) ->
+    record_advertise_ok(Name),
+    Sups#{Name => Sup};
 advertised({error, Reason}, Name, Sups) ->
     logger:warning("mcl_om_capabilities: advertise_direct for ~s failed: ~p",
                    [Name, Reason]),
+    record_advertise_failed(Name, Reason),
     Sups.
 
+%% The advertise loop's last outcome, per procedure — /health's
+%% advertise-liveness signal (see mcl_om_advertise_liveness). The
+%% grants table records what the realm thinks of this provider; this
+%% records what the provider's own loop actually did. A dead loop
+%% (silent, no attempt at all) is seen by neither, which is exactly
+%% the point: /health judges a procedure stale when its last success
+%% outlives the advertisement's own TTL.
+record_advertise_ok(Proc) ->
+    record_advertise(Proc, ok).
+
+record_advertise_failed(Proc, Reason) ->
+    record_advertise(Proc, {error, Reason}).
+
+record_advertise(Proc, Outcome) ->
+    Now = erlang:monotonic_time(millisecond),
+    Previous = previous_liveness(ets:lookup(?ADVERTISE, Proc)),
+    Entry = mcl_om_advertise_liveness:observed(Outcome, Proc, Now, Previous),
+    true = ets:insert(?ADVERTISE, {Proc, Entry}).
+
+previous_liveness([{_Proc, Entry}]) -> Entry;
+previous_liveness([])               -> undefined.
+
 advertise_record_only({ok, Station}, Pool, Key, Realm, Org, Cap) ->
-    put_advertisement(Pool, build_advertisement(Key, Realm, Org, Cap, Station));
+    put_advertisement(Pool, build_advertisement(Key, Realm, Org, Cap, Station),
+                      org_procedure(Org, maps:get(name, Cap)));
 advertise_record_only({error, no_station}, _Pool, _Key, _Realm, _Org, _Cap) ->
     ok.
 
@@ -652,15 +711,18 @@ advertise_record_only({error, no_station}, _Pool, _Key, _Realm, _Org, _Cap) ->
 %% `advertised/3''s own fix -- this is the legacy no-handler path
 %% (`advertise_one/7''s second clause), the handler-bearing path's own
 %% failures are `advertised/3''s concern above.
-put_advertisement(Pool, Record) ->
-    log_put_result(try macula:put_record(Pool, Record)
-                    catch Class:Reason -> {error, {Class, Reason}}
-                    end).
+put_advertisement(Pool, Record, Proc) ->
+    log_put_result(Proc, try macula:put_record(Pool, Record)
+                          catch Class:Reason -> {error, {Class, Reason}}
+                          end).
 
-log_put_result(ok) -> ok;
-log_put_result({error, Reason}) ->
+log_put_result(Proc, ok) ->
+    record_advertise_ok(Proc),
+    ok;
+log_put_result(Proc, {error, Reason}) ->
     logger:warning("mcl_om_capabilities: put_record (record-only advertisement) failed: ~p",
                    [Reason]),
+    record_advertise_failed(Proc, Reason),
     ok.
 
 %% One station this service is reachable through, from the pool's
@@ -828,7 +890,7 @@ decode_verified_full({error, _}, _Record) ->
 
 %% Retries a fresh publish out of DHT-propagation lag. Matches
 %% macula_direct_dial's own internal find_records_retry/3 budget (50 x
-%% 100ms = up to 5s) -- a budget this module does NOT get for free by
+%% 100ms = up to 5s) — a budget this module does NOT get for free by
 %% calling `macula:find_records/2' directly (the bare, single-shot SDK
 %% RPC; the retrying version is private to macula_direct_dial). Found
 %% live 2026-08-29: two providers advertising back-to-back, the second
@@ -837,24 +899,50 @@ decode_verified_full({error, _}, _Record) ->
 %% `run_org_scoped/0' only sleeps a fixed 2s between the last advertise
 %% and the first call, not long enough for eager replication AND both
 %% providers' writes to settle every time.
+%%
+%% THE BUDGET IS WALL CLOCK, NOT A RETRY COUNTER. The first version
+%% counted 50 retries x the 100ms sleep and ignored how long each
+%% `find_records' RPC itself took: a slow DHT (every attempt eating its
+%% full ?DHT_RECORD_TIMEOUT_MS = 5s internal timeout) stretched one
+%% resolve to ~255s, and `lookup/1' runs that resolve synchronously in
+%% the capabilities gen_server -- a single slow resolve wedged every
+%% other capability call behind it while every caller timed out at the
+%% 5s gen_server default (issue #5, live on beam03 2026-09-25). Now:
+%% each attempt asks for only the time left of the budget, the loop
+%% stops when the budget is spent, and the whole resolve is done in at
+%% most ?RESOLVE_BUDGET_MS regardless of DHT slowness.
 find(Pool, Key) ->
-    find(Pool, Key, ?RESOLVE_RETRIES).
+    find_until(Pool, Key, deadline(?RESOLVE_BUDGET_MS)).
 
-find(_Pool, _Key, 0) ->
-    {ok, []};
-find(Pool, Key, Retries) ->
-    on_find(try_find(Pool, Key), Pool, Key, Retries).
+deadline(BudgetMs) ->
+    erlang:monotonic_time(millisecond) + BudgetMs.
 
-try_find(Pool, Key) ->
-    try macula:find_records(Pool, Key)
+find_until(Pool, Key, Deadline) ->
+    case deadline_left_ms(Deadline) of
+        Left when Left > 0 ->
+            on_find(try_find(Pool, Key, Left), Pool, Key, Deadline);
+        _Expired ->
+            {ok, []}
+    end.
+
+try_find(Pool, Key, TimeoutMs) ->
+    try macula:find_records(Pool, Key, TimeoutMs)
     catch _:_ -> {error, unreachable}
     end.
 
-on_find({ok, [_ | _]} = Result, _Pool, _Key, _Retries) ->
+on_find({ok, [_ | _]} = Result, _Pool, _Key, _Deadline) ->
     Result;
-on_find(_Other, Pool, Key, Retries) ->
-    timer:sleep(?RESOLVE_RETRY_MS),
-    find(Pool, Key, Retries - 1).
+on_find(_Other, Pool, Key, Deadline) ->
+    case deadline_left_ms(Deadline) of
+        Left when Left > 0 ->
+            timer:sleep(min(?RESOLVE_RETRY_MS, Left)),
+            find_until(Pool, Key, Deadline);
+        _Expired ->
+            {ok, []}
+    end.
+
+deadline_left_ms(Deadline) ->
+    Deadline - erlang:monotonic_time(millisecond).
 
 %%% Internals — call a capability (resolve -> verify -> dial -> call)
 
@@ -871,6 +959,13 @@ call_capability_via(_Pool, _Realm, _Org, _CapName, _Payload, _TimeoutMs, _Opts) 
 %%   was published by this node id -- the pin that makes one procedure with
 %%   many providers addressable, see mcl_om:call_capability/5. A pin that
 %%   matches no resolved provider fails closed with `{error, no_provider}'.)
+%%
+%% `{error, no_provider}' is reserved for "nothing to dial": no provider
+%% resolved, or the pin matched none. A provider that WAS dialed reports
+%% its own failure (`{error, timeout}', `{error, {station_endpoint,
+%% Reason}}', a call error...) -- see call_providers/7 for why the two
+%% must never collapse into one.
+%%
 %% There is no TLS mode to choose. The 10.x `verify => true' cert-chain
 %% form went with the cert authorization form, and macula 12 refuses
 %% `verify' in any value: the trust check is the D25 authorization the
@@ -891,6 +986,18 @@ pinned_providers(undefined, Providers) ->
 pinned_providers(NodeId, Providers) ->
     [Provider || #{advertiser := Adv} = Provider <- Providers, Adv =:= NodeId].
 
+%% `{error, no_provider}' means exactly one thing: nothing to dial --
+%% the resolve returned no provider at all, or the `advertiser' pin
+%% matched none of the providers the resolve DID return (a stale pin,
+%% which fails closed by contract). A provider that WAS dialed and
+%% failed reports ITS failure (e.g. `{error, timeout}') instead of
+%% masquerading as a resolve miss: before this split, every dial
+%% failure on the LAST candidate fell through the failover tail into
+%% `{error, no_provider}', so a dead provider was indistinguishable
+%% from a stale pin -- the misdirection that sent issue #5's diagnosis
+%% into the resolve path while the real failure was the dial timing
+%% out. The station-endpoint lookup is the same: an unresolvable
+%% station reports `{error, {station_endpoint, Reason}}'.
 call_providers([], _Pool, _Realm, _CapName, _Payload, _TimeoutMs, _Ucan) ->
     {error, no_provider};
 call_providers([#{serving_station := Station, advertiser := Advertiser,
@@ -920,12 +1027,19 @@ dial_provider({ok, Url}, Station, Advertiser, Procedure, Rest, Pool, Realm,
                                      #{ucan_token => Ucan,
                                        expected_node_id => Station}),
     failover(CallResult, Rest, Pool, Realm, CapName, Payload, TimeoutMs, Ucan);
-dial_provider({error, _}, _Station, _Advertiser, _Procedure, Rest, Pool, Realm,
-              CapName, Payload, TimeoutMs, Ucan) ->
-    call_providers(Rest, Pool, Realm, CapName, Payload, TimeoutMs, Ucan).
+dial_provider({error, Reason}, _Station, _Advertiser, _Procedure, Rest, Pool,
+              Realm, CapName, Payload, TimeoutMs, Ucan) ->
+    failover({error, {station_endpoint, Reason}}, Rest, Pool, Realm, CapName,
+             Payload, TimeoutMs, Ucan).
 
 failover({ok, _} = Ok, _R, _P, _Rlm, _Cap, _Pl, _Tmo, _Ucan) ->
     Ok;
+%% The last candidate failed: its failure is the answer. `no_provider'
+%% was already impossible here (a non-empty list was dialed), so this
+%% never masquerades a dial failure as a resolve miss.
+failover({error, _} = Error, [], _Pool, _Realm, _CapName, _Payload,
+         _TimeoutMs, _Ucan) ->
+    Error;
 failover({error, _}, Rest, Pool, Realm, CapName, Payload, TimeoutMs, Ucan) ->
     call_providers(Rest, Pool, Realm, CapName, Payload, TimeoutMs, Ucan).
 

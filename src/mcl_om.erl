@@ -191,6 +191,12 @@ call_capability(Org, CapName, Payload, TimeoutMs) ->
 %%       it consumed) names it here, and only that club is dialed. An
 %%       absent or stale pin resolves to nothing and fails closed with
 %%       `{error, no_provider}'.
+%%
+%% `{error, no_provider}' means exactly "nothing was dialed": nothing
+%% resolved, or the pin matched no resolved provider. A provider that
+%% WAS dialed reports its own failure instead (`{error, timeout}',
+%% `{error, {station_endpoint, Reason}}', ...), so a dead provider and
+%% a stale pin are never the same answer (0.29.0).
 -spec call_capability(binary(), binary(), term(), pos_integer(), map()) ->
     {ok, term()} | {error, term()}.
 call_capability(Org, CapName, Payload, TimeoutMs, Opts) ->

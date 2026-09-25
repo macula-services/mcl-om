@@ -618,7 +618,9 @@ handler_timeout_opts_refuses_a_streamer_capability_test() ->
 %%% The advertiser pin: one procedure, many providers. A pin keeps only the
 %%% provider whose advertisement was published by the named node; no pin
 %%% passes everything through; a stale pin fails closed as an empty list,
-%%% which call_providers/8 turns into {error, no_provider}.
+%%% which call_providers/7 turns into {error, no_provider} -- the one case
+%%% where no_provider still means "nothing to dial" (0.29.0: a provider
+%%% that WAS dialed reports its own failure instead).
 
 pinned_providers_passes_everything_without_a_pin_test() ->
     Providers = [provider(<<1>>), provider(<<2>>)],

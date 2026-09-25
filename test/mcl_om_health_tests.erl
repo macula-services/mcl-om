@@ -21,20 +21,29 @@ a_degraded_service_keeps_its_own_reason_test() ->
 %% /health lists the grants in EVERY state. A service inside its waiting
 %% window answers ok and still says which procedure is not granted and why.
 %% It also counts the publishes whose publisher exited before resolving, so a
-%% service that publishes into a dead pool is visible without its logs.
+%% service that publishes into a dead pool is visible without its logs, and
+%% lists the advertise loop's last outcome per procedure, so a dead
+%% advertise loop cannot hide behind ok + failed_publishes: 0.
 -define(REPORT, [#{procedure => <<"acme/x">>, status => <<"waiting">>}]).
+-define(ADVERTISE, [#{procedure => <<"acme/x">>, status => <<"alive">>,
+                      last_advertise_ms_ago => 12000}]).
 
 ok_body_carries_the_service_info_and_the_grants_test() ->
     ?assertEqual(#{name => <<"svc">>, status => <<"ok">>, provider_grants => ?REPORT,
+                   advertise_liveness => ?ADVERTISE,
                    failed_publishes => 0},
-                 mcl_om_health_handler:body(ok, #{name => <<"svc">>}, ?REPORT, 0)).
+                 mcl_om_health_handler:body(ok, #{name => <<"svc">>}, ?REPORT,
+                                            ?ADVERTISE, 0)).
 
 degraded_body_carries_the_reason_and_the_grants_test() ->
     ?assertEqual(#{status => <<"degraded">>, reason => <<"slow">>,
-                   provider_grants => ?REPORT, failed_publishes => 3},
-                 mcl_om_health_handler:body({degraded, slow}, #{}, ?REPORT, 3)).
+                   provider_grants => ?REPORT, advertise_liveness => ?ADVERTISE,
+                   failed_publishes => 3},
+                 mcl_om_health_handler:body({degraded, slow}, #{}, ?REPORT,
+                                            ?ADVERTISE, 3)).
 
 down_body_carries_the_reason_and_the_grants_test() ->
     ?assertEqual(#{status => <<"down">>, reason => <<"crashed">>,
-                   provider_grants => [], failed_publishes => 0},
-                 mcl_om_health_handler:body({down, crashed}, #{}, [], 0)).
+                   provider_grants => [], advertise_liveness => [],
+                   failed_publishes => 0},
+                 mcl_om_health_handler:body({down, crashed}, #{}, [], [], 0)).

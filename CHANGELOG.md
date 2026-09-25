@@ -3,6 +3,54 @@
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [SemVer](https://semver.org/).
 
+## [0.29.0]
+
+### Fixed
+
+- **`{error, no_provider}` no longer masquerades a dial failure as a
+  resolve miss.** When the pin matched a provider (or providers) and
+  every dial failed, `call_capability/5,7` returned `{error,
+  no_provider}` -- the same answer as a stale pin, so a dead provider
+  was indistinguishable from a resolve problem. The two are split now:
+  `no_provider` means exactly "nothing to dial" (nothing resolved, or
+  the pin matched none); a provider that WAS dialed reports its own
+  failure (`{error, timeout}`, `{error, {station_endpoint, Reason}}`,
+  a call error, ...). (Issue #5: on the first two-provider fleet
+  deployment the pinned call for one club failed this way, and the
+  collapsed error sent the diagnosis into the resolve path while the
+  real failure was the dial timing out.)
+- **A slow DHT can no longer wedge the capabilities gen_server for
+  minutes.** `lookup/1` ran a resolve whose retry budget counted only
+  its sleeps (50 x 100 ms) and ignored the time each `find_records`
+  RPC itself took -- up to its 5 s internal timeout each -- so one slow
+  resolve blocked the gen_server for up to ~255 s while every caller
+  timed out at the 5 s gen_server default. The resolve is now bounded
+  by a 5 s wall-clock deadline (each attempt asks for only the time
+  left), and `lookup/1`/`list_org_capabilities/1` wait up to 15 s, past
+  that bound. (Issue #5, secondary symptom.)
+
+### Added
+
+- **Advertise-liveness in `/health`.** Every state now lists
+  `advertise_liveness`: per org-namespaced procedure, the last
+  successful advertise's age and the last failure (reason + age). A
+  procedure whose last success is older than the advertisement's own
+  TTL degrades `/health` (`advertise_stale`), and one that has never
+  succeeded degrades once its failure run outlasts a grace window --
+  before this, `/health ok` + `failed_publishes: 0` was
+  indistinguishable from a dead advertise loop, because zero is exactly
+  what a loop that makes no attempts produces. (Issue #5.)
+- **A live two-provider fixture** (`test_live/
+  mcl_om_capabilities_two_providers_tests.erl`): two providers under
+  one org on the real PQ station. It asserts both org-key records
+  resolve, the pin dials the named provider, a stale pin fails closed
+  with `no_provider`, and the displaced provider (the station's
+  single-provider invariant: one advertiser per (realm, procedure) per
+  station, last direct ADVERTISE wins) fails with a real dial error,
+  never `no_provider`. This is the fixture issue #5 named the gap: the
+  first two-provider fleet deployment is what found the bug, because
+  nothing exercised two providers of one org procedure at once.
+
 ## [0.28.2]
 
 ### Added
