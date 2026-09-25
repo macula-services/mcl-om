@@ -155,10 +155,13 @@
          resolve_org_capabilities/3, republish_delay_ms/0]).
 
 %% The `publish_advertisement' opt advertise_direct/7 takes (see
-%% publish_advertisement/5 below): exported so the module fun reference
-%% the advertise path passes as that opt is a genuine use, and so the
-%% record-building is testable without a live mesh.
--export([publish_advertisement/5, advertisement_opts/1]).
+%% publish_advertisement/5 below) and the `advertise' opt (see
+%% advertise_on_serving_station/6 below): exported so the module fun
+%% references the advertise path passes as opts are genuine uses, and
+%% so the record-building and single-station registration are
+%% testable without a live mesh.
+-export([publish_advertisement/5, advertisement_opts/1,
+         advertise_on_serving_station/6]).
 
 %% `macula_record.erl''s own `?TYPE_PROCEDURE_ADVERTISEMENT' — not
 %% exported there (no shared header defines it either), so mirrored here.
@@ -618,17 +621,21 @@ advertise_one(Pool, Key, Realm, Org,
                       OrgProcedure,
                       macula:provider_authorization(Pool, Realm, OrgProcedure)),
     %% The DHT record's serving station is mcl_om's choice (see
-    %% publish_advertisement/5), not the SDK's first-connected link:
-    %% two providers of one procedure on one station are not both
-    %% dialable, so co-org providers must spread (issue #5).
+    %% publish_advertisement/5), and the wire registration goes ONLY
+    %% to that station (see advertise_on_serving_station/6): a station's
+    %% registry holds ONE advertiser per (realm, procedure), so two
+    %% providers of one procedure must not share a serving station --
+    %% and the SDK's default advertise fans the ADVERTISE frame out to
+    %% EVERY connected link, which would register this provider at all
+    %% four stations and keep the last-write-wins fight alive at each
+    %% of them (issue #5).
     Opts = maps:merge(maps:merge(maps:merge(auth_opts(Cap), stream_opts(Cap)),
                                  handler_timeout_opts(Cap)),
                       maps:merge(Authorization,
                                  maps:merge(
                                    reuse_sup_opts(
                                      maps:get(OrgProcedure, Sups, undefined)),
-                                   #{publish_advertisement =>
-                                         fun mcl_om_capabilities:publish_advertisement/5}))),
+                                   serving_station_opts(Provider, Key)))),
     Result = Provider:advertise_direct(Pool, Realm, OrgProcedure, Mod,
                                        Args, Key, Opts),
     advertised(Result, OrgProcedure, Sups);
@@ -670,6 +677,125 @@ publish_advertisement(Pool, Realm, Procedure, NodeIdentity, Opts) ->
 %% macula_direct_dial:publish_advertisement/5 forwards.
 advertisement_opts(Opts) ->
     maps:with([authorization, ttl_ms], Opts).
+
+
+%% @doc The custom advertise/publish pair that makes the many-club
+%% spread real. For a RESPONSE capability:
+%% - `advertise' is advertise_on_serving_station/6 -- the wire
+%%   registration goes ONLY to this node's serving station, instead of
+%%   the SDK default (macula:advertise/5) which fans the ADVERTISE
+%%   frame out to EVERY connected link. The fanout is what kept the
+%%   last-write-wins fight alive on every shared station even after
+%%   the records named distinct stations: each provider registered at
+%%   all four stations, so each station's registry still flipped
+%%   between them (issue #5, live on beam03). Registering only at the
+%%   station the record names gives each station's registry exactly
+%%   its own providers.
+%% - `publish_advertisement' is publish_advertisement/5 -- the record
+%%   names the same serving station, so callers dial where the handler
+%%   is registered.
+%% A streamer capability keeps the SDK's default advertise (its
+%% registration carries mode/session semantics this module does not
+%% replicate) and overrides only the record publish.
+serving_station_opts(macula_response, Key) ->
+    #{advertise => fun(P, R, Pr, H, O) ->
+                       advertise_on_serving_station(Key, P, R, Pr, H, O)
+                   end,
+      publish_advertisement => fun mcl_om_capabilities:publish_advertisement/5};
+serving_station_opts(macula_streamer, _Key) ->
+    #{publish_advertisement => fun mcl_om_capabilities:publish_advertisement/5}.
+
+%% @doc The `advertise' function advertise_direct/7 registers the
+%% handler with (the SDK's opt of that name). `Key' is closed over by
+%% the caller (the service's identity key) so the serving station is
+%% chosen per node, see choose_serving_station/2.
+advertise_on_serving_station(Key, Pool, Realm, Procedure, Handler, Opts) ->
+    case serving_station_link(Pool, Key) of
+        {ok, LinkPid} ->
+            register_on_link(Key, LinkPid, Pool, Realm, Procedure, Handler,
+                             Opts);
+        {error, _} = Error ->
+            Error
+    end.
+
+%% The link-level registration the SDK's own fanout performs per link
+%% (macula_client's safe_link_advertise), applied to the ONE chosen
+%% link: send the pool-signed provider advertisement as an ADVERTISE
+%% frame on that link. `ok' only means the frame went out on this
+%% link; the station's acceptance is its own business (the same is
+%% true of the SDK's fanout).
+register_on_link(Key, LinkPid, Pool, Realm, Procedure, Handler, Opts) ->
+    case wire_advertisement(Key, Realm, Procedure, Opts, Pool) of
+        {ok, EncodedAd} ->
+            Policy = maps:get(auth, Opts, open),
+            macula_station_link:advertise(LinkPid, Realm, Procedure, Handler,
+                                          Policy, EncodedAd);
+        {error, Reason} ->
+            {error, {provider_authorization, Reason}}
+    end.
+
+%% The pool-signed provider advertisement the ADVERTISE frame carries.
+%% The SDK's advertise path builds the same record -- advertiser and
+%% serving station both the provider's own node id, the D25
+%% authorization embedded -- and verifies it against the pool's pinned
+%% realm key before sending (macula:advertise/5's
+%% trusted_provider_advertisement); both are replicated here so the
+%% single-station registration drops none of the SDK's safety checks.
+%% The authorization comes from Opts, resolved and recorded by
+%% recorded_authorization/2 from the same chain the SDK would read.
+wire_advertisement(Key, Realm, Procedure, Opts, Pool) ->
+    case maps:get(authorization, Opts, undefined) of
+        #{org_directory := Dir, procedure_delegation := Deleg}
+          when is_binary(Dir), is_binary(Deleg) ->
+            {ok, NodeId} = macula_node_keys:node_id(Key),
+            Record = macula_record:sign(
+                       macula_record:procedure_advertisement(
+                         NodeId, Realm, Procedure, NodeId,
+                         #{authorization => #{org_directory => Dir,
+                                              procedure_delegation => Deleg}}),
+                       Key),
+            verified_advertisement(Record, Pool, Realm);
+        _NoAuthorization ->
+            {error, no_authorization}
+    end.
+
+verified_advertisement(Record, Pool, Realm) ->
+    case macula_client:realm_key(Pool, Realm) of
+        {ok, RealmKey} ->
+            {ok, Profile} = macula_crypto_profile:configured(),
+            Trust = #{profile => Profile, realm_key => RealmKey},
+            case macula_record:verify_authorization(
+                   Record, Trust, erlang:system_time(millisecond)) of
+                ok -> {ok, macula_record:encode(Record)};
+                {error, _} = E -> {error, E}
+            end;
+        none ->
+            {error, no_realm_key}
+    end.
+
+%% The link to this node's serving station, from the pool's connected
+%% links: the one link the ADVERTISE frame goes out on.
+serving_station_link(Pool, Key) ->
+    case serving_station(Pool, Key) of
+        {ok, Station} ->
+            link_for_station(Pool, Station);
+        {error, _} = Error ->
+            Error
+    end.
+
+link_for_station(Pool, Station) ->
+    try macula:links(Pool) of
+        {ok, Links} ->
+            case [Pid || #{node_id := S, pid := Pid, connected := true} <- Links,
+                         S =:= Station, is_pid(Pid)] of
+                [Pid | _] -> {ok, Pid};
+                []        -> {error, no_station}
+            end;
+        _ ->
+            {error, no_station}
+    catch _:_ ->
+        {error, no_station}
+    end.
 
 %% The D25 authorization this provider's org-namespaced procedure
 %% needs, as the `authorization' opt to embed in the record the SDK

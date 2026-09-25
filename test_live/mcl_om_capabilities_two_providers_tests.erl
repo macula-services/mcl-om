@@ -27,10 +27,13 @@
 %%%   4. A stale pin fails closed with {error, no_provider}.
 %%%
 %%% Two providers on ONE station is deliberate: it reproduces the fleet
-%%% collision exactly. The estate's deployment answer (each club names
-%%% a different serving station) is fleet configuration, not this
-%%% module's concern; this module pins the CONTRACT the call path must
-%%% keep whatever the station holds.
+%%% collision exactly. The estate's fix (each provider names its own
+%%% serving station AND registers its wire handler only there --
+%%% mcl_om 0.29.1) is what makes two providers of one procedure
+%%% dialable on a shared station SET; this module pins the CONTRACT the
+%%% call path must keep whatever the station holds, including the
+%%% displaced-provider failure mode the fix turns into a diagnosable
+%%% dial error.
 %%%
 %%% Lives in test_live/, NOT test/ -- excluded from the default
 %%% `rebar3 eunit' (and CI's main gate) on purpose: the PQ pair is

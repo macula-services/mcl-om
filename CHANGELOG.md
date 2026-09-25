@@ -3,6 +3,22 @@
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [SemVer](https://semver.org/).
 
+## [0.29.1]
+
+### Fixed
+
+- **The wire registration now goes ONLY to the serving station.** 0.29.0
+  spread the DHT records across stations but left the ADVERTISE frame on the
+  SDK's default fanout to every connected link -- so two providers on
+  overlapping station sets still fought over every shared station's registry
+  (one advertiser per (realm, procedure), last direct ADVERTISE wins), and
+  the pinned calls kept flapping live on beam03. A response capability's
+  advertise now registers its handler only on the link of the station its
+  record names (the SDK's `advertise` opt, replicated with the same
+  realm-key authorization check), which gives each station's registry
+  exactly its own providers. Streamer capabilities keep the default
+  advertise. (Issue #5, the second half of the root cause.)
+
 ## [0.29.0]
 
 ### Fixed

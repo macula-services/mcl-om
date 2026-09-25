@@ -684,6 +684,85 @@ choose_serving_station_uses_the_whole_set_test() ->
                || N <- lists:seq(1, 32)]),
     ?assertEqual(4, length(Picks)).
 
+%%% The wire registration goes ONLY to the serving station -- the half
+%%% of the many-club fix the DHT-record spread alone does not provide:
+%%% the SDK's default advertise fans the ADVERTISE frame out to EVERY
+%%% connected link, so two providers on overlapping station sets keep
+%%% fighting over every shared station's registry even when their
+%%% records name distinct stations (issue #5, live on beam03: the
+%%% pinned calls kept flapping until the registration was scoped).
+%%% advertise_on_serving_station/6 must send exactly ONE ADVERTISE
+%%% frame, on the link of the station choose_serving_station/2 picked
+%%% for this node.
+
+single_station_registration_goes_only_to_the_serving_station_test_() ->
+    {timeout, 30, fun single_station_registration/0}.
+
+single_station_registration() ->
+    Realm = realm(),
+    {RealmKey, OrgKey} = realm_and_org_keys(),
+    Key = node_key(),
+    {ok, NodeId} = macula_node_keys:node_id(Key),
+    OrgDir = macula_record:sign(
+               macula_record:org_directory(Realm, <<"acme">>,
+                                           macula_node_keys:key_id(OrgKey)),
+               RealmKey),
+    Deleg = macula_record:sign(
+              macula_record:procedure_delegation(macula_node_keys:key_id(OrgKey),
+                                                 NodeId),
+              OrgKey),
+    Auth = #{authorization =>
+               #{org_directory => macula_record:encode(OrgDir),
+                 procedure_delegation => macula_record:encode(Deleg)}},
+    StationA = station(<<11>>),
+    StationB = station(<<12>>),
+    Chosen   = mcl_om_capabilities:choose_serving_station(NodeId,
+                                                          [StationA, StationB]),
+    ChosenPid = spawn(fun() -> ok end),
+    OtherPid  = spawn(fun() -> ok end),
+    ok = meck:new(macula, [passthrough]),
+    ok = meck:expect(macula, links, fun(_Pool) ->
+        {ok, [#{node_id => StationA, pid => other_link(Chosen, StationA,
+                                                       ChosenPid, OtherPid),
+                connected => true},
+              #{node_id => StationB, pid => other_link(Chosen, StationB,
+                                                       ChosenPid, OtherPid),
+                connected => true}]}
+    end),
+    ok = meck:new(macula_client, [passthrough]),
+    ok = meck:expect(macula_client, realm_key,
+                     fun(_Pool, _Rlm) -> {ok, macula_node_keys:public_key(RealmKey)} end),
+    ok = meck:new(macula_station_link, []),
+    ok = meck:expect(macula_station_link, advertise,
+                     fun(Pid, _Rlm, _Proc, _Handler, _Policy, Ad) ->
+                         put(advertised_on, Pid),
+                         put(advertised_with, Ad),
+                         ok
+                     end),
+    try
+        ok = mcl_om_capabilities:advertise_on_serving_station(
+               Key, fake_pool, Realm, <<"acme/svc.do">>,
+               fun(_Payload) -> ignored end, Auth),
+        ?assertEqual(ChosenPid, get(advertised_on)),
+        ?assert(is_binary(get(advertised_with))),
+        ?assertNotEqual(OtherPid, get(advertised_on)),
+        ?assertEqual(1, meck:num_calls(macula_station_link, advertise, '_'))
+    after
+        meck:unload(macula),
+        meck:unload(macula_client),
+        meck:unload(macula_station_link)
+    end.
+
+other_link(Chosen, Station, ChosenPid, _OtherPid) when Station =:= Chosen ->
+    ChosenPid;
+other_link(_Chosen, _Station, _ChosenPid, OtherPid) ->
+    OtherPid.
+
+realm_and_org_keys() ->
+    {ok, RealmKey} = macula_node_keys:generate(realm, profile()),
+    {ok, OrgKey} = macula_node_keys:generate(org, profile()),
+    {RealmKey, OrgKey}.
+
 station(NodeId) ->
     NodeId.
 
