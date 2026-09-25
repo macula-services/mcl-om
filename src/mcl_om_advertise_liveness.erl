@@ -14,9 +14,10 @@
 %%% advertise failure) still answered `/health ok' with
 %%% `failed_publishes: 0' -- zero is exactly what a loop that makes no
 %%% attempts produces. The last successful advertise's age is the
-%%% signal: once it outlives the advertisement record's own TTL, the
-%%% record is gone from the DHT and no caller can resolve this
-%%% provider, whatever the grants say.
+%%% signal: a healthy loop republishes every ~30s, so a success older
+%%% than four intervals means the loop is dead (or the mesh has been
+%%% down longer than the record can outlive) and no caller can resolve
+%%% this provider, whatever the grants say.
 %%%
 %%% Judging rules (the caller supplies the clock, like
 %%% mcl_om_provider_grant):
@@ -40,11 +41,12 @@
 -export([observed/4, verdict/3, report/3, stale_after_ms/0, grace_ms/0]).
 -export_type([entry/0]).
 
-%% The advertisement record's TTL (4x the republish interval,
-%% mcl_om_capabilities's ADVERTISEMENT_TTL_MS): the longest a healthy
-%% loop goes between successes is the republish interval, so a success
-%% older than the record's own lifetime means the record is gone from
-%% the DHT and the loop is not replacing it.
+%% The staleness window: four republish intervals
+%% (mcl_om_capabilities's ADVERTISEMENT_TTL_MS, what advertise_opts/0
+%% proportions for the record). A healthy loop republishes every ~30s
+%% (jittered), so a procedure whose last success is this old has
+%% missed several ticks in a row -- the loop is dead or the mesh has
+%% been down longer than the record can outlive.
 -define(DEFAULT_STALE_AFTER_MS, 120_000).
 %% The same grace the provider grants use before degrading a
 %% not-granted procedure: one failure should not flap /health.
