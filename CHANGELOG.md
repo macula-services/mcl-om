@@ -3,7 +3,14 @@
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [SemVer](https://semver.org/).
 
-## [Unreleased]
+## [0.32.2] - 2026-09-27
+
+A patch: the `mcl_service` scaffold template and the CI build image only. No
+module in `src/` changes, so a service depending on mcl_om sees no difference.
+Besides the template (`priv/templates/`), the release touches
+`scripts/scaffold-service.sh`, a new `scripts/is_image_published.sh`, the
+template suite, mcl-om's own `lint-and-test.yml` (its build image and the
+`template-lint-image` job), and the README's scaffold section.
 
 ### Fixed
 
