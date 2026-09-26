@@ -10,13 +10,19 @@
 
 -define(PROC, <<"mcl-graph/learn_link">>).
 -define(OTHER_PROC, <<"mcl-graph/forget_link">>).
+-define(KEY_POOL, 4).
 
 %%--------------------------------------------------------------------
 %% Fixture: the replay cache mcl_om runs under its supervisor
 %%--------------------------------------------------------------------
 
+%% A pq_hybrid key includes RSA-4096, whose generation takes seconds on a CI
+%% runner. Every test drawing fresh keys once made a test outlive eunit's
+%% default 5 s and cancelled the fixture (mcl-om CI, 9c576f0). The keys are made
+%% once, in setup, and the group gets an explicit timeout.
 proof_test_() ->
-    {setup, fun start_cache/0, fun stop_cache/1,
+    {timeout, 600,
+     {setup, fun start_cache/0, fun stop_cache/1,
      [{"a genuine proof over a delivered payload verifies", fun genuine/0},
       {"a changed field fails", fun changed_field/0},
       {"an added field fails", fun added_field/0},
@@ -38,14 +44,19 @@ proof_test_() ->
       {"make refuses fields that are not wire values", fun make_refuses_non_wire/0},
       {"a signer's caller field is never signed: it verifies after the station removes it",
        fun signer_caller_is_not_signed/0},
-      {"the delivery helper mirrors macula_station_link:with_caller/2", fun helper_mirrors_with_caller/0}]}.
+      {"the delivery helper mirrors macula_station_link:with_caller/2", fun helper_mirrors_with_caller/0}]}}.
 
 start_cache() ->
+    Keys = [generate_key() || _ <- lists:seq(1, ?KEY_POOL)],
+    persistent_term:put({?MODULE, keys}, list_to_tuple(Keys)),
+    persistent_term:put({?MODULE, next}, atomics:new(1, [])),
     {ok, Pid} = mcl_om_ownership_proof_replay:start_link(),
     unlink(Pid),
     Pid.
 
 stop_cache(Pid) ->
+    _ = persistent_term:erase({?MODULE, keys}),
+    _ = persistent_term:erase({?MODULE, next}),
     exit(Pid, shutdown).
 
 %%--------------------------------------------------------------------
@@ -242,7 +253,14 @@ delivered(Payload, Caller, Procedure) ->
 with_caller(Payload, Caller) ->
     (maps:remove({text, <<"caller">>}, Payload))#{caller => Caller}.
 
+%% The next key of the pool made in setup: consecutive calls give different
+%% keys, so a test that needs two (a signer and an impostor) gets two. Reusing
+%% a key across tests is safe: every proof carries a fresh nonce.
 node_key() ->
+    N = atomics:add_get(persistent_term:get({?MODULE, next}), 1, 1),
+    element((N rem ?KEY_POOL) + 1, persistent_term:get({?MODULE, keys})).
+
+generate_key() ->
     {ok, K} = macula_node_keys:generate(identity, profile(), #{puzzle_difficulty => 0}),
     K.
 
