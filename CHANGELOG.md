@@ -3,6 +3,18 @@
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [SemVer](https://semver.org/).
 
+## [0.33.0]
+
+### Changed (breaking)
+
+- **Requires macula 13.0.1** (`~> 13.0.1`), whose calls are sealed end to end when the provider names a KEM key
+  (E2E payload confidentiality, macula's Amendment A1), and whose `call_station` refuses a call that carries no signed
+  state. `call_capability/5,7` hands macula the provider's advertisement its own resolve verified, so a capability
+  call is sealed to that provider's key when it names one and sent in the clear when it names none. A station can
+  withhold the advertisement (no call), but can't downgrade the call. Services that pin mcl_om `~> 0.33` move to
+  macula 13 with it. 13.0.1, not 13.0.0: 13.0.0's `seed()` type leaves out `expected_node_id`, so every service that
+  dials a pinned seed breaks the contract of `macula:connect/2` in its own dialyzer.
+
 ## [0.32.2] - 2026-09-27
 
 A patch: the `mcl_service` scaffold template and the CI build image only. No
