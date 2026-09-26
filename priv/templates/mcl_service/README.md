@@ -20,9 +20,11 @@ it and call it.
 
     scripts/health.sh                      # against a running node
 
-Building the image needs a Rust toolchain, because macula ships a QUIC NIF and
-the alpine build compiles it from source rather than fetching one linked against
-a different libc.
+The image builds in one pinned image and runs on another, a pair named by
+digest in the two `FROM` lines of the `Containerfile`. The builder carries the
+whole toolchain (OTP 28.4.3 with ML-DSA, rebar3, Rust for macula's NIFs), so
+building needs nothing on the host but podman or docker. CI lints and tests in
+that same builder image, and the service's tests fail if the two drift apart.
 
     podman build -t <%repo%> -f Containerfile .
 

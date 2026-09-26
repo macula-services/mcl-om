@@ -15,8 +15,8 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   no capability and requesting no authority because it can do nothing yet.
 - Unit tests asserting the contract's shape, including that the mesh-facing name
   and the reported version match the application's own.
-- `Containerfile` building an alpine image, with macula's QUIC NIF compiled from
-  source rather than fetched against a foreign libc.
+- `Containerfile` building the release in a digest-pinned builder image and
+  running it on the matching digest-pinned runtime image.
 - `deploy/docker-compose.yml`, the service's own run contract.
 - CI: `lint-and-test` (lint, eunit, dialyzer) on every push to `main` and
   every pull request. `build-and-push` to the registry: a push to `main`

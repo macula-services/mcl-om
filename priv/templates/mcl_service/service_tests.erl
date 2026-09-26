@@ -162,31 +162,28 @@ the_data_directory_is_answerable_test() ->
 %%
 %% ⚠ TO THE PATCH, AND NOTHING FLOATS. This compared majors only, so when Docker
 %% Hub moved the floating `erlang:28-alpine' on 2026-09-22 a service generated
-%% from this template shipped OTP 28.5 and its guard stayed green. It compares
-%% the full release now: the builder's (which must also carry a digest, so a
-%% re-pushed tag cannot change what builds), lint's image and the release its
-%% toolchain step insists on, .tool-versions, and this VM.
+%% from this template shipped OTP 28.5 and its guard stayed green. An image's
+%% tag need not name a release, so the builder stage and lint each ASSERT one
+%% in a check step; this compares those, .tool-versions and this VM, to the
+%% patch.
 the_runtime_agrees_between_the_image_the_ci_and_this_vm_test() ->
-    Image = pinned("Containerfile",
-                   "^FROM docker\\.io/(?:hexpm/)?erlang:([0-9]+\\.[0-9]+\\.[0-9]+)"
-                   "-alpine[^@\\s]*@sha256:[0-9a-f]{64} AS builder$"),
-    CiImage = pinned(".github/workflows/lint.yml",
-                     "^\\s+image: docker\\.io/(?:hexpm/)?erlang:([0-9]+\\.[0-9]+\\.[0-9]+)"
-                     "[^@\\s]*@sha256:[0-9a-f]{64}$"),
-    CiCheck = pinned(".github/workflows/lint.yml",
-                     "\\{<<\"([0-9]+\\.[0-9]+\\.[0-9]+)\">>, true\\} -> halt\\(0\\);"),
+    Check = "\\{<<\"([0-9]+\\.[0-9]+\\.[0-9]+)\">>, true\\} -> halt\\(0\\);",
+    Image = pinned("Containerfile", Check),
+    CiCheck = pinned(".github/workflows/lint.yml", Check),
     Tools = pinned(".tool-versions", "^erlang ([0-9]+\\.[0-9]+\\.[0-9]+)$"),
     %% Sorted and deduplicated, so a failure prints every version rather than
     %% the first pair that happened to be compared.
-    ?assertEqual([Image], lists:usort([Image, CiImage, CiCheck, Tools, running_otp()])),
-    %% What RUNS is pinned the same way: the runtime base by release and digest,
-    %% and it is the Alpine release the builder compiled the release against, so
-    %% the ERTS and NIFs shipped match the libc they run on.
-    BuilderAlpine = pinned("Containerfile",
-                           "-alpine-([0-9]+\\.[0-9]+\\.[0-9]+)@sha256:[0-9a-f]{64} AS builder$"),
-    RuntimeAlpine = pinned("Containerfile",
-                           "^FROM docker\\.io/alpine:([0-9]+\\.[0-9]+\\.[0-9]+)@sha256:[0-9a-f]{64}$"),
-    ?assertEqual(BuilderAlpine, RuntimeAlpine).
+    ?assertEqual([Image], lists:usort([Image, CiCheck, Tools, running_otp()])).
+
+%% CI tests in the image that builds, and neither image can move under a tag.
+%% The builder stage and lint name ONE image, so a green lint is a statement
+%% about the toolchain the release is built with; both FROM lines carry a
+%% digest, so a re-pushed tag cannot change what builds or what runs.
+ci_builds_in_the_builder_and_both_images_are_digest_pinned_test() ->
+    Digest = "@sha256:[0-9a-f]{64}",
+    Builder = pinned("Containerfile", "^FROM (\\S+" ++ Digest ++ ") AS builder$"),
+    ?assertMatch(<<_/binary>>, pinned("Containerfile", "^FROM (\\S+" ++ Digest ++ ")$")),
+    ?assertEqual(Builder, pinned(".github/workflows/lint.yml", "^\\s+image: (\\S+)$")).
 
 %% The full release, 28.4.3 and not 28: `otp_release' names only the major.
 running_otp() ->

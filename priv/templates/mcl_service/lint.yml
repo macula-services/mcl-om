@@ -1,11 +1,7 @@
-{{=<% %>=}}# Structural lint and unit tests. Runs on the glibc erlang image, where macula
-# resolves a prebuilt QUIC NIF -- but macula_cbor_nif (and the crypto/ucan/did/
-# mri NIFs beside it) have no such fallback and ALWAYS build from source, so a
-# Rust toolchain is needed here too or `rebar3 compile' fails in the
-# macula_cbor_nif hook before a single test runs (its build script refuses to
-# silently skip, because a package that compiles clean and fails every caller
-# at runtime with nif_not_loaded is worse). The alpine image build forces a
-# source build for everything including macula_quic; see the Containerfile.
+{{=<% %>=}}# Structural lint, unit tests and dialyzer, in the SAME digest-pinned image
+# the Containerfile's builder stage uses, so CI tests the toolchain that
+# ships: OTP 28.4.3 with ML-DSA, rebar3, Rust (macula's NIFs always build
+# from source) and a C toolchain, all from the image, none installed here.
 
 name: lint-and-test
 
@@ -19,54 +15,24 @@ jobs:
   check:
     runs-on: ubuntu-latest
     container:
-      # ⚠ MUST MATCH THE `Containerfile' beside it: OTP 28.4.3, pinned by tag
-      # and digest. `erlang:28' floats, and a floating lint image tests a
-      # release nobody ships. hexpm's Debian trixie build, whose OpenSSL 3.5
-      # has the ML-DSA every PQ node key needs; the step below refuses
-      # anything else.
-      image: docker.io/hexpm/erlang:28.4.3-debian-trixie-20260918@sha256:956e41bfb44cf505bb526265d594ff91a3cc9945a5d32e1e8a8fbf1521d6707f
+      # ⚠ THE SAME IMAGE AS THE Containerfile's builder, by digest. The service
+      # tests guard that the two agree and that the step below refuses
+      # anything but 28.4.3.
+      image: <%builder_image%>
     steps:
-      # BEFORE checkout, because the image is OTP and little else: no git (so
-      # checkout would fall back to the REST API, with no real clone and no
-      # tags), no curl, no C toolchain, no rebar3. rebar3 is pinned to a
-      # release and its sha256, the same way the images are pinned: an
-      # unpinned tool in this path is how a publish was lost once already.
-      #
-      # cmake, build-essential, and the rocksdb lines below: for a service
-      # that adds a read model of its own (barrel_docdb brings rocksdb).
-      # mcl_om no longer brings it (0.27.0); they stay so that adding one does
-      # not first fail CI.
-      #
-      # libssl-dev: rocksdb's CMake links OpenSSL::Crypto and fails to
-      # configure without it ("Could NOT find OpenSSL"). It is the same
-      # Debian package version as the libcrypto this image's OTP links, so
-      # the VM still holds exactly one libcrypto.
-      #
-      # libsnappy-dev liblz4-dev libzstd-dev libbz2-dev: rocksdb's CMakeLists
-      # auto-detects each of these via find_package() and, if one is
-      # missing, silently disables it rather than failing the build -- so
-      # the compile step goes green while producing a NIF whose runtime
-      # config (barrel_docdb defaults document-body/BlobDB compression to
-      # snappy) can't actually open: `db_open' fails with "The specified
-      # blob compression type Snappy is not available." Install all four,
-      # not just whichever one happened to be exercised first.
-      #
-      # mcl_om's template suite runs the block between the markers in this
-      # image (scripts/is_lint_toolchain_runnable.sh), so a tool missing here
-      # fails there first.
-      - name: Install and verify the toolchain
+      # BEFORE checkout, so an image missing git (checkout would fall back to
+      # the REST API, with no real clone and no tags) or any other tool the
+      # build needs fails here, naming it, rather than a later step failing
+      # on its absence. mcl_om's template suite runs the block between the
+      # markers in this image (scripts/is_lint_toolchain_runnable.sh).
+      - name: Verify the toolchain is the one we think it is
         run: |
           # toolchain-begin
-          apt-get update -qq
-          apt-get install -y -qq --no-install-recommends git curl ca-certificates \
-            cmake build-essential libssl-dev libsnappy-dev liblz4-dev libzstd-dev libbz2-dev
-          curl -fsSL -o /usr/local/bin/rebar3 \
-            https://github.com/erlang/rebar3/releases/download/3.27.0/rebar3
-          echo "af85aab41f9fd74bdd6341ebdf6fe9c88077aab9f8eac82371583fa02f2b0bdf  /usr/local/bin/rebar3" \
-            | sha256sum -c -
-          chmod +x /usr/local/bin/rebar3
+          git --version
           openssl version
           rebar3 version
+          rustc --version
+          cargo --version
           erl -noshell -eval '
             Otp = string:trim(element(2, file:read_file(filename:join([code:root_dir(), "releases", erlang:system_info(otp_release), "OTP_VERSION"])))),
             Mldsa = lists:member(mldsa87, crypto:supports(public_keys)),
@@ -77,11 +43,6 @@ jobs:
             end.'
           # toolchain-end
       - uses: actions/checkout@v4
-      - name: Install Rust toolchain
-        run: |
-          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
-            | sh -s -- -y --default-toolchain stable --profile minimal
-          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
       - run: rebar3 lint
       - run: rebar3 eunit
       - run: rebar3 dialyzer

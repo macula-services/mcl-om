@@ -92,10 +92,21 @@ jobs:
   # the same script, but mcl_om's own `check' job is itself a container with no
   # podman or docker inside, so there the suite skips that case by name. This
   # job, on the runner itself, is what keeps it from being a skip everywhere.
+  #
+  # The template's lint.yml names its image as a scaffold variable, so the job
+  # first scaffolds a service the way we do, through scaffold-service.sh with
+  # the house defaults, inside the `check' job's image (read from this file,
+  # so it is named once), and then runs THAT lint.yml's toolchain step.
   template-lint-image:
     name: scaffold lint toolchain runs in its pinned image
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-      - run: scripts/is_lint_toolchain_runnable.sh priv/templates/mcl_service/lint.yml
+      - name: Scaffold a service with the house defaults
+        run: |
+          IMAGE=$(sed -n 's/^[[:space:]]*image:[[:space:]]*//p' .github/workflows/lint-and-test.yml | head -n 1)
+          mkdir -p "$RUNNER_TEMP/house"
+          docker run --rm -v "$PWD:/mcl_om:ro" -v "$RUNNER_TEMP/house:/house" -w /house "$IMAGE" \
+            bash -euo pipefail -c '/mcl_om/scripts/install-templates.sh >/dev/null && /mcl_om/scripts/scaffold-service.sh mcl-house-probe "House probe" 8498'
+      - run: scripts/is_lint_toolchain_runnable.sh "$RUNNER_TEMP/house/mcl-house-probe/.github/workflows/lint.yml"

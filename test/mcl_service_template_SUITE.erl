@@ -34,7 +34,10 @@
          generated_service_is_pinned_to_one_otp/1,
          generated_runtime_guard_passes/1,
          generated_lint_toolchain_runs_in_its_image/1,
-         generated_rebar3_is_pinned_by_sha256/1,
+         generated_build_takes_its_toolchain_from_the_builder_image/1,
+         generated_service_builds_on_the_images_it_was_given/1,
+         house_scaffold_builds_on_the_fleet_pair/1,
+         scaffold_refuses_half_an_image_pair/1,
          generated_service_has_its_org/1,
          generated_image_carries_its_revision/1,
          generated_ci_runs_dialyzer_with_macula_in_view/1,
@@ -54,6 +57,18 @@
 %% makes leaked_house_specifics/1 able to prove the scaffold is usable by one.
 -define(ORG,      "acme-widgets").
 -define(REGISTRY, "registry.example.test").
+%% The stranger's own image pair. Never pulled: the image a generated service
+%% builds in is proven by generated_lint_toolchain_runs_in_its_image/1, against
+%% the house pair, which is the one this repository answers for.
+-define(BUILDER_IMAGE,
+        "registry.example.test/acme-widgets/otp-build:28.4.3"
+        "@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef").
+-define(RUNTIME_IMAGE,
+        "registry.example.test/acme-widgets/otp-run:28.4.3"
+        "@sha256:fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210").
+%% What scaffold-service.sh generates when nobody overrides anything.
+-define(HOUSE_REPO, "mcl-house-probe").
+-define(HOUSE_APP,  "mcl_house_probe").
 
 all() ->
     [generates_every_expected_file,
@@ -66,7 +81,10 @@ all() ->
      generated_service_is_pinned_to_one_otp,
      generated_runtime_guard_passes,
      generated_lint_toolchain_runs_in_its_image,
-     generated_rebar3_is_pinned_by_sha256,
+     generated_build_takes_its_toolchain_from_the_builder_image,
+     generated_service_builds_on_the_images_it_was_given,
+     house_scaffold_builds_on_the_fleet_pair,
+     scaffold_refuses_half_an_image_pair,
      generated_service_has_its_org,
      generated_image_carries_its_revision,
      generated_ci_runs_dialyzer_with_macula_in_view,
@@ -97,13 +115,33 @@ init_per_suite(Config) ->
     Out = run(Rebar3, ["new", "mcl_service",
                        "repo=" ?REPO, "name=" ?APP,
                        "desc=" ?DESC, "health_port=" ?PORT,
-                       "org=" ?ORG, "registry=" ?REGISTRY],
+                       "org=" ?ORG, "registry=" ?REGISTRY,
+                       "builder_image=" ?BUILDER_IMAGE,
+                       "runtime_image=" ?RUNTIME_IMAGE],
               Work),
     ct:pal("rebar3 new said:~n~s", [Out]),
     Root = filename:join(Work, ?REPO),
     filelib:is_dir(Root) orelse ct:fail({no_output_dir, Root, Out}),
     Compiled = compile_generated(Root, Ebin),
-    [{root, Root}, {ebin, Ebin}, {compiled, Compiled}, {added, Added} | Config].
+    HouseRoot = scaffold_as_the_house(filename:join(Priv, "house")),
+    [{root, Root}, {house_root, HouseRoot}, {ebin, Ebin}, {compiled, Compiled},
+     {added, Added} | Config].
+
+%% THE HOUSE GENERATION GOES THROUGH scripts/scaffold-service.sh, the way we
+%% scaffold, with every override cleared, so what it produces is the defaults
+%% and nothing a developer's shell happened to export.
+scaffold_as_the_house(Dir) ->
+    ok = filelib:ensure_path(Dir),
+    Out = run(scaffold_script(), [?HOUSE_REPO, "A house default probe", "8498"], Dir,
+              [{"MCL_ORG", false}, {"MCL_REGISTRY", false},
+               {"MCL_BUILDER_IMAGE", false}, {"MCL_RUNTIME_IMAGE", false}]),
+    ct:pal("scaffold-service.sh said:~n~s", [Out]),
+    Root = filename:join(Dir, ?HOUSE_REPO),
+    filelib:is_dir(Root) orelse ct:fail({no_house_output_dir, Root, Out}),
+    Root.
+
+scaffold_script() ->
+    filename:join([filename:dirname(?FILE), "..", "scripts", "scaffold-service.sh"]).
 
 end_per_suite(Config) ->
     _ = code:del_path(?config(ebin, Config)),
@@ -172,12 +210,15 @@ identity(Other) -> Other.
 %% inherit this suite's own build state, profile or config. HOME is deliberately
 %% left alone; see templates_dir/0 for why.
 run(Exe, Args, Cwd) ->
+    run(Exe, Args, Cwd, []).
+
+run(Exe, Args, Cwd, Env) ->
     Port = erlang:open_port(
              {spawn_executable, Exe},
              [{args, Args}, {cd, Cwd}, exit_status, stderr_to_stdout, binary,
               {env, [{"REBAR_BASE_DIR", false},
                      {"REBAR_CONFIG", false},
-                     {"REBAR_PROFILE", false}]}]),
+                     {"REBAR_PROFILE", false} | Env]}]),
     collect(Port, <<>>).
 
 collect(Port, Acc) ->
@@ -342,32 +383,24 @@ docs_only_gate_decides_each_push_shape(Config) ->
 %% ONE OTP, NAMED THREE TIMES, NONE OF THEM FLOATING. The builder was
 %% `erlang:28-alpine' and lint `erlang:28'; when Docker Hub moved them on
 %% 2026-09-22, mcl-echo (generated from this) shipped OTP 28.5 without anyone
-%% choosing it. The builder and the lint image are both pinned by tag and
-%% digest, public hexpm images a stranger can pull (never ours: see
-%% leaks_no_house_specifics/1; Docker's own `erlang' has no 28.4.3), the
-%% builder on the same Alpine as the runtime stage, lint's first step refuses
-%% anything but 28.4.3 with mldsa87, and .tool-versions names the same release.
+%% choosing it. The images are now whatever pair the scaffold was given, pinned
+%% by digest, and an image's tag need not name a release at all (the house
+%% pair's names a date). So the release is ASSERTED where it is used: the
+%% builder stage refuses to build on anything but 28.4.3 with mldsa87, lint's
+%% toolchain step refuses the same, and .tool-versions names the same release.
 generated_service_is_pinned_to_one_otp(Config) ->
     Root = ?config(root, Config),
+    Check = <<"{<<\"28.4.3\">>, true} -> halt(0);">>,
     Containerfile = read(filename:join(Root, "Containerfile")),
     Lint = read(filename:join(Root, ".github/workflows/lint.yml")),
-    ?assertMatch({match, _},
-                 re:run(Containerfile,
-                        "^FROM docker\\.io/hexpm/erlang:28\\.4\\.3-alpine-3\\.22\\.[0-9]+@sha256:[0-9a-f]{64} AS builder$",
-                        [multiline])),
-    %% What RUNS is pinned too: the runtime stage names its Alpine release and
-    %% digest, the same release the builder compiled the release against.
-    {match, [BuilderAlpine]} =
-        re:run(Containerfile, "-alpine-([0-9]+\\.[0-9]+\\.[0-9]+)@sha256:[0-9a-f]{64} AS builder$",
-               [multiline, {capture, all_but_first, binary}]),
-    {match, [RuntimeAlpine]} =
-        re:run(Containerfile, "^FROM docker\\.io/alpine:([0-9]+\\.[0-9]+\\.[0-9]+)@sha256:[0-9a-f]{64}$",
-               [multiline, {capture, all_but_first, binary}]),
-    ?assertEqual(BuilderAlpine, RuntimeAlpine),
-    ?assertMatch({match, _},
-                 re:run(Lint, "image: docker\\.io/hexpm/erlang:28\\.4\\.3-debian-trixie-[0-9]{8}@sha256:[0-9a-f]{64}$",
-                        [multiline])),
-    ?assertNotEqual(nomatch, binary:match(Lint, <<"{<<\"28.4.3\">>, true} -> halt(0);">>)),
+    ?assertNotEqual(nomatch, binary:match(Containerfile, Check)),
+    ?assertNotEqual(nomatch, binary:match(Lint, Check)),
+    %% The builder's check runs BEFORE anything is built, so an image on
+    %% another release fails at its first step, not after a full compile.
+    {FromBuilder, _} = binary:match(Containerfile, <<" AS builder\n">>),
+    {CheckAt, _} = binary:match(Containerfile, Check),
+    {GetDeps, _} = binary:match(Containerfile, <<"RUN rebar3 get-deps">>),
+    ?assert(FromBuilder < CheckAt andalso CheckAt < GetDeps),
     ?assertMatch({match, _},
                  re:run(read(filename:join(Root, ".tool-versions")), "^erlang 28\\.4\\.3$",
                         [multiline])).
@@ -387,7 +420,8 @@ generated_runtime_guard_passes(Config) ->
     {ok, Mod} = compile:file(Src, [{outdir, Out}, return_errors, debug_info]),
     {module, Mod} = code:load_abs(filename:join(Out, atom_to_list(Mod))),
     try
-        ok = Mod:the_runtime_agrees_between_the_image_the_ci_and_this_vm_test()
+        ok = Mod:the_runtime_agrees_between_the_image_the_ci_and_this_vm_test(),
+        ok = Mod:ci_builds_in_the_builder_and_both_images_are_digest_pinned_test()
     after
         code:purge(Mod),
         code:delete(Mod),
@@ -404,8 +438,11 @@ generated_runtime_guard_passes(Config) ->
 %% step for real. It needs podman or docker; without either (mcl_om's own CI
 %% container) this case is skipped by name, and the `template-lint-image' job
 %% in lint-and-test.yml runs the same script on a host that has one.
+%%
+%% The HOUSE generation's, because its image is real: the stranger's pair above
+%% is made up and never pulled.
 generated_lint_toolchain_runs_in_its_image(Config) ->
-    Lint = filename:join(?config(root, Config), ".github/workflows/lint.yml"),
+    Lint = filename:join(?config(house_root, Config), ".github/workflows/lint.yml"),
     Script = filename:join([filename:dirname(?FILE), "..", "scripts",
                             "is_lint_toolchain_runnable.sh"]),
     Port = erlang:open_port({spawn_executable, Script},
@@ -428,20 +465,119 @@ collect_status(Port, Acc) ->
         ct:fail({lint_toolchain_timeout, Acc})
     end.
 
-%% rebar3 is a tool in the build and test path, pinned like the images: one
-%% release, verified by sha256, the SAME in the image build and in lint. The
-%% image build fetched it from an S3 URL that serves whatever was published
-%% last.
-generated_rebar3_is_pinned_by_sha256(Config) ->
+%% THE BUILDER IMAGE IS THE TOOLCHAIN, AND ITS DIGEST IS THE ONE PIN. The
+%% template used to install its own on top of a bare OTP image: rustup's
+%% `stable', which floats, and a rebar3 pinned by sha256 in two files. On the
+%% house pair all of it is already in the image, pinned exactly, so a second
+%% install is a second pin that can disagree with the first. What remains is a
+%% check: lint's toolchain step names each tool the build needs, so an image
+%% without one fails that step (generated_lint_toolchain_runs_in_its_image/1
+%% runs it in the image) rather than a service's first build.
+generated_build_takes_its_toolchain_from_the_builder_image(Config) ->
     Root = ?config(root, Config),
-    Pinned = [read(filename:join(Root, F))
-              || F <- ["Containerfile", ".github/workflows/lint.yml"]],
-    Sums = [re:run(B, "\\b([0-9a-f]{64})  /usr/local/bin/rebar3", [{capture, all_but_first, binary}])
-            || B <- Pinned],
-    ?assertMatch([{match, [Sum]}, {match, [Sum]}], Sums),
-    [?assertNotEqual(nomatch,
-                     binary:match(B, <<"releases/download/3.27.0/rebar3">>)) || B <- Pinned],
-    [?assertEqual(nomatch, binary:match(B, <<"s3.amazonaws.com/rebar3">>)) || B <- Pinned].
+    Lint = read(filename:join(Root, ".github/workflows/lint.yml")),
+    Installs = [<<"sh.rustup.rs">>, <<"releases/download">>, <<"s3.amazonaws.com">>,
+                <<"apk add">>, <<"apt-get install">>],
+    Found = [{F, I} || F <- ["Containerfile", ".github/workflows/lint.yml"],
+                       I <- Installs,
+                       binary:match(read(filename:join(Root, F)), I) =/= nomatch],
+    ?assertEqual([], Found),
+    Step = toolchain_step(Lint),
+    Missing = [T || T <- [<<"git --version">>, <<"rebar3 version">>,
+                          <<"rustc --version">>, <<"cargo --version">>,
+                          <<"openssl version">>, <<"mldsa87">>],
+                    binary:match(Step, T) =:= nomatch],
+    ?assertEqual([], Missing).
+
+toolchain_step(Lint) ->
+    {match, [Step]} = re:run(Lint, "# toolchain-begin(.*)# toolchain-end",
+                             [dotall, {capture, all_but_first, binary}]),
+    Step.
+
+%% THE IMAGES ARE VARIABLES, and a generated service builds on exactly the pair
+%% it was given: the builder in the Containerfile's first stage and in lint,
+%% the runtime in the last stage, two stages and no third image.
+generated_service_builds_on_the_images_it_was_given(Config) ->
+    Root = ?config(root, Config),
+    ?assertEqual([{<<?BUILDER_IMAGE>>, <<"AS builder">>}, {<<?RUNTIME_IMAGE>>, <<>>}],
+                 from_lines(read(filename:join(Root, "Containerfile")))),
+    ?assertEqual([<<?BUILDER_IMAGE>>],
+                 lint_images(read(filename:join(Root, ".github/workflows/lint.yml")))).
+
+%% WHAT WE SCAFFOLD STARTS ON THE FLEET'S PAIR. The template once pinned
+%% hexpm's Alpine OTP and Alpine while every running mcl service had moved to
+%% macula-ci-images' build and runtime pair, so each new service was born on
+%% retired images and had to be moved by hand.
+%%
+%% The pair is named in ONE place, the manifest's defaults, and read from
+%% there: scaffold-service.sh passes an image only when one is overridden.
+%% The house generation is compared with it line for line, and the pair itself
+%% must be the macula-ci-images build and runtime images of one dated build,
+%% each by digest, because a build and a runtime from different dates carry
+%% different glibc and OpenSSL.
+house_scaffold_builds_on_the_fleet_pair(Config) ->
+    Root = ?config(house_root, Config),
+    {Builder, Runtime} = house_image_pair(),
+    Pinned = ":([0-9]{8}-[0-9]{4})@sha256:[0-9a-f]{64}$",
+    {match, [BuildDate]} = re:run(Builder, "^ghcr\\.io/macula-io/macula-ci-otp" ++ Pinned,
+                                  [{capture, all_but_first, binary}]),
+    {match, [RunDate]} = re:run(Runtime, "^ghcr\\.io/macula-io/macula-pq-runtime" ++ Pinned,
+                                [{capture, all_but_first, binary}]),
+    ?assertEqual(BuildDate, RunDate),
+    ?assertEqual([{Builder, <<"AS builder">>}, {Runtime, <<>>}],
+                 from_lines(read(filename:join(Root, "Containerfile")))),
+    ?assertEqual([Builder],
+                 lint_images(read(filename:join(Root, ".github/workflows/lint.yml")))).
+
+%% THE PAIR MOVES TOGETHER OR NOT AT ALL. A release built in one image runs on
+%% the other's glibc and OpenSSL, so overriding the builder and keeping the
+%% house runtime (or the reverse) generates a service that builds and then
+%% fails to load its NIFs, or fails every PQ handshake. The script refuses,
+%% naming both, before it generates anything.
+scaffold_refuses_half_an_image_pair(Config) ->
+    Dir = filename:join(?config(priv_dir, Config), "half_pair"),
+    ok = filelib:ensure_path(Dir),
+    Refusals =
+        [begin
+             Port = erlang:open_port(
+                      {spawn_executable, scaffold_script()},
+                      [{args, ["mcl-half-pair", "Half a pair", "8497"]}, {cd, Dir},
+                       exit_status, stderr_to_stdout, binary,
+                       {env, [{"MCL_BUILDER_IMAGE", false}, {"MCL_RUNTIME_IMAGE", false},
+                              {Set, "registry.example.test/x/y@sha256:" ++ lists:duplicate(64, $a)}]}]),
+             collect_status(Port, <<>>)
+         end || Set <- ["MCL_BUILDER_IMAGE", "MCL_RUNTIME_IMAGE"]],
+    [begin
+         ?assertNotEqual(0, Status),
+         ?assertNotEqual(nomatch, binary:match(Out, <<"MCL_BUILDER_IMAGE">>)),
+         ?assertNotEqual(nomatch, binary:match(Out, <<"MCL_RUNTIME_IMAGE">>))
+     end || {Status, Out} <- Refusals],
+    ?assertNot(filelib:is_dir(filename:join(Dir, "mcl-half-pair"))).
+
+%% The defaults of the two image variables, from the template manifest itself.
+house_image_pair() ->
+    Manifest = filename:join([code:priv_dir(mcl_om), "templates", "mcl_service.template"]),
+    {ok, Terms} = file:consult(Manifest),
+    Variables = proplists:get_value(variables, Terms),
+    Default = fun(Key) ->
+                  {Key, Value, _Doc} = lists:keyfind(Key, 1, Variables),
+                  list_to_binary(Value)
+              end,
+    {Default(builder_image), Default(runtime_image)}.
+
+%% Every FROM line, as {Image, Rest}: Rest is `AS builder' or empty.
+from_lines(Containerfile) ->
+    {match, Lines} = re:run(Containerfile, "^FROM (\\S+)(?: (.*))?$",
+                            [multiline, global, {capture, all_but_first, binary}]),
+    [{Image, rest(Rest)} || [Image | Rest] <- Lines].
+
+rest([])     -> <<>>;
+rest([Rest]) -> Rest.
+
+lint_images(Lint) ->
+    {match, Images} = re:run(Lint, "^\\s+image: (\\S+)$",
+                             [multiline, global, {capture, all_but_first, binary}]),
+    [I || [I] <- Images].
 
 %% ONE ORG PER SERVICE, NAMED AFTER THE REPOSITORY, fixed in the release rather
 %% than left to an environment variable someone can forget. Without it
@@ -533,6 +669,9 @@ leaks_no_house_specifics(Config) ->
                  <<"hecate-services">>,   %% the parent org -- a leak here
                                           %% means the rename missed one
                  <<"ghcr.io/">>,          %% our registry, as a path prefix
+                 <<"macula-io">>,         %% the org our build images live in
+                 <<"macula-ci-">>,        %% our build images, by name
+                 <<"macula-pq-runtime">>, %% our runtime image, by name
                  <<"macula-demo">>,       %% our old GitOps repository
                  <<"macula-fleet">>,      %% our GitOps repository
                  <<"beam0">>,             %% our node names

@@ -35,6 +35,22 @@ HEALTH_PORT="${3:-8484}"
 ORG="${MCL_ORG:-macula-services}"
 REGISTRY="${MCL_REGISTRY:-ghcr.io}"
 
+# WHAT IT BUILDS AND RUNS ON. The fleet's build and runtime image pair is named
+# once, as the defaults of builder_image and runtime_image in
+# priv/templates/mcl_service.template, so this script repeats neither and
+# passes the images only when MCL_BUILDER_IMAGE and MCL_RUNTIME_IMAGE override
+# them. BOTH OR NEITHER: a release built in one image runs on the other's libc
+# and OpenSSL, so half a pair generates a service that builds and then fails
+# to load its NIFs or to complete a PQ handshake.
+IMAGE_ARGS=()
+if [ -n "${MCL_BUILDER_IMAGE:-}" ] && [ -n "${MCL_RUNTIME_IMAGE:-}" ]; then
+    IMAGE_ARGS=(builder_image="${MCL_BUILDER_IMAGE}" runtime_image="${MCL_RUNTIME_IMAGE}")
+elif [ -n "${MCL_BUILDER_IMAGE:-}${MCL_RUNTIME_IMAGE:-}" ]; then
+    echo "MCL_BUILDER_IMAGE='${MCL_BUILDER_IMAGE:-}' and MCL_RUNTIME_IMAGE='${MCL_RUNTIME_IMAGE:-}':" \
+         "the images are a pair, set both or neither" >&2
+    exit 64
+fi
+
 # mcl-foo -> mcl_foo. The generated eunit suite asserts the two agree
 # modulo the separator, so a hand-rolled `rebar3 new' with a mismatched pair
 # still fails on the first test run rather than shipping.
@@ -66,7 +82,7 @@ if [ ! -e "${HOME}/.config/rebar3/templates/mcl_service.template" ]; then
     "${HERE}/install-templates.sh" >/dev/null
 fi
 
-echo "[scaffold] ${REPO_NAME} (app ${APP_NAME}, ${REGISTRY}/${ORG}, health port ${HEALTH_PORT})"
+echo "[scaffold] ${REPO_NAME} (app ${APP_NAME}, ${REGISTRY}/${ORG}, health port ${HEALTH_PORT}, images: ${MCL_BUILDER_IMAGE:-the fleet pair})"
 
 rebar3 new mcl_service \
     repo="${REPO_NAME}" \
@@ -74,7 +90,8 @@ rebar3 new mcl_service \
     desc="${DESCRIPTION}" \
     org="${ORG}" \
     registry="${REGISTRY}" \
-    health_port="${HEALTH_PORT}"
+    health_port="${HEALTH_PORT}" \
+    ${IMAGE_ARGS[@]+"${IMAGE_ARGS[@]}"}
 
 cat <<EOF
 

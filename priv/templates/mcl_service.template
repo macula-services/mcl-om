@@ -26,6 +26,11 @@
 %%
 %%   rebar3 new mcl_service repo=mcl-foo name=mcl_foo \
 %%       desc="Does X over the mesh" health_port=8484
+%%
+%% THE BUILD AND RUNTIME IMAGES ARE NAMED HERE AND ONLY HERE, as the defaults of
+%% builder_image and runtime_image below. scripts/scaffold-service.sh passes
+%% them only when overridden, and mcl_service_template_SUITE reads them from
+%% this file, so moving the fleet's pair is one edit.
 
 {description, "A complete mcl service: release, container, CI, compose, and the six-callback mcl_om_service contract"}.
 
@@ -40,6 +45,10 @@
      "Your source-forge organisation or user. Owns the repository URL and the container image namespace. CHANGE THIS if you are not building for the BEAM Campus fleet."},
     {registry, "ghcr.io",
      "Container registry the image is pushed to. ghcr.io pairs with a GitHub org; set it to whatever you publish to."},
+    {builder_image, "ghcr.io/macula-io/macula-ci-otp:20260923-1444@sha256:dd2ba6eb858a0eacedf0179300323fe5c6da46fb308d22da0ca8cfcd1f0718dc",
+     "Image the release is BUILT in, by the Containerfile's first stage, and the image lint runs in. Pin it by digest. It must carry OTP 28.4.3 with an OpenSSL that has ML-DSA (the build refuses any other), rebar3, Rust (macula's NIFs always build from source), a C toolchain and git. The default is the macula-services fleet's build image; CHANGE THIS together with runtime_image if you are not building for that fleet."},
+    {runtime_image, "ghcr.io/macula-io/macula-pq-runtime:20260923-1444@sha256:15a5501b7277804c5a62c93121d157773d1401d238a1bf630ef4b50fc2f1df09",
+     "Image the release RUNS on, the Containerfile's last stage. Pin it by digest. It must match builder_image's libc and carry the libraries the release loads (OpenSSL with ML-DSA, libstdc++, ncurses) and curl for the healthcheck: the two images are a PAIR, and move together. The default is the macula-services fleet's runtime image."},
     {health_port, "8484",
      "Port for the /health endpoint. The container uses host networking, because macula stations are AAAA-only and a default bridge cannot reach them, so a port already bound on the host fails SILENTLY. Pick one you know is free."},
     {store, "",
@@ -49,7 +58,8 @@
 %% Build
 {template, "mcl_service/rebar.config",       "{{repo}}/rebar.config"}.
 {template, "mcl_service/gitignore",          "{{repo}}/.gitignore"}.
-%% Pinned to the SAME OTP major (28) Containerfile and lint.yml pin below.
+%% Pinned to the SAME OTP release (28.4.3) the Containerfile's builder stage
+%% and lint.yml's toolchain step each refuse anything but.
 %% Without this, a dev machine whose asdf/rebar3 global points at a newer
 %% OTP (29, in the four repos that hit this in one day) compiles a dependency's deprecated bare
 %% `catch' syntax under a version that turns it into a hard build failure

@@ -223,13 +223,34 @@ rebar3 new mcl_service repo=mcl-newservice name=mcl_newservice \
     desc="Does X over the mesh" org=your-org registry=ghcr.io health_port=8484
 ```
 
-**The scaffold is not house-specific.** `org` and `registry` are variables, and
-nothing generated names our organisation, our registry, our deployment
-repository or our hosts. If you are building a service for your own mesh,
-set those two and everything else follows. `scaffold-service.sh` defaults them
-to ours because that is who runs it most; `MCL_ORG` and `MCL_REGISTRY`
-override. A test generates a service as a stranger and fails if any of our own
-specifics survive.
+**The scaffold is not house-specific.** `org`, `registry`, `builder_image` and
+`runtime_image` are variables, and nothing generated names our organisation,
+our registry, our images, our deployment repository or our hosts. If you are
+building a service for your own mesh, set those four and everything else
+follows. `scaffold-service.sh` defaults them to ours because that is who runs
+it most; `MCL_ORG`, `MCL_REGISTRY`, `MCL_BUILDER_IMAGE` and
+`MCL_RUNTIME_IMAGE` override. A test generates a service as a stranger and
+fails if any of our own specifics survive.
+
+**The image pair.** `builder_image` is the image the release is built in and
+the one the generated lint job runs in; `runtime_image` is the one it runs on.
+Both are pinned by digest, and they are a pair: a release built in one runs on
+the other's libc and OpenSSL, so `scaffold-service.sh` refuses to override
+just one. The defaults are the fleet's pair from `macula-io/macula-ci-images`,
+the same two every running mcl service builds `FROM`:
+
+| Variable | Default | Must carry |
+|----------|---------|------------|
+| `builder_image` | `ghcr.io/macula-io/macula-ci-otp:20260923-1444@sha256:dd2ba6eb…` | OTP 28.4.3 with an OpenSSL that has ML-DSA, rebar3, Rust, a C toolchain, git |
+| `runtime_image` | `ghcr.io/macula-io/macula-pq-runtime:20260923-1444@sha256:15a5501b…` | the builder's libc, OpenSSL with ML-DSA, libstdc++, ncurses, curl |
+
+They are named once, as the defaults in `priv/templates/mcl_service.template`;
+the script passes an image only when one is overridden, and the template suite
+reads them from there. The generated `Containerfile` refuses to build on any
+OTP but 28.4.3 with `mldsa87`, and the generated lint job checks every tool in
+the table before it checks out the code. A service that links the erlang
+`rocksdb` binding (barrel_docdb) moves both lines to the rocksdb pair,
+`macula-ci-otp-rocksdb` and `macula-pq-runtime-rocksdb`.
 
 Generates a repository that compiles, tests and deploys:
 
@@ -239,12 +260,13 @@ Generates a repository that compiles, tests and deploys:
   and that the reported version is the application's own
 - `rebar.config` with a relx release, the prod profile and the elvis ruleset
 - `config/sys.config.src` and `config/vm.args.src`
-- `Containerfile` (multi-stage, macula's QUIC NIF built from source)
+- `Containerfile`: built in `builder_image`, run on `runtime_image`
 - `deploy/docker-compose.yml` — the service's own run contract, **not** the
   deployed file; fleet placement lives in `macula-io/macula-fleet`. It mounts a named
   volume, `<repo>-secrets`, at `/etc/mcl/secrets`, where the service's identity
   key lives, so the node id survives a container recreate
-- `.github/workflows/` — `lint` and `build-push` to ghcr.io
+- `.github/workflows/`: `lint` (in `builder_image`) and `build-push` to
+  `registry`
 - `scripts/health.sh`, executable
 - `README.md`, `CHANGELOG.md`, `LICENSE`, `.gitignore`
 

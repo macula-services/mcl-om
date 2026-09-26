@@ -3,6 +3,49 @@
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [SemVer](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+
+- **A scaffolded service starts on the fleet's image pair.** The template
+  built on `hexpm/erlang:28.4.3-alpine-3.22.6` and ran on `alpine:3.22.6`,
+  while every running mcl service (mcl-tube, mcl-sentinel, mcl-warden) builds
+  in `macula-ci-otp:20260923-1444` and runs on `macula-pq-runtime:20260923-1444`,
+  so each new service was born on images nobody else ran. The generated
+  `Containerfile` now matches theirs stage by stage:
+  - The builder is `builder_image` and the runtime `runtime_image`, two new
+    scaffold variables pinned by digest. Their defaults, named once in
+    `priv/templates/mcl_service.template`, are the fleet pair.
+  - The builder installs nothing: no `apk add`, no rustup (which floated on
+    `stable`), no rebar3 download. The image carries all of it, pinned. Its
+    first step refuses any OTP but 28.4.3 with `mldsa87`, the same check as
+    lint's.
+  - `MACULA_FORCE_SOURCE_BUILD` and `RUSTFLAGS=-crt-static` are gone. They
+    existed for musl; the pair is Debian trixie on both sides.
+  - The runtime stage installs nothing: the runtime image carries OpenSSL
+    with ML-DSA, libstdc++, ncurses and curl.
+- **The generated lint job runs in `builder_image`**, as the fleet's do,
+  instead of `hexpm/erlang:28.4.3-debian-trixie` plus an apt toolchain and a
+  rustup install. Its toolchain step checks git, openssl, rebar3, rustc,
+  cargo, and OTP 28.4.3 with `mldsa87`.
+- **The generated service's guards follow.** The runtime test compares the
+  release the builder and lint each assert with `.tool-versions` and the VM;
+  a new test asserts lint runs in the builder image and both `FROM` lines
+  carry a digest.
+- `scripts/scaffold-service.sh` passes `MCL_BUILDER_IMAGE` and
+  `MCL_RUNTIME_IMAGE` through when both are set, and refuses when only one is,
+  naming both: half a pair builds a release against one libc and runs it on
+  another.
+- `mcl_service_template_SUITE` also scaffolds through `scaffold-service.sh`
+  with the house defaults and checks the result builds `FROM` the manifest's
+  pair, which must be the `macula-ci-otp` and `macula-pq-runtime` images of
+  one dated build. The stranger generation passes its own pair and must name
+  no `macula-io` image. The lint toolchain case now runs the house
+  generation's lint job in its real image.
+- CI's `template-lint-image` job scaffolds a house service in the `check`
+  job's image first, since the template's `lint.yml` now names its image as a
+  variable.
+
 ## [0.32.1]
 
 ### Fixed
