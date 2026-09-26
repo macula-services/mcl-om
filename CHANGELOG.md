@@ -9,10 +9,12 @@ Versioning: [SemVer](https://semver.org/).
 
 - **A scaffolded service starts on the fleet's image pair.** The template
   built on `hexpm/erlang:28.4.3-alpine-3.22.6` and ran on `alpine:3.22.6`,
-  while every running mcl service (mcl-tube, mcl-sentinel, mcl-warden) builds
-  in `macula-ci-otp:20260923-1444` and runs on `macula-pq-runtime:20260923-1444`,
-  so each new service was born on images nobody else ran. The generated
-  `Containerfile` now matches theirs stage by stage:
+  while the services that had moved (mcl-tube, mcl-sentinel, mcl-warden, and
+  most others) build in `macula-ci-otp:20260923-1444` and run on
+  `macula-pq-runtime:20260923-1444`, so each new service was born on the
+  images being retired. mcl-echo is still on the Alpine pair, and the rocksdb
+  services use the rocksdb pair. The generated `Containerfile` now matches the
+  moved services stage by stage:
   - The builder is `builder_image` and the runtime `runtime_image`, two new
     scaffold variables pinned by digest. Their defaults, named once in
     `priv/templates/mcl_service.template`, are the fleet pair.
@@ -22,6 +24,8 @@ Versioning: [SemVer](https://semver.org/).
     lint's.
   - `MACULA_FORCE_SOURCE_BUILD` and `RUSTFLAGS=-crt-static` are gone. They
     existed for musl; the pair is Debian trixie on both sides.
+  - A Debian builder is also what lets lint run in the build image: JavaScript
+    actions such as `actions/checkout` cannot run inside an Alpine container.
   - The runtime stage installs nothing: the runtime image carries OpenSSL
     with ML-DSA, libstdc++, ncurses and curl.
 - **The generated lint job runs in `builder_image`**, as the fleet's do,
@@ -43,8 +47,20 @@ Versioning: [SemVer](https://semver.org/).
   no `macula-io` image. The lint toolchain case now runs the house
   generation's lint job in its real image.
 - CI's `template-lint-image` job scaffolds a house service in the `check`
-  job's image first, since the template's `lint.yml` now names its image as a
-  variable.
+  job's image first (read by its path, `jobs.check.container.image`), since
+  the template's `lint.yml` now names its image as a variable. It then asks
+  ghcr, anonymously and by digest, whether the house pair is still published
+  (`scripts/is_image_published.sh`), so a deleted digest or a package turned
+  private fails CI instead of the next service's first build.
+- **One build image in this repository.** mcl-om's own `check` job moves from
+  `macula-ci-otp:20260923-1347` to `20260923-1444`, the scaffold's builder, and
+  the template suite fails when the two differ.
+- The scaffold also refuses an exported but empty `MCL_BUILDER_IMAGE` or
+  `MCL_RUNTIME_IMAGE`, which used to fall back to the house pair silently.
+- The generated `Containerfile` names what goes wrong on the plain pair for a
+  service that adds rocksdb: CMake silently drops a compression backend whose
+  `-dev` package is missing, and barrel's snappy blob compression fails at
+  `db_open`.
 
 ## [0.32.1]
 

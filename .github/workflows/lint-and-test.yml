@@ -23,7 +23,9 @@
 # OpenSSL with ML-DSA, which every PQ node key needs; rebar3, Rust, cmake) and
 # refuses to publish one whose crypto lacks mldsa87. This job used to build
 # OpenSSL 3.6.4 and OTP 28.1 from source to get the same thing, and 28.1 was a
-# version nobody chose. Move the tag deliberately.
+# version nobody chose. Move the tag deliberately, and together with the
+# scaffold's builder_image default: ONE build image per repository, and the
+# template suite fails when the two differ.
 #
 # NOTHING THAT CAN CONTAIN A MODULE IS CACHED. A cached `_build' outlives the
 # source it was compiled from, so a deleted module keeps being analysed (the
@@ -57,7 +59,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     container:
-      image: ghcr.io/macula-io/macula-ci-otp:20260923-1347@sha256:b2260d084a3d3c5e0b74932c4ee052a0cadfddddb6587d5d2214873e6bb06330
+      image: ghcr.io/macula-io/macula-ci-otp:20260923-1444@sha256:dd2ba6eb858a0eacedf0179300323fe5c6da46fb308d22da0ca8cfcd1f0718dc
     steps:
       - uses: actions/checkout@v4
 
@@ -95,8 +97,18 @@ jobs:
   #
   # The template's lint.yml names its image as a scaffold variable, so the job
   # first scaffolds a service the way we do, through scaffold-service.sh with
-  # the house defaults, inside the `check' job's image (read from this file,
-  # so it is named once), and then runs THAT lint.yml's toolchain step.
+  # the house defaults, inside the `check' job's image, and then runs THAT
+  # lint.yml's toolchain step.
+  #
+  # THE IMAGE IS READ BY ITS PATH, jobs.check.container.image, so it is named
+  # once and no other `image:' line can be picked up instead. A workflow-level
+  # env cannot carry it: `container.image' does not see the env context, and
+  # ci_gate.sh refuses an expression there.
+  #
+  # And the house pair must still be PUBLISHED: a deleted digest or a package
+  # turned private passes every text check here and breaks the next service's
+  # first build, so the pair the scaffold just wrote is asked of the registry
+  # anonymously, by digest, as a pull would.
   template-lint-image:
     name: scaffold lint toolchain runs in its pinned image
     runs-on: ubuntu-latest
@@ -105,8 +117,12 @@ jobs:
       - uses: actions/checkout@v4
       - name: Scaffold a service with the house defaults
         run: |
-          IMAGE=$(sed -n 's/^[[:space:]]*image:[[:space:]]*//p' .github/workflows/lint-and-test.yml | head -n 1)
+          IMAGE=$(yq -r '.jobs.check.container.image' .github/workflows/lint-and-test.yml)
+          case "$IMAGE" in *@sha256:*) ;; *) echo "check job image not found or not pinned: '$IMAGE'" >&2; exit 1 ;; esac
           mkdir -p "$RUNNER_TEMP/house"
           docker run --rm -v "$PWD:/mcl_om:ro" -v "$RUNNER_TEMP/house:/house" -w /house "$IMAGE" \
             bash -euo pipefail -c '/mcl_om/scripts/install-templates.sh >/dev/null && /mcl_om/scripts/scaffold-service.sh mcl-house-probe "House probe" 8498'
       - run: scripts/is_lint_toolchain_runnable.sh "$RUNNER_TEMP/house/mcl-house-probe/.github/workflows/lint.yml"
+      - name: The house image pair is published
+        run: |
+          scripts/is_image_published.sh $(sed -n 's/^FROM \([^ ]*\).*/\1/p' "$RUNNER_TEMP/house/mcl-house-probe/Containerfile")

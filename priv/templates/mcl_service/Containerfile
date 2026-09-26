@@ -14,14 +14,13 @@
 # ERTS and NIFs built here match the libc and OpenSSL they run on. lint.yml
 # runs in the same builder image, so CI tests what ships.
 #
-# This template once built on hexpm's Alpine OTP and installed rustup and
-# rebar3 on top, while the services generated from it had moved to a shared
-# build and runtime pair: each new service was born on images nobody else ran.
-# Both images are scaffold variables now (builder_image, runtime_image).
-#
 # A service that links the erlang `rocksdb' binding (barrel_docdb, for a read
 # model of its own) needs a pair built for it, with librocksdb and its
 # compression libraries in both images. Change both FROM lines together.
+# Without the compression -dev packages rocksdb's CMake silently disables that
+# backend and the build stays green, then barrel_docdb's default snappy blob
+# compression fails at db_open: "The specified blob compression type Snappy is
+# not available."
 FROM <%builder_image%> AS builder
 
 # ⚠ THE OTP RELEASE, ASSERTED HERE, because an image's tag need not name one.

@@ -41,13 +41,17 @@ REGISTRY="${MCL_REGISTRY:-ghcr.io}"
 # passes the images only when MCL_BUILDER_IMAGE and MCL_RUNTIME_IMAGE override
 # them. BOTH OR NEITHER: a release built in one image runs on the other's libc
 # and OpenSSL, so half a pair generates a service that builds and then fails
-# to load its NIFs or to complete a PQ handshake.
+# to load its NIFs or to complete a PQ handshake. SET, not non-empty: an
+# exported empty variable is someone's override gone wrong, and treating it as
+# unset would quietly hand them the house pair.
 IMAGE_ARGS=()
-if [ -n "${MCL_BUILDER_IMAGE:-}" ] && [ -n "${MCL_RUNTIME_IMAGE:-}" ]; then
+if [ -z "${MCL_BUILDER_IMAGE+set}${MCL_RUNTIME_IMAGE+set}" ]; then
+    :
+elif [ -n "${MCL_BUILDER_IMAGE:-}" ] && [ -n "${MCL_RUNTIME_IMAGE:-}" ]; then
     IMAGE_ARGS=(builder_image="${MCL_BUILDER_IMAGE}" runtime_image="${MCL_RUNTIME_IMAGE}")
-elif [ -n "${MCL_BUILDER_IMAGE:-}${MCL_RUNTIME_IMAGE:-}" ]; then
-    echo "MCL_BUILDER_IMAGE='${MCL_BUILDER_IMAGE:-}' and MCL_RUNTIME_IMAGE='${MCL_RUNTIME_IMAGE:-}':" \
-         "the images are a pair, set both or neither" >&2
+else
+    echo "MCL_BUILDER_IMAGE='${MCL_BUILDER_IMAGE-<unset>}' and MCL_RUNTIME_IMAGE='${MCL_RUNTIME_IMAGE-<unset>}':" \
+         "the images are a pair, set both (non-empty) or neither" >&2
     exit 64
 fi
 

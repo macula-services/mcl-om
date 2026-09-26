@@ -236,8 +236,12 @@ fails if any of our own specifics survive.
 the one the generated lint job runs in; `runtime_image` is the one it runs on.
 Both are pinned by digest, and they are a pair: a release built in one runs on
 the other's libc and OpenSSL, so `scaffold-service.sh` refuses to override
-just one. The defaults are the fleet's pair from `macula-io/macula-ci-images`,
-the same two every running mcl service builds `FROM`:
+just one. The defaults are the fleet's plain pair from
+`macula-io/macula-ci-images`, the pair mcl-tube, mcl-sentinel, mcl-warden and
+most other mcl services build `FROM`. Not all of them: mcl-echo (and
+mcl-graph) still build on the retired hexpm Alpine OTP and run on Alpine, and
+the services with a rocksdb read model (mcl-stations, mcl-mail, mcl-rag) use
+the rocksdb pair.
 
 | Variable | Default | Must carry |
 |----------|---------|------------|
@@ -250,7 +254,11 @@ reads them from there. The generated `Containerfile` refuses to build on any
 OTP but 28.4.3 with `mldsa87`, and the generated lint job checks every tool in
 the table before it checks out the code. A service that links the erlang
 `rocksdb` binding (barrel_docdb) moves both lines to the rocksdb pair,
-`macula-ci-otp-rocksdb` and `macula-pq-runtime-rocksdb`.
+`macula-ci-otp-rocksdb` and `macula-pq-runtime-rocksdb`. On the plain pair
+rocksdb's CMake silently disables any compression backend whose `-dev` package
+is missing, the build stays green, and barrel's default snappy blob
+compression then fails at `db_open` ("The specified blob compression type
+Snappy is not available").
 
 Generates a repository that compiles, tests and deploys:
 

@@ -38,6 +38,7 @@
          generated_service_builds_on_the_images_it_was_given/1,
          house_scaffold_builds_on_the_fleet_pair/1,
          scaffold_refuses_half_an_image_pair/1,
+         this_repository_builds_in_the_scaffold_builder/1,
          generated_service_has_its_org/1,
          generated_image_carries_its_revision/1,
          generated_ci_runs_dialyzer_with_macula_in_view/1,
@@ -85,6 +86,7 @@ all() ->
      generated_service_builds_on_the_images_it_was_given,
      house_scaffold_builds_on_the_fleet_pair,
      scaffold_refuses_half_an_image_pair,
+     this_repository_builds_in_the_scaffold_builder,
      generated_service_has_its_org,
      generated_image_carries_its_revision,
      generated_ci_runs_dialyzer_with_macula_in_view,
@@ -529,24 +531,48 @@ house_scaffold_builds_on_the_fleet_pair(Config) ->
     ?assertEqual([Builder],
                  lint_images(read(filename:join(Root, ".github/workflows/lint.yml")))).
 
+%% ONE BUILD IMAGE PER REPOSITORY. mcl_om's own CI ran in one dated build of
+%% macula-ci-otp while the scaffold handed every new service another, so this
+%% suite was green in an image no generated service would ever build in. The
+%% `check' job's container image, the one this suite runs in on CI, must be
+%% the scaffold's builder_image default.
+this_repository_builds_in_the_scaffold_builder(_Config) ->
+    Workflow = read(filename:join([filename:dirname(?FILE), "..", ".github", "workflows",
+                                   "lint-and-test.yml"])),
+    {match, [CheckImage]} =
+        re:run(Workflow, "^  check:\\n(?:(?!^  \\S).*\\n)*?\\s+image: (\\S+)$",
+               [multiline, {capture, all_but_first, binary}]),
+    {Builder, _Runtime} = house_image_pair(),
+    ?assertEqual(Builder, CheckImage).
+
 %% THE PAIR MOVES TOGETHER OR NOT AT ALL. A release built in one image runs on
 %% the other's glibc and OpenSSL, so overriding the builder and keeping the
 %% house runtime (or the reverse) generates a service that builds and then
 %% fails to load its NIFs, or fails every PQ handshake. The script refuses,
-%% naming both, before it generates anything.
+%% naming both, before it generates anything. The variables are set through
+%% `env', so an empty value reaches the script exported and empty.
 scaffold_refuses_half_an_image_pair(Config) ->
     Dir = filename:join(?config(priv_dir, Config), "half_pair"),
     ok = filelib:ensure_path(Dir),
+    Image = "registry.example.test/x/y@sha256:" ++ lists:duplicate(64, $a),
+    %% An exported but EMPTY variable is half a pair too: `MCL_BUILDER_IMAGE='
+    %% on its own must not quietly fall back to the house pair.
+    Halves = [[{"MCL_BUILDER_IMAGE", Image}],
+              [{"MCL_RUNTIME_IMAGE", Image}],
+              [{"MCL_BUILDER_IMAGE", ""}],
+              [{"MCL_RUNTIME_IMAGE", ""}],
+              [{"MCL_BUILDER_IMAGE", Image}, {"MCL_RUNTIME_IMAGE", ""}],
+              [{"MCL_BUILDER_IMAGE", ""}, {"MCL_RUNTIME_IMAGE", ""}]],
     Refusals =
         [begin
              Port = erlang:open_port(
-                      {spawn_executable, scaffold_script()},
-                      [{args, ["mcl-half-pair", "Half a pair", "8497"]}, {cd, Dir},
-                       exit_status, stderr_to_stdout, binary,
-                       {env, [{"MCL_BUILDER_IMAGE", false}, {"MCL_RUNTIME_IMAGE", false},
-                              {Set, "registry.example.test/x/y@sha256:" ++ lists:duplicate(64, $a)}]}]),
+                      {spawn_executable, "/usr/bin/env"},
+                      [{args, ["-u", "MCL_BUILDER_IMAGE", "-u", "MCL_RUNTIME_IMAGE"]
+                              ++ [K ++ "=" ++ V || {K, V} <- Half]
+                              ++ [scaffold_script(), "mcl-half-pair", "Half a pair", "8497"]},
+                       {cd, Dir}, exit_status, stderr_to_stdout, binary]),
              collect_status(Port, <<>>)
-         end || Set <- ["MCL_BUILDER_IMAGE", "MCL_RUNTIME_IMAGE"]],
+         end || Half <- Halves],
     [begin
          ?assertNotEqual(0, Status),
          ?assertNotEqual(nomatch, binary:match(Out, <<"MCL_BUILDER_IMAGE">>)),
