@@ -36,7 +36,8 @@ Revised after Fable's review (2026-09-26): required changes R1 to R3 and observa
 ### Message
 
 The signed message is the deterministic CBOR encoding of the map below. In Erlang that is
-`macula_cbor_nif:pack_deterministic/1`, the encoder `macula_manifest` already uses. In Go it is
+`macula_record_cbor:encode/1`, the reference encoder of macula's record layer (`pack_deterministic/1` is documented
+as additive and not wired into the frame yet). In Go it is
 `macula-go/cbor/encode.go`; TypeScript signs through the macula-go FFI. Never a generic JS CBOR library: it
 shortens 1.0 to a half float and the bytes never match.
 
@@ -61,6 +62,8 @@ Every value's CBOR type is fixed as written:
 
 - **Minus `asserted_by`,** in every key form it can arrive in (`{text, <<"asserted_by">>}` on the wire, a binary or an
   atom in a local call).
+- **A decoded null becomes null again:** the frame hands a CBOR null to the handler as `undefined`, which the
+  encoder would write as text. This was found by Fable's review of the sibling realm plan (macula-realm#29, R3).
 - **Minus the atom key `caller`,** which `macula_station_link:with_caller/2` merges into every CALL after decode. The
   signer never sees it, because the relay is the wire caller.
 - **Why raw:** after macula 12's strict decode (`macula_frame:frame_read/2` uses

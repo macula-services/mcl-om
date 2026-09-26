@@ -3,6 +3,31 @@
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [SemVer](https://semver.org/).
 
+## [0.32.0]
+
+### Changed (breaking)
+
+- **`mcl_om_ownership_proof` v2: a proof binds every field it authorises**
+  (mcl-om#7, `plans/PLAN_OWNERSHIP_PROOF_V2.md`). v1 signed only identity,
+  timestamp and procedure, so a relay holding a captured proof could make the
+  same identity assert anything within 60 s, and replay it identically.
+  - The signed message is now deterministic CBOR (`macula_record_cbor:encode/1`)
+    with a domain tag, version 2, the identity, the realm, the procedure, a
+    nonce, and the payload's fields as the handler receives them (minus
+    `asserted_by` and the station-merged `caller`, a decoded null as null,
+    everything else raw, never unwrapped).
+  - `make/5,6` builds the `asserted_by` block, applying macula_frame's own
+    wire conversion to the fields, so the signer encodes what the verifier
+    rebuilds.
+  - `verify/5` and `verify_asserted_by/3` replace `verify/3`, which is removed
+    along with `message/3`; a proof without `v` 2 is `unsupported_version`.
+  - `mcl_om_ownership_proof_replay`, a supervised ETS table, takes a proof's
+    nonce only after the signature verifies, so an identical proof is accepted
+    once (`replayed` after that). The cache is per instance and empty after a
+    restart.
+  - The realm-join proof (macula-realm's device request proof) is a separate
+    format, fixed in macula-realm#29.
+
 ## [0.31.1]
 
 ### Fixed

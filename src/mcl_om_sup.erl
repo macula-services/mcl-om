@@ -46,7 +46,10 @@ init([]) ->
         period    => 10
     },
     Children = [
-        worker(mcl_om_identity)
+        worker(mcl_om_identity),
+        %% The nonces of accepted ownership proofs (mcl_om_ownership_proof),
+        %% so an identical proof is accepted once.
+        worker(mcl_om_ownership_proof_replay)
     ] ++ mesh_pool_children() ++ [
         worker(mcl_om_capabilities),
         worker(mcl_om_claim),
