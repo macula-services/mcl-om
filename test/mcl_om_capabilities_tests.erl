@@ -760,3 +760,31 @@ station(NodeId) ->
 
 provider(NodeId) ->
     #{advertiser => NodeId, serving_station => <<"station">>, record => placeholder}.
+
+%% macula 13 seals a call to the KEM key the provider's advertisement names
+%% (E2E Amendment A1), and refuses one that carries no signed state. So the
+%% capability call hands macula the advertisement its resolve verified.
+a_capability_call_hands_macula_the_verified_advertisement_test() ->
+    ok = meck:new(macula_direct_dial, [passthrough]),
+    ok = meck:new(macula, [passthrough]),
+    try
+        ok = meck:expect(macula_direct_dial, resolve_station_endpoint,
+                         fun(_Pool, _Station) -> {ok, <<"quic://[::1]:4433">>} end),
+        Self = self(),
+        ok = meck:expect(macula, call_station,
+                         fun(_Pool, _Url, _Target, _Realm, _Proc, _Payload, _Tmo, Opts) ->
+                             Self ! {opts, Opts}, {ok, done}
+                         end),
+        Provider = #{advertiser => <<1:256>>, serving_station => <<2:256>>,
+                     procedure => <<"acme/svc.do">>, record => the_verified_record},
+        ?assertEqual({ok, done},
+                     mcl_om_capabilities:call_providers([Provider], self(), <<3:256>>, <<"svc.do">>,
+                                                        #{}, 1_000, <<>>)),
+        receive {opts, Opts} ->
+            ?assertEqual(the_verified_record, maps:get(advertisement, Opts)),
+            ?assertEqual(<<2:256>>, maps:get(expected_node_id, Opts))
+        after 1_000 -> error(no_call)
+        end
+    after
+        meck:unload([macula, macula_direct_dial])
+    end.

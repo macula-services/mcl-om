@@ -142,6 +142,10 @@
 -module(mcl_om_capabilities).
 -behaviour(gen_server).
 
+-ifdef(TEST).
+-export([call_providers/7]).
+-endif.
+
 -export([start_link/0, register/1, publish/0, lookup/1, list/0, provider_grants/0,
          advertise_liveness/0,
          list_org_capabilities/1]).
@@ -1052,11 +1056,11 @@ pinned_providers(NodeId, Providers) ->
 call_providers([], _Pool, _Realm, _CapName, _Payload, _TimeoutMs, _Ucan) ->
     {error, no_provider};
 call_providers([#{serving_station := Station, advertiser := Advertiser,
-                  procedure := Procedure} | Rest],
+                  procedure := Procedure, record := Advertisement} | Rest],
                Pool, Realm, CapName, Payload, TimeoutMs, Ucan) ->
     dial_provider(resolve_endpoint(Pool, Station), Station, Advertiser,
-                  Procedure, Rest, Pool, Realm, CapName, Payload, TimeoutMs,
-                  Ucan).
+                  Procedure, Advertisement, Rest, Pool, Realm, CapName, Payload,
+                  TimeoutMs, Ucan).
 
 %% Endpoint resolved: dial + call; on error, fail over to the next.
 %%
@@ -1071,15 +1075,22 @@ call_providers([#{serving_station := Station, advertiser := Advertiser,
 %% it presents, so the pinned handshake is the whole transport trust,
 %% exactly macula's own direct-dial caller
 %% (macula_station_gated_call_SUITE's call/6).
-dial_provider({ok, Url}, Station, Advertiser, Procedure, Rest, Pool, Realm,
-              CapName, Payload, TimeoutMs, Ucan) ->
+%%
+%% Sealing (macula 13, E2E Amendment A1): the call hands macula the
+%% provider's verified advertisement, and macula seals to the KEM key it
+%% names, or calls in the clear when it names none. The advertisement is
+%% the one this resolve verified, so a station can withhold it (no call)
+%% but never downgrade the call to the clear.
+dial_provider({ok, Url}, Station, Advertiser, Procedure, Advertisement, Rest,
+              Pool, Realm, CapName, Payload, TimeoutMs, Ucan) ->
     CallResult = macula:call_station(Pool, Url, Advertiser, Realm, Procedure,
                                      Payload, TimeoutMs,
                                      #{ucan_token => Ucan,
-                                       expected_node_id => Station}),
+                                       expected_node_id => Station,
+                                       advertisement => Advertisement}),
     failover(CallResult, Rest, Pool, Realm, CapName, Payload, TimeoutMs, Ucan);
-dial_provider({error, Reason}, _Station, _Advertiser, _Procedure, Rest, Pool,
-              Realm, CapName, Payload, TimeoutMs, Ucan) ->
+dial_provider({error, Reason}, _Station, _Advertiser, _Procedure, _Advertisement,
+              Rest, Pool, Realm, CapName, Payload, TimeoutMs, Ucan) ->
     failover({error, {station_endpoint, Reason}}, Rest, Pool, Realm, CapName,
              Payload, TimeoutMs, Ucan).
 
