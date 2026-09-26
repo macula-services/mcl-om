@@ -24,9 +24,25 @@ the_pinned_signature_verifies_over_the_pinned_message_test() ->
     ?assert(macula_node_keys:verify(vector("message"), vector("signature"), vector("public_key"),
                                     profile())).
 
+%% erlang_payload.hex: the vector's fields plus an asserted_by that make/6 made
+%% with the vector's key at its timestamp, as macula's frame puts it on the
+%% wire. Its fields are the vector's, and its signature verifies over the
+%% message rebuilt from them, so what make/6 signs is what the verifier rebuilds.
+the_erlang_payload_carries_a_proof_over_the_vector_fields_test() ->
+    {ok, Decoded} = macula_record_cbor:decode_strict(vector("erlang_payload")),
+    AssertedBy = maps:get({text, <<"asserted_by">>}, Decoded),
+    Proof = mcl_om_wire:field(proof, AssertedBy),
+    Fields = maps:remove({text, <<"asserted_by">>}, Decoded),
+    ?assertEqual(fields(), Fields),
+    Message = mcl_om_ownership_proof:message(
+                vector("identity"), realm(), ?PROCEDURE, mcl_om_wire:field(timestamp, Proof),
+                binary:decode_hex(mcl_om_wire:field(nonce, Proof)), Fields),
+    ?assert(macula_node_keys:verify(Message, binary:decode_hex(mcl_om_wire:field(signature, Proof)),
+                                    vector("public_key"), profile())).
+
 %% The inputs of macula-go's scripts/interop/erlang_ownership_proof.escript
-%% emit. A text key named caller is a signed field like any other: only the
-%% station's atom caller is stripped.
+%% emit (d48601b). They carry no caller: the station link removes a caller-sent
+%% one before the handler reads the payload, so it is never signed.
 fields() ->
     #{{text, <<"subject">>} => {text, <<"entity:alpha">>},
       {text, <<"predicate">>} => {text, <<"knows">>},
@@ -38,8 +54,7 @@ fields() ->
       {text, <<"note">>} => null,
       {text, <<"tags">>} => [{text, <<"a">>}, {text, <<"b">>}],
       {text, <<"metadata">>} => #{{text, <<"source">>} => {text, <<"field-notes">>},
-                                  {text, <<"page">>} => 12},
-      {text, <<"caller">>} => {text, <<"a text key named caller is signed">>}}.
+                                  {text, <<"page">>} => 12}}.
 
 realm() -> crypto:hash(sha256, <<"io.macula">>).
 

@@ -35,7 +35,10 @@ proof_test_() ->
       {"a key that does not derive the identity fails", fun wrong_identity/0},
       {"a signature by another key fails", fun other_signer/0},
       {"a missing proof fails", fun missing/0},
-      {"make refuses fields that are not wire values", fun make_refuses_non_wire/0}]}.
+      {"make refuses fields that are not wire values", fun make_refuses_non_wire/0},
+      {"a signer's caller field is never signed: it verifies after the station removes it",
+       fun signer_caller_is_not_signed/0},
+      {"the delivery helper mirrors macula_station_link:with_caller/2", fun helper_mirrors_with_caller/0}]}.
 
 start_cache() ->
     {ok, Pid} = mcl_om_ownership_proof_replay:start_link(),
@@ -180,6 +183,25 @@ missing() ->
     Payload = delivered(fields(), node_key(), ?PROC),
     ?assertEqual({error, missing_proof}, verify(Payload, ?PROC, realm())).
 
+%% macula 12.11.1's with_caller/2 removes a caller-sent text "caller" before
+%% the handler reads the payload. A signer that put one in its fields must not
+%% have signed it, or every such proof is refused bad_signature.
+signer_caller_is_not_signed() ->
+    Key = node_key(),
+    Fields = (fields())#{caller => {text, <<"a caller the payload names">>}},
+    AssertedBy = mcl_om_ownership_proof:make(Key, node_id(Key), realm(), ?PROC, Fields),
+    Payload = delivered(Fields#{asserted_by => AssertedBy}, node_key(), ?PROC),
+    ?assertEqual(ok, verify(Payload, ?PROC, realm())).
+
+%% macula does not export with_caller/2, so this pins the helper's copy of it:
+%% the text caller is removed, and the atom is the authenticated one.
+helper_mirrors_with_caller() ->
+    Authenticated = <<9:256>>,
+    ?assertEqual(#{{text, <<"x">>} => 1, caller => Authenticated},
+                 with_caller(#{{text, <<"x">>} => 1,
+                               {text, <<"caller">>} => {text, <<"spoofed">>},
+                               caller => <<8:256>>}, Authenticated)).
+
 make_refuses_non_wire() ->
     Key = node_key(),
     ?assertError({not_a_wire_value, _},
@@ -213,7 +235,12 @@ delivered(Payload, Caller, Procedure) ->
     {ok, Decoded, <<>>} = macula_frame:decode(macula_frame:encode(Frame)),
     {ok, #{payload := Delivered, caller := CallerId}} =
         macula_frame:verify_request(Decoded, profile()),
-    Delivered#{caller => CallerId}.
+    with_caller(Delivered, CallerId).
+
+%% macula_station_link:with_caller/2 (macula 12.11.1): a caller-sent text
+%% "caller" is removed, then the wire-authenticated caller is merged.
+with_caller(Payload, Caller) ->
+    (maps:remove({text, <<"caller">>}, Payload))#{caller => Caller}.
 
 node_key() ->
     {ok, K} = macula_node_keys:generate(identity, profile(), #{puzzle_difficulty => 0}),

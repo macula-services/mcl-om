@@ -2,22 +2,17 @@
 %%% `args', or a pubsub event payload), instead of every provider desk
 %%% re-solving the same two gotchas independently.
 %%%
-%%% Gotcha one -- KEYS: macula's frame decoder round-trips a payload's
-%%% keys through `binary_to_existing_atom/1' on the way in, so a caller
-%%% that sent binary keys can find them waiting as atoms on the other
-%%% side. A key whose atom does not exist in the receiving VM stays as it
-%%% was sent instead: `{text, Bin}', since macula encodes every map key
-%%% as CBOR text (`macula_frame''s `wire_key/1' and `envelope_key/1'), or
-%%% a plain binary from a sender that used a byte-string key. Three
-%%% incompatible ways of coping with this were already live
-%%% in the workspace when this was written (see
-%%% `hecate-om/plans/PLAN_MCL_OM_MESH_WRAPPERS.md', piece F):
-%%% `hecate-embedder' tries the atom form first, falling back to binary;
-%%% `hecate-spartan' reimplements the same fallback (`mget/2,3') 11+
-%%% times across its `federation_*' modules for pubsub payloads, not
-%%% just RPC args; and `hecate-dns'/`-git'/`-llm'/`-rag''s `route/2'
-%%% handlers pattern-match binary keys only, with zero tolerance —
-%%% silently wrong if a real caller's payload ever arrives atom-keyed.
+%%% Gotcha one -- KEYS: under macula 12 (D26), the frame decoder is strict
+%%% and never turns a key into an atom. Every text key arrives as
+%%% `{text, Bin}' (macula encodes every map key as CBOR text), and a
+%%% byte-string key is refused at decode as `bad_key'. The only atom key a
+%%% handler sees is `caller', which macula_station_link:with_caller/2
+%%% merges in after decode (from macula 12.11.1 it also removes a
+%%% caller-sent text "caller"). A map handed over in process, however, may
+%%% carry atom or binary keys, so a lookup must cope with all three. Before
+%%% macula 12 the decoder also atomised keys the receiving VM happened to
+%%% know, and three incompatible ways of coping with that were live in the
+%%% hecate-era services; this module replaced them.
 %%%
 %%% Gotcha two -- VALUES, found live 2026-09-01 fixing hecate-rag: a
 %%% JSON string sent as an RPC arg is encoded as a CBOR text string
@@ -41,6 +36,11 @@
 %%% `Default') is run through `unwrap/1' before returning, so both
 %%% gotchas are resolved in one call regardless of which one a given
 %%% field happens to hit.
+%%%
+%%% Use `field/2,3' and `unwrap/1' to READ a field. Never unwrap a payload
+%%% that is about to be re-encoded for a signature check: `{text, B}' and
+%%% `B' encode as different CBOR types (text and bytes). See
+%%% `mcl_om_ownership_proof'.
 %%%
 %%% `retryable/1' (piece G) is the response-side counterpart: whether a
 %%% failed RPC/stream call outcome is worth retrying, per macula's own

@@ -7,8 +7,12 @@
 %%% (macula_record_cbor:encode/1) of a map with text keys: tag
 %%% "macula.ownership_proof", v 2, identity (32 bytes), realm (32 bytes),
 %%% procedure (text), timestamp (ms), nonce (16 bytes) and fields: the
-%%% payload as the handler receives it, minus asserted_by and minus the
-%%% atom caller that macula_station_link:with_caller/2 merges in.
+%%% payload as the handler receives it, minus asserted_by and minus caller in
+%%% every key form. `caller' is never signed: macula_station_link:with_caller/2
+%%% merges the authenticated atom `caller', and from macula 12.11.1 it also
+%%% removes a caller-sent text "caller" before the handler runs, so a signed
+%%% caller could never be rebuilt. Dropping it on both sides gives the same
+%%% result on any macula version.
 %%%
 %%% The fields are re-encoded raw, never unwrapped: after macula 12's
 %%% strict decode, text arrives as {text, B} and bytes as B, and those
@@ -51,7 +55,7 @@ make(Key, Identity, Realm, Procedure, Fields) ->
 -spec make(macula_node_keys:node_key(), binary(), binary(), binary(), fields(), integer()) -> map().
 make(Key, Identity, Realm, Procedure, Fields, Timestamp) ->
     Nonce = crypto:strong_rand_bytes(16),
-    Canonical = canonical(wire(Fields)),
+    Canonical = canonical(without_envelope(wire(Fields))),
     Signature = macula_node_keys:sign(message(Identity, Realm, Procedure, Timestamp, Nonce, Canonical), Key),
     #{identity => hex(Identity),
       proof => #{v => ?VERSION,
@@ -149,9 +153,14 @@ profile() ->
 %% Canonical fields
 %%--------------------------------------------------------------------
 
-%% The payload as delivered, minus the proof block and the station's caller.
+%% The payload as delivered, minus the proof block and the caller.
 fields_of(Payload) ->
-    canonical(maps:without([{text, <<"asserted_by">>}, asserted_by, <<"asserted_by">>, caller], Payload)).
+    canonical(without_envelope(Payload)).
+
+%% asserted_by and caller are never signed, in any key form.
+without_envelope(Map) ->
+    maps:without([{text, <<"asserted_by">>}, asserted_by, <<"asserted_by">>,
+                  {text, <<"caller">>}, caller, <<"caller">>], Map).
 
 %% A decoded null arrives as undefined; everything else stays as delivered.
 canonical(undefined) -> null;

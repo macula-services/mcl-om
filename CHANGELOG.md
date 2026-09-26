@@ -3,6 +3,27 @@
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [SemVer](https://semver.org/).
 
+## [0.32.1]
+
+### Fixed
+
+- **An ownership proof never signs `caller`.** From macula 12.11.1,
+  `macula_station_link:with_caller/2` removes a caller-sent text `"caller"`
+  before the handler reads the payload, so a signer that included one was
+  refused `bad_signature`. `make/5,6` and the verifier now drop `caller` in
+  every key form, as they already dropped `asserted_by`, which gives the same
+  result on any macula version. The test helper that delivers a payload now
+  mirrors `with_caller/2` (the text caller removed, then the authenticated
+  one merged), and a test pins that step. Found by Neptunus's macula-go
+  interop through Fable.
+- The cross-SDK vector is repinned to macula-go `ownershipproof` d48601b: the
+  fields carry no caller, and `erlang_payload.hex` (a `make/6` payload in wire
+  form) is checked: its proof verifies over the message rebuilt from its
+  fields.
+- `mcl_om_wire`'s moduledoc described pre-12 key atomisation; it now
+  describes macula 12's strict decode and warns against unwrapping a payload
+  that is about to be re-encoded for a signature check.
+
 ## [0.32.0]
 
 ### Changed (breaking)
