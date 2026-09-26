@@ -256,10 +256,8 @@ genuinely don't fit.
 `mcl_om` does not wrap content. It had a wrapper, `mcl_om_content`
 (piece E), removed in 0.30.0: no service used it, and macula 12.6.0
 (D27) made the SDK's own calls the simple shape a service wants. They need
-macula 12.6.0 or later, which `mcl_om` itself does not require, so a
-service that shares content states `{macula, ">= 12.6.0 and < 13.0.0"}` in
-its own `rebar.config`. Use them with the handles `mcl_om:mesh_handles/0`
-returns:
+macula 12.6.0 or later; `mcl_om` 0.31 requires 12.7.0, so every service on
+it has them. Use them with the handles `mcl_om:mesh_handles/0` returns:
 
 ```erlang
 {ok, Pool, Realm} = mcl_om:mesh_handles(),

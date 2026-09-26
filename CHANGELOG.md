@@ -3,6 +3,31 @@
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [SemVer](https://semver.org/).
 
+## [0.31.0]
+
+### Changed
+
+- **Registration goes to the serving station through macula's own
+  `stations` option.** A capability is advertised with
+  `stations => [Station]`, this node's serving station
+  (`choose_serving_station/2`), so the SDK registers the handler on that
+  station's link only and names it in the DHT record (macula 12.7.0). It
+  replaces mcl_om's `advertise` and `publish_advertisement` overrides,
+  which called the internal `macula_station_link:advertise/6`. A streamer
+  capability is now registered on its serving station only too, like a
+  response capability (it used to fan out to every link), so the one
+  advertiser per station rule holds for both (issue #5).
+- With no connected station, nothing is advertised; the next republish tick
+  tries again and /health records the failure (`no_station`).
+- **macula `>= 12.7.0`**, which also brings the pool's renewal of an
+  advertised chain (D32) to every mcl service, and the content calls the
+  guide's chapter 4 shows. README status and the guide say so.
+
+### Removed
+
+- `publish_advertisement/5`, `advertisement_opts/1` and
+  `advertise_on_serving_station/6` (exported for the overrides above).
+
 ## [0.30.0]
 
 ### Removed

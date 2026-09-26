@@ -299,7 +299,7 @@ networking turns a collision into a silent bind failure.
 
 ## Status
 
-**Working library — 0.28.x, on macula 12.2.** The behaviour and all helpers are implemented
+**Working library — 0.31.x, on macula 12.7.** The behaviour and all helpers are implemented
 (`mcl_om_identity`, `mcl_om_capabilities`, `mcl_om_store`,
 `mcl_om_health`), the boot path (`mcl_om:boot/1` with auto store-wiring)
 is exercised by a Common Test suite (`mcl_om_SUITE`), and `rebar3 new
