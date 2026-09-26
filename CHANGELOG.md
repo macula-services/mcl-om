@@ -3,6 +3,20 @@
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [SemVer](https://semver.org/).
 
+## [0.31.1]
+
+### Fixed
+
+- **Every mcl service's store now loads its snapshots.** reckon_evoq
+  `>= 2.7.2`: 2.7.0 read snapshots back empty (reckon-db 5.5.2 already
+  unwraps them and reckon_evoq unwrapped again), so an aggregate reloaded
+  past a snapshot rebuilt its state from nothing. The floor lives here
+  because most services get reckon_evoq only through mcl_om.
+- evoq `>= 1.26.1`: telemetry durations come from the monotonic clock, in
+  native units.
+- `mcl_om_dependency_floors_tests` asserts both floors against the versions
+  actually built.
+
 ## [0.31.0]
 
 ### Changed
