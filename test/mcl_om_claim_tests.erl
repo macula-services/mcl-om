@@ -79,3 +79,50 @@ an_empty_app_env_value_counts_as_unset(_) ->
     #{name := Name} = dummy_service:info(),
     ?_assertEqual(#{<<"service_name">> => Name, <<"box">> => <<"beam00.lab">>},
                   mcl_om_claim:labels()).
+
+%%% THE REALM'S ANSWER, CLASSIFIED. Under macula 13 a refusal from the realm's
+%%% responder arrives as a bare {error, <<"not_admitted">>}; before it, as
+%%% {error, {call_error, Code, <<"not_admitted">>}}. mcl_om 0.33.1 knew only
+%%% the second, so on macula 13 a claim the realm had filed as pending was
+%%% taken for "not delivered" and re-sent every minute, forever, logged at
+%%% debug (found on mcl-fovea, 2026-09-28).
+
+pending_in_both_reply_shapes_test() ->
+    ?assertEqual(pending, mcl_om_claim:classify({error, <<"not_admitted">>})),
+    ?assertEqual(pending, mcl_om_claim:classify({error, {call_error, handler_error, <<"not_admitted">>}})),
+    ?assertEqual(pending, mcl_om_claim:classify({error, {call_error, unknown_error, <<"not_admitted">>}})).
+
+issued_when_the_realm_answers_ok_test() ->
+    ?assertEqual(issued, mcl_om_claim:classify({ok, #{<<"issued">> => 1}})).
+
+anything_else_is_not_delivered_test() ->
+    ?assertEqual({not_delivered, timeout}, mcl_om_claim:classify({error, timeout})),
+    ?assertEqual({not_delivered, <<"other">>}, mcl_om_claim:classify({error, <<"other">>})).
+
+%%% LOUD ONCE PER CHANGE. Each change of state is one log line naming the realm
+%%% and the org; the same state again is silent, so a claim that cannot be
+%%% delivered for an hour is one warning, not sixty debug lines.
+
+-define(REALM, <<16#abb81b5a:32, 0:224>>).
+
+pending_is_announced_naming_realm_and_org_test() ->
+    {Level, Text} = mcl_om_claim:announcement(unsent, pending, <<"acme">>, ?REALM),
+    ?assertEqual(warning, Level),
+    ?assertNotEqual(nomatch, string:find(Text, "acme")),
+    ?assertNotEqual(nomatch, string:find(Text, "abb81b5a")),
+    ?assertNotEqual(nomatch, string:find(Text, "pending")).
+
+not_delivered_is_announced_once_test() ->
+    ?assertMatch({warning, _}, mcl_om_claim:announcement(unsent, {not_delivered, timeout},
+                                                         <<"acme">>, ?REALM)),
+    ?assertEqual(none, mcl_om_claim:announcement({not_delivered, timeout}, {not_delivered, timeout},
+                                                 <<"acme">>, ?REALM)),
+    ?assertEqual(none, mcl_om_claim:announcement({not_delivered, timeout}, {not_delivered, closed},
+                                                 <<"acme">>, ?REALM)).
+
+issued_is_announced_test() ->
+    ?assertMatch({notice, _}, mcl_om_claim:announcement(pending, issued, <<"acme">>, ?REALM)).
+
+%%% /health's view of the claim, and a service with no mesh says so.
+status_without_a_claim_worker_test() ->
+    ?assertEqual(#{state => <<"no_mesh">>}, mcl_om_claim:status()).

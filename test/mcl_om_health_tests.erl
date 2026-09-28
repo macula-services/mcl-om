@@ -27,23 +27,26 @@ a_degraded_service_keeps_its_own_reason_test() ->
 -define(REPORT, [#{procedure => <<"acme/x">>, status => <<"waiting">>}]).
 -define(ADVERTISE, [#{procedure => <<"acme/x">>, status => <<"alive">>,
                       last_advertise_ms_ago => 12000}]).
+%% The boot claim's state, in every body: a claim the realm holds as pending
+%% is the operator's to admit, and it must be visible without reading logs.
+-define(CLAIM, #{state => <<"pending">>, org => <<"acme">>, since_ms => 5000}).
 
 ok_body_carries_the_service_info_and_the_grants_test() ->
     ?assertEqual(#{name => <<"svc">>, status => <<"ok">>, provider_grants => ?REPORT,
-                   advertise_liveness => ?ADVERTISE,
+                   advertise_liveness => ?ADVERTISE, claim => ?CLAIM,
                    failed_publishes => 0},
                  mcl_om_health_handler:body(ok, #{name => <<"svc">>}, ?REPORT,
-                                            ?ADVERTISE, 0)).
+                                            ?ADVERTISE, ?CLAIM, 0)).
 
 degraded_body_carries_the_reason_and_the_grants_test() ->
     ?assertEqual(#{status => <<"degraded">>, reason => <<"slow">>,
                    provider_grants => ?REPORT, advertise_liveness => ?ADVERTISE,
-                   failed_publishes => 3},
+                   claim => ?CLAIM, failed_publishes => 3},
                  mcl_om_health_handler:body({degraded, slow}, #{}, ?REPORT,
-                                            ?ADVERTISE, 3)).
+                                            ?ADVERTISE, ?CLAIM, 3)).
 
 down_body_carries_the_reason_and_the_grants_test() ->
     ?assertEqual(#{status => <<"down">>, reason => <<"crashed">>,
                    provider_grants => [], advertise_liveness => [],
-                   failed_publishes => 0},
-                 mcl_om_health_handler:body({down, crashed}, #{}, [], [], 0)).
+                   claim => ?CLAIM, failed_publishes => 0},
+                 mcl_om_health_handler:body({down, crashed}, #{}, [], [], ?CLAIM, 0)).
