@@ -92,6 +92,34 @@ key_written_by_macula_11_4_loads_as_the_same_node_test() ->
     ?assertEqual({ok, Written}, file:read_file(Path)),
     file:delete(Path).
 
+%% A key written by macula 12.6.0 through mcl_om 0.29.1 is what the identities
+%% pre-minted for mcl-stations (beam03) and mcl-citizens (beam01) are. Moving
+%% those services to macula 13 must LOAD it as the same node, since the realm's
+%% delegation and the citizens publisher list are bound to that node id, and
+%% leave the file exactly as it was. The fixture is a throwaway key written by
+%% macula 12.6.0's own macula_node_keys:save/2 at the fleet puzzle difficulty;
+%% the node id below is the one 12.6.0 computed for it.
+-define(KEY_12_6_FIXTURE, "fixtures/identity_written_by_macula_12_6.key").
+-define(KEY_12_6_NODE_ID,
+        <<"00c963e27097e7e7fb983b7c65ee283056cfa1c80fa04157ea3675f9b7a8367d">>).
+
+key_written_by_macula_12_6_loads_as_the_same_node_test() ->
+    Path = tmp_path(),
+    {ok, Written} = file:read_file(
+                      filename:join(filename:dirname(?FILE), ?KEY_12_6_FIXTURE)),
+    ok = file:write_file(Path, Written),
+    ok = file:change_mode(Path, 8#600),
+
+    Key = mcl_om_identity:node_key_from({ok, Path}),
+
+    ?assertMatch(#{purpose := identity, profile := pq_hybrid}, Key),
+    {ok, NodeId} = macula_node_keys:node_id(Key),
+    ?assertEqual(?KEY_12_6_NODE_ID, binary:encode_hex(NodeId, lowercase)),
+    ?assert(macula_node_keys:puzzle_solved(NodeId,
+                                           macula_node_keys:puzzle_difficulty())),
+    ?assertEqual({ok, Written}, file:read_file(Path)),
+    file:delete(Path).
+
 %% A key file that exists but will not load is refused and left untouched.
 %% Regenerating would give the service a new node id and overwrite its
 %% real key: macula refuses key files readable by group or others, so a
