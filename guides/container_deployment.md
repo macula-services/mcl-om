@@ -73,7 +73,7 @@ port knowing what else runs there.
 **The realm has no default.** A service that guesses its realm
 announces itself where nobody can attribute it, which is
 indistinguishable from a healthy node. Same for the station pins:
-naming a realm costs nothing, dialling somebody's production station
+naming a realm costs nothing, dialling somebody else's live station
 from every dev clone does — and the 11.x dial is **pinned**: every
 seed host pairs with its station's node id (D5), and mcl_om refuses
 to boot a pool holding an unpinned seed, since that dial could never
