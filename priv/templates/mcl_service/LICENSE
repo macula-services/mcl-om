@@ -1,8 +1,25 @@
-{{=<% %>=}}                                 Apache License
+{{=<% %>=}}<%#proprietary%>Copyright (c) <%copyright_year%> <%holder%>. All rights reserved.
+
+This software, including its source code, compiled code, container images,
+documentation and configuration (together, the "Software"), is proprietary.
+It is not open source and is not licensed to the public.
+
+No licence is granted by this notice or by receiving a copy of the Software,
+by any route. You may not copy, modify, distribute, publish, sublicense, sell,
+reverse engineer, decompile or create derivative works of the Software, or run
+it, except under a separate written licence agreement with <%holder%>.
+
+Third-party components that the Software depends on or bundles remain under
+their own licences, which this notice does not change.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED. IN NO EVENT SHALL THE COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM,
+DAMAGES OR OTHER LIABILITY ARISING FROM THE SOFTWARE OR ITS USE.
+<%/proprietary%><%^proprietary%>                                 Apache License
                            Version 2.0, January 2004
                         http://www.apache.org/licenses/
 
-   Copyright <%copyright_year%> Raf Lefever, BEAM Campus
+   Copyright <%copyright_year%> <%holder%>
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -15,3 +32,4 @@
    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 
    Full Apache 2.0 license text is available at the URL above.
+<%/proprietary%>

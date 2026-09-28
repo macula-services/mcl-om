@@ -53,6 +53,8 @@ mcl_om:
    │   puzzle-hardened node key from
    │   /etc/mcl/secrets/identity.key (a mounted volume)
    ├── starts the mesh pool IF pinned station seeds are configured
+   │   (with {mesh, required}, as the scaffold sets it, a missing realm,
+   │   realm key, seed list or node id list refuses the boot, by name)
    ├── registers capabilities() into mcl_om_capabilities
    ├── registers the service module into mcl_om_health
    ├── wires a reckon-db store IF the service exports store_id/0

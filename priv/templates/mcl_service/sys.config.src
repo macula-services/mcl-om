@@ -15,6 +15,12 @@
         {identity_key_path, "/etc/mcl/secrets/identity.key"},
         {health_port,       ${MCL_HEALTH_PORT}},
         {capability_topic,  <<"_mesh.cap.">>},
+        %% THIS SERVICE EXISTS TO ANSWER ON THE MESH, so it does not boot
+        %% without MCL_REALM, MCL_REALM_KEY, MACULA_STATION_SEEDS and
+        %% MACULA_STATION_NODE_IDS: mcl_om refuses, naming every one missing.
+        %% Without this line an unset seed list boots a green service with no
+        %% mesh at all, which answers /health and nothing else, forever.
+        {mesh,              required},
         %% THE REALM IS AN APPLICATION ENV, NOT A SHELL VARIABLE, and this file
         %% is the only place the two meet. mcl_om_identity:realm() reads
         %% application:get_env(mcl_om, realm); exporting MCL_REALM in the

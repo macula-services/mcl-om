@@ -112,10 +112,17 @@ only place the shell variable and the application environment meet:
 realm)`, so exporting the shell variable and expecting that to be
 enough has cost a service an hour of confusion.
 
+The scaffold's `sys.config.src` also sets `{mesh, required}`, so a
+container started without `MCL_REALM`, `MCL_REALM_KEY`,
+`MACULA_STATION_SEEDS` or `MACULA_STATION_NODE_IDS` stops at boot with
+`{mcl_om_mesh_unconfigured, #{missing => [...]}}`, naming each one
+missing, rather than running green with no mesh.
+
 ## Rollback
 
-Pin the image to a semver tag instead of `:latest` and redeploy. Both
-tags are published by every CI run precisely so this works.
+Pin the image to a released version instead of `:latest` and redeploy.
+A push to main publishes `:latest`; a `v*` tag publishes that version
+and nothing else, so every release stays pullable by its version.
 
 ## Not built yet
 

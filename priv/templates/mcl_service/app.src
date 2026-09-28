@@ -12,6 +12,6 @@
     ]},
     {env, []},
     {modules, []},
-    {licenses, ["Apache-2.0"]},
+    {licenses, [<%#proprietary%>"Proprietary"<%/proprietary%><%^proprietary%>"Apache-2.0"<%/proprietary%>]},
     {links, [{"GitHub", "https://github.com/<%org%>/<%repo%>"}]}
 ]}.

@@ -119,4 +119,4 @@ boot loop by doing the first and not the second.
 
 ## Licence
 
-Apache-2.0.
+<%#proprietary%>Proprietary. All rights reserved; see [LICENSE](LICENSE).<%/proprietary%><%^proprietary%>Apache-2.0.<%/proprietary%>

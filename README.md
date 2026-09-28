@@ -201,8 +201,22 @@ secondary indexes. Omit it (or return `[]`) for a store with none.
 ```bash
 # From the directory that will hold the new repository,
 # typically ~/work/github.com/macula-services:
-scripts/scaffold-service.sh mcl-newservice "Does X over the mesh" 8484
+MCL_VISIBILITY=private scripts/scaffold-service.sh mcl-newservice "Does X over the mesh" 8484
 ```
+
+**`MCL_VISIBILITY` is asked, never assumed**: `private` or `public`, and the
+script refuses anything else before it generates a file. It decides three
+things that must agree:
+
+| | `private` | `public` |
+|---|---|---|
+| `LICENSE`, app.src `licenses`, README | proprietary notice, `["Proprietary"]` | Apache-2.0 |
+| CI runner (`runs-on`) | the org's own, `[self-hosted, msi00]`, in macula-services and macula-internal; GitHub's elsewhere | GitHub's, `ubuntu-latest`; a self-hosted runner is refused |
+| `gh repo create` in the closing text | `--private` | `--public` |
+
+A public repository never runs on a self-hosted runner, because a pull request
+from anyone would run its code on that machine. `MCL_RUNS_ON` overrides the
+runner and `MCL_HOLDER` the copyright holder.
 
 That is a thin wrapper over `rebar3 new mcl_service`, and it exists so you
 **say the name once**. A service has two names: the repository, the container
@@ -223,13 +237,16 @@ rebar3 new mcl_service repo=mcl-newservice name=mcl_newservice \
     desc="Does X over the mesh" org=your-org registry=ghcr.io health_port=8484
 ```
 
-**The scaffold is not house-specific.** `org`, `registry`, `builder_image` and
-`runtime_image` are variables, and nothing generated names our organisation,
-our registry, our images, our deployment repository or our hosts. If you are
-building a service for your own mesh, set those four and everything else
-follows. `scaffold-service.sh` defaults them to ours because that is who runs
-it most; `MCL_ORG`, `MCL_REGISTRY`, `MCL_BUILDER_IMAGE` and
-`MCL_RUNTIME_IMAGE` override. A test generates a service as a stranger and
+**The scaffold is not house-specific.** `org`, `registry`, `builder_image`,
+`runtime_image`, `holder`, `proprietary` and `runs_on` are variables, and
+nothing generated names our organisation, our registry, our images, our
+copyright holder, our runners, our deployment repository or our hosts. If you
+are building a service for your own mesh, set the first five and everything
+else follows (`proprietary` is empty for Apache-2.0, `1` for a proprietary
+notice; `runs_on` defaults to `ubuntu-latest`). `scaffold-service.sh` defaults
+them to ours because that is who runs it most; `MCL_ORG`, `MCL_REGISTRY`,
+`MCL_BUILDER_IMAGE`, `MCL_RUNTIME_IMAGE`, `MCL_HOLDER` and `MCL_RUNS_ON`
+override, and `MCL_VISIBILITY` sets `proprietary`. A test generates a service as a stranger and
 fails if any of our own specifics survive.
 
 **The image pair.** `builder_image` is the image the release is built in and
@@ -267,7 +284,10 @@ Generates a repository that compiles, tests and deploys:
 - `apps/<app>/test/` — a suite asserting the contract's shape, the two names,
   and that the reported version is the application's own
 - `rebar.config` with a relx release, the prod profile and the elvis ruleset
-- `config/sys.config.src` and `config/vm.args.src`
+- `config/sys.config.src` and `config/vm.args.src`. The sys.config sets
+  `{mesh, required}`: the service refuses to boot without `MCL_REALM`,
+  `MCL_REALM_KEY`, `MACULA_STATION_SEEDS` and `MACULA_STATION_NODE_IDS`,
+  naming every one that is missing, instead of booting green with no mesh
 - `Containerfile`: built in `builder_image`, run on `runtime_image`
 - `deploy/docker-compose.yml` — the service's own run contract, **not** the
   deployed file; fleet placement lives in `macula-io/macula-fleet`. It mounts a named

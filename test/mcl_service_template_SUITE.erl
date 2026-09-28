@@ -48,7 +48,14 @@
          generated_workflow_keeps_actions_syntax/1,
          leaks_no_house_specifics/1,
          generated_sources_satisfy_the_behaviour/1,
-         generated_service_reports_the_scaffolded_names/1]).
+         generated_service_reports_the_scaffolded_names/1,
+         generated_service_requires_the_mesh/1,
+         generated_service_floor_is_this_release/1,
+         licence_follows_the_visibility/1,
+         runner_follows_the_visibility/1,
+         scaffold_asks_the_visibility/1,
+         public_scaffold_says_public_and_stays_off_our_runners/1,
+         closing_text_is_true_to_the_template/1]).
 
 -define(REPO, "mcl-probe-svc").
 -define(APP,  "mcl_probe_svc").
@@ -58,6 +65,8 @@
 %% makes leaked_house_specifics/1 able to prove the scaffold is usable by one.
 -define(ORG,      "acme-widgets").
 -define(REGISTRY, "registry.example.test").
+%% The stranger's own copyright holder: ours must not survive into their LICENSE.
+-define(HOLDER,   "Acme Widgets Ltd").
 %% The stranger's own image pair. Never pulled: the image a generated service
 %% builds in is proven by generated_lint_toolchain_runs_in_its_image/1, against
 %% the house pair, which is the one this repository answers for.
@@ -96,7 +105,14 @@ all() ->
      generated_workflow_keeps_actions_syntax,
      leaks_no_house_specifics,
      generated_sources_satisfy_the_behaviour,
-     generated_service_reports_the_scaffolded_names].
+     generated_service_reports_the_scaffolded_names,
+     generated_service_requires_the_mesh,
+     generated_service_floor_is_this_release,
+     licence_follows_the_visibility,
+     runner_follows_the_visibility,
+     scaffold_asks_the_visibility,
+     public_scaffold_says_public_and_stays_off_our_runners,
+     closing_text_is_true_to_the_template].
 
 %%%---------------------------------------------------------------------------
 %%% Generate once, compile once, then assert
@@ -118,6 +134,7 @@ init_per_suite(Config) ->
                        "repo=" ?REPO, "name=" ?APP,
                        "desc=" ?DESC, "health_port=" ?PORT,
                        "org=" ?ORG, "registry=" ?REGISTRY,
+                       "holder=" ?HOLDER,
                        "builder_image=" ?BUILDER_IMAGE,
                        "runtime_image=" ?RUNTIME_IMAGE],
               Work),
@@ -125,22 +142,27 @@ init_per_suite(Config) ->
     Root = filename:join(Work, ?REPO),
     filelib:is_dir(Root) orelse ct:fail({no_output_dir, Root, Out}),
     Compiled = compile_generated(Root, Ebin),
-    HouseRoot = scaffold_as_the_house(filename:join(Priv, "house")),
-    [{root, Root}, {house_root, HouseRoot}, {ebin, Ebin}, {compiled, Compiled},
-     {added, Added} | Config].
+    {HouseRoot, HouseOut} = scaffold_as_the_house(filename:join(Priv, "house")),
+    [{root, Root}, {house_root, HouseRoot}, {house_out, HouseOut},
+     {ebin, Ebin}, {compiled, Compiled}, {added, Added} | Config].
 
 %% THE HOUSE GENERATION GOES THROUGH scripts/scaffold-service.sh, the way we
 %% scaffold, with every override cleared, so what it produces is the defaults
-%% and nothing a developer's shell happened to export.
+%% and nothing a developer's shell happened to export. The house scaffolds
+%% private services, which is the one choice it must make.
 scaffold_as_the_house(Dir) ->
     ok = filelib:ensure_path(Dir),
     Out = run(scaffold_script(), [?HOUSE_REPO, "A house default probe", "8498"], Dir,
-              [{"MCL_ORG", false}, {"MCL_REGISTRY", false},
-               {"MCL_BUILDER_IMAGE", false}, {"MCL_RUNTIME_IMAGE", false}]),
+              [{"MCL_VISIBILITY", "private"} | cleared_overrides()]),
     ct:pal("scaffold-service.sh said:~n~s", [Out]),
     Root = filename:join(Dir, ?HOUSE_REPO),
     filelib:is_dir(Root) orelse ct:fail({no_house_output_dir, Root, Out}),
-    Root.
+    {Root, Out}.
+
+cleared_overrides() ->
+    [{"MCL_ORG", false}, {"MCL_REGISTRY", false},
+     {"MCL_BUILDER_IMAGE", false}, {"MCL_RUNTIME_IMAGE", false},
+     {"MCL_RUNS_ON", false}, {"MCL_HOLDER", false}].
 
 scaffold_script() ->
     filename:join([filename:dirname(?FILE), "..", "scripts", "scaffold-service.sh"]).
@@ -567,7 +589,8 @@ scaffold_refuses_half_an_image_pair(Config) ->
         [begin
              Port = erlang:open_port(
                       {spawn_executable, "/usr/bin/env"},
-                      [{args, ["-u", "MCL_BUILDER_IMAGE", "-u", "MCL_RUNTIME_IMAGE"]
+                      [{args, ["-u", "MCL_BUILDER_IMAGE", "-u", "MCL_RUNTIME_IMAGE",
+                               "MCL_VISIBILITY=private"]
                               ++ [K ++ "=" ++ V || {K, V} <- Half]
                               ++ [scaffold_script(), "mcl-half-pair", "Half a pair", "8497"]},
                        {cd, Dir}, exit_status, stderr_to_stdout, binary]),
@@ -702,7 +725,9 @@ leaks_no_house_specifics(Config) ->
                  <<"macula-fleet">>,      %% our GitOps repository
                  <<"beam0">>,             %% our node names
                  <<"reconcile.manifest">>,%% our deployment mechanism
-                 <<"hecate">>             %% the obsolete services' prefix
+                 <<"hecate">>,            %% the obsolete services' prefix
+                 <<"Lefever">>,           %% our copyright holder
+                 <<"self-hosted">>        %% our runners
                 ],
     Leaks = [{filename:basename(F), S}
              || F <- all_files(Root),
@@ -745,6 +770,131 @@ generated_service_reports_the_scaffolded_names(_Config) ->
     ?assertEqual([], Actions),
     ?assertEqual([], Resources),
     ?assertEqual([], Mod:capabilities()).
+
+%%%---------------------------------------------------------------------------
+%%% The choices a scaffold makes, and what it says afterwards
+%%%---------------------------------------------------------------------------
+
+%% A SCAFFOLDED SERVICE EXISTS TO ANSWER ON THE MESH, so it refuses to boot
+%% without its realm, realm key and pinned seeds, naming each missing one,
+%% rather than booting green with no pool (mcl_om_identity, `mesh').
+generated_service_requires_the_mesh(Config) ->
+    SysConfig = read(filename:join(?config(root, Config), "config/sys.config.src")),
+    ?assertMatch({match, _}, re:run(SysConfig, "^\\s+\\{mesh,\\s*required\\},?$",
+                                    [multiline])).
+
+%% THE FLOOR IS THIS RELEASE'S MINOR. The template is released with mcl_om and
+%% relies on what that release does (`{mesh, required}' above), so a service
+%% generated from it depends on at least the minor it came from. The floor was
+%% left at 0.26 for seven minors.
+generated_service_floor_is_this_release(Config) ->
+    {ok, Terms} = file:consult(filename:join(?config(root, Config), "rebar.config")),
+    Deps = proplists:get_value(deps, Terms),
+    {mcl_om, Constraint} = lists:keyfind(mcl_om, 1, Deps),
+    _ = application:load(mcl_om),
+    {ok, Vsn} = application:get_key(mcl_om, vsn),
+    [Major, Minor | _] = string:split(Vsn, ".", all),
+    ?assertEqual("~> " ++ Major ++ "." ++ Minor, Constraint).
+
+%% THE LICENCE IS A CHOICE, and the visibility makes it: a public service is
+%% Apache-2.0, a private one carries a proprietary notice. The two must agree
+%% in the LICENSE file, the app.src hex reads, and the README.
+licence_follows_the_visibility(Config) ->
+    Year = integer_to_binary(element(1, element(1, calendar:local_time()))),
+    Public = ?config(root, Config),
+    ?assertNotEqual(nomatch, binary:match(licence(Public), <<"Apache License">>)),
+    ?assertNotEqual(nomatch, binary:match(licence(Public),
+                                          <<"Copyright ", Year/binary, " " ?HOLDER>>)),
+    ?assertEqual(["Apache-2.0"], app_licences(Public, ?APP)),
+    ?assertMatch({match, _}, re:run(read(filename:join(Public, "README.md")),
+                                    "^## Licence\n\nApache-2\\.0\\.$", [multiline])),
+    Private = ?config(house_root, Config),
+    ?assertNotEqual(nomatch, binary:match(licence(Private), <<"All rights reserved">>)),
+    ?assertNotEqual(nomatch, binary:match(licence(Private), <<"is proprietary">>)),
+    ?assertEqual(nomatch, binary:match(licence(Private), <<"Apache">>)),
+    ?assertEqual(["Proprietary"], app_licences(Private, ?HOUSE_APP)),
+    ?assertMatch({match, _}, re:run(read(filename:join(Private, "README.md")),
+                                    "^## Licence\n\nProprietary", [multiline])).
+
+licence(Root) ->
+    read(filename:join(Root, "LICENSE")).
+
+app_licences(Root, App) ->
+    {ok, [{application, _, Keys}]} =
+        file:consult(filename:join([Root, "apps", App, "src", App ++ ".app.src"])),
+    proplists:get_value(licenses, Keys).
+
+%% THE RUNNER IS A CHOICE. The house runs private services' CI on its own
+%% runners, labelled per org; anyone else, and anything public, gets GitHub's.
+runner_follows_the_visibility(Config) ->
+    ?assertEqual([<<"ubuntu-latest">>, <<"ubuntu-latest">>],
+                 runners(?config(root, Config))),
+    ?assertEqual([<<"[self-hosted, msi00]">>, <<"[self-hosted, msi00]">>],
+                 runners(?config(house_root, Config))).
+
+runners(Root) ->
+    [runs_on(read(filename:join([Root, ".github", "workflows", W])))
+     || W <- ["lint.yml", "build-push.yml"]].
+
+runs_on(Workflow) ->
+    {match, [Runner]} = re:run(Workflow, "^    runs-on: (.+)$",
+                               [multiline, {capture, all_but_first, binary}]),
+    Runner.
+
+%% PRIVATE OR PUBLIC IS ASKED, NEVER ASSUMED. It decides the licence, the
+%% runner and the repository's visibility, and the old closing text answered
+%% it for you with `--public'. No value, or one that is neither, is refused
+%% naming the variable, before anything is generated.
+scaffold_asks_the_visibility(Config) ->
+    Dir = filename:join(?config(priv_dir, Config), "no_visibility"),
+    ok = filelib:ensure_path(Dir),
+    Refusals = [scaffold_status(Dir, "mcl-no-visibility", Env)
+                || Env <- [[], ["MCL_VISIBILITY="], ["MCL_VISIBILITY=yes"]]],
+    [begin
+         ?assertNotEqual(0, Status),
+         ?assertNotEqual(nomatch, binary:match(Out, <<"MCL_VISIBILITY">>))
+     end || {Status, Out} <- Refusals],
+    ?assertNot(filelib:is_dir(filename:join(Dir, "mcl-no-visibility"))).
+
+%% A PUBLIC REPOSITORY NEVER RUNS ON OUR RUNNERS: a pull request from anyone
+%% would run its code on our machine. Asking for it is refused; the public
+%% scaffold says `--public', never `--private', and is Apache-2.0.
+public_scaffold_says_public_and_stays_off_our_runners(Config) ->
+    Dir = filename:join(?config(priv_dir, Config), "public"),
+    ok = filelib:ensure_path(Dir),
+    {Refused, Why} = scaffold_status(Dir, "mcl-public-on-ours",
+                                     ["MCL_VISIBILITY=public",
+                                      "MCL_RUNS_ON=[self-hosted, msi00]"]),
+    ?assertNotEqual(0, Refused),
+    ?assertNotEqual(nomatch, binary:match(Why, <<"self-hosted">>)),
+    ?assertNot(filelib:is_dir(filename:join(Dir, "mcl-public-on-ours"))),
+    {0, Out} = scaffold_status(Dir, "mcl-public-probe", ["MCL_VISIBILITY=public"]),
+    Root = filename:join(Dir, "mcl-public-probe"),
+    ?assertNotEqual(nomatch, binary:match(Out, <<"--public">>)),
+    ?assertEqual(nomatch, binary:match(Out, <<"--private">>)),
+    ?assertEqual([<<"ubuntu-latest">>, <<"ubuntu-latest">>], runners(Root)),
+    ?assertEqual(["Apache-2.0"], app_licences(Root, "mcl_public_probe")).
+
+%% WHAT THE SCRIPT SAYS WHEN IT IS DONE MUST BE TRUE OF WHAT IT GENERATED. It
+%% said a merge pushes `:latest and the semver tag' (a tag pushes only its own
+%% version), that watchtower rolls the beams (they reconcile from the fleet
+%% repository), and offered `--public' whatever the service was.
+closing_text_is_true_to_the_template(Config) ->
+    Out = folded(?config(house_out, Config)),
+    ?assertNotEqual(nomatch, binary:match(Out, <<"--private">>)),
+    [?assertEqual({S, nomatch}, {S, binary:match(Out, S)})
+     || S <- [<<"--public">>, <<"the semver tag">>, <<"watchtower">>,
+              <<"--remote=github">>]],
+    ?assertNotEqual(nomatch, binary:match(Out, <<"--remote=origin">>)).
+
+scaffold_status(Dir, Repo, Env) ->
+    Port = erlang:open_port(
+             {spawn_executable, "/usr/bin/env"},
+             [{args, ["-u", "MCL_VISIBILITY", "-u", "MCL_RUNS_ON", "-u", "MCL_ORG",
+                      "-u", "MCL_BUILDER_IMAGE", "-u", "MCL_RUNTIME_IMAGE"]
+                     ++ Env ++ [scaffold_script(), Repo, "A visibility probe", "8496"]},
+              {cd, Dir}, exit_status, stderr_to_stdout, binary]),
+    collect_status(Port, <<>>).
 
 %%%---------------------------------------------------------------------------
 %%% Helpers

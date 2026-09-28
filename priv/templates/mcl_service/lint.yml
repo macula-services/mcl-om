@@ -13,7 +13,7 @@ on:
 
 jobs:
   check:
-    runs-on: ubuntu-latest
+    runs-on: <%runs_on%>
     container:
       # ⚠ THE SAME IMAGE AS THE Containerfile's builder, by digest. The service
       # tests guard that the two agree and that the step below refuses

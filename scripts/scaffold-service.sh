@@ -18,7 +18,14 @@
 #
 # Usage:
 #
-#   scripts/scaffold-service.sh mcl-foo "Does X over the mesh" 8484
+#   MCL_VISIBILITY=private scripts/scaffold-service.sh mcl-foo "Does X over the mesh" 8484
+#
+# MCL_VISIBILITY IS ASKED, NEVER ASSUMED: `private' or `public', and nothing
+# else. It decides three things that must agree. A private service carries a
+# proprietary notice and runs CI on the org's own runners; a public one is
+# Apache-2.0 and runs on GitHub's, never on ours, because a pull request from
+# anyone would run its code on our machine. MCL_RUNS_ON overrides the runner,
+# MCL_HOLDER the copyright holder.
 #
 # Creates ./mcl-foo/ in the CURRENT directory, so run it from wherever the new
 # repository should live, typically ~/work/github.com/macula-services.
@@ -55,6 +62,38 @@ else
     exit 64
 fi
 
+# THE CHOICE, before anything is generated.
+case "${MCL_VISIBILITY:-}" in
+    private) PROPRIETARY=1 ;;
+    public)  PROPRIETARY= ;;
+    *)
+        echo "MCL_VISIBILITY='${MCL_VISIBILITY-<unset>}': set it to private or public." \
+             "It decides the licence, the CI runner and the repository's visibility," \
+             "so it is asked rather than assumed" >&2
+        exit 64
+        ;;
+esac
+
+# THE RUNNER. The house orgs run private services' CI on their own runners
+# (msi00, one per org, labels self-hosted and msi00); everything else runs on
+# GitHub's.
+case "${MCL_VISIBILITY}:${ORG}" in
+    private:macula-services|private:macula-internal) DEFAULT_RUNS_ON="[self-hosted, msi00]" ;;
+    *)                                               DEFAULT_RUNS_ON="ubuntu-latest" ;;
+esac
+RUNS_ON="${MCL_RUNS_ON:-${DEFAULT_RUNS_ON}}"
+
+if [ "${MCL_VISIBILITY}" = public ] && printf '%s' "${RUNS_ON}" | grep -q 'self-hosted'; then
+    echo "MCL_RUNS_ON='${RUNS_ON}' names a self-hosted runner for a public repository:" \
+         "a pull request from anyone would run its code on that machine" >&2
+    exit 64
+fi
+
+HOLDER_ARGS=()
+if [ -n "${MCL_HOLDER:-}" ]; then
+    HOLDER_ARGS=(holder="${MCL_HOLDER}")
+fi
+
 # mcl-foo -> mcl_foo. The generated eunit suite asserts the two agree
 # modulo the separator, so a hand-rolled `rebar3 new' with a mismatched pair
 # still fails on the first test run rather than shipping.
@@ -86,7 +125,7 @@ if [ ! -e "${HOME}/.config/rebar3/templates/mcl_service.template" ]; then
     "${HERE}/install-templates.sh" >/dev/null
 fi
 
-echo "[scaffold] ${REPO_NAME} (app ${APP_NAME}, ${REGISTRY}/${ORG}, health port ${HEALTH_PORT}, images: ${MCL_BUILDER_IMAGE:-the fleet pair})"
+echo "[scaffold] ${REPO_NAME} (app ${APP_NAME}, ${MCL_VISIBILITY}, ${REGISTRY}/${ORG}, health port ${HEALTH_PORT}, runs on ${RUNS_ON}, images: ${MCL_BUILDER_IMAGE:-the fleet pair})"
 
 rebar3 new mcl_service \
     repo="${REPO_NAME}" \
@@ -95,37 +134,50 @@ rebar3 new mcl_service \
     org="${ORG}" \
     registry="${REGISTRY}" \
     health_port="${HEALTH_PORT}" \
+    proprietary="${PROPRIETARY}" \
+    runs_on="${RUNS_ON}" \
+    ${HOLDER_ARGS[@]+"${HOLDER_ARGS[@]}"} \
     ${IMAGE_ARGS[@]+"${IMAGE_ARGS[@]}"}
+
+if [ "${MCL_VISIBILITY}" = private ]; then
+    PACKAGE_NOTE="The image package is private like the repository: whatever pulls it needs
+a registry login with read access to ${REGISTRY}/${ORG}/${REPO_NAME}."
+else
+    PACKAGE_NOTE="Once CI has pushed the first image, check the package is PUBLIC. It may be
+created private, and the pull then fails on the host with a bare \"unauthorized\"
+that names nothing."
+fi
 
 cat <<EOF
 
 Next, and none of these can be generated:
 
   cd ${REPO_NAME}
-  rebar3 eunit && rebar3 lint
+  rebar3 eunit && rebar3 lint && rebar3 dialyzer
   git init -b main && git add . && git commit
-  gh repo create ${ORG}/${REPO_NAME} --public --source=. --remote=github
-  git remote set-url github git@github.com:${ORG}/${REPO_NAME}.git
+  gh repo create ${ORG}/${REPO_NAME} --${MCL_VISIBILITY} --source=. --remote=origin
+  git remote set-url origin git@github.com:${ORG}/${REPO_NAME}.git
 
-The remote must be SSH. An HTTPS push that creates .github/workflows/ needs a
-token with the 'workflow' scope, and the error names the file, not the scope.
+The remote must be SSH, or the token must carry the 'workflow' scope: an HTTPS
+push that creates .github/workflows/ without it is refused, and the error names
+the file, not the scope.
 
-Once CI has pushed the first image, check the package is PUBLIC. It may be
-created private, and the pull then fails on the host with a bare "unauthorized"
-that names nothing.
+CI publishes two channels: a push to main publishes :latest, a v* tag
+publishes that version and nothing else.
+
+${PACKAGE_NOTE}
 EOF
 
 if [ "${ORG}" = "macula-services" ]; then
 cat <<EOF
 
-Deploying on the macula-services fleet, which is ours and not part of the
-scaffold:
-
-  CI pushes :latest and the semver tag to ghcr.io on every merge to main;
-  watchtower on the beam nodes rolls :latest within seconds. A rollback is
-  pinning the node to a semver tag. The identity key file mounts from the
-  node's secret store onto /etc/mcl/secrets/ (the Containerfile VOLUME); the
-  PQ client model also needs the station pin (MACULA_STATION_NODE_IDS) and
-  the realm the service belongs to -- neither belongs in this repository.
+Deploying on the Macula fleet is not part of the scaffold. macula-fleet
+(private) says what every box runs: claim the health port in its PORTS.md and
+add the service to the box that runs it, image pinned by digest. Its README
+says which boxes pull from it. The identity key file mounts from the box's
+secret store onto /etc/mcl/secrets/ (the Containerfile VOLUME); the station
+pins (MACULA_STATION_SEEDS, MACULA_STATION_NODE_IDS) and the realm
+(MCL_REALM, MCL_REALM_KEY) come from there too, and the service refuses to
+boot without them.
 EOF
 fi

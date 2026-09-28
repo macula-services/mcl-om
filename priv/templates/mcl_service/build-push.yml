@@ -41,7 +41,7 @@ concurrency:
 
 jobs:
   build-and-push:
-    runs-on: ubuntu-latest
+    runs-on: <%runs_on%>
     permissions:
       contents: read
       packages: write
