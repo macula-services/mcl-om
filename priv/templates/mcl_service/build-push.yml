@@ -57,7 +57,7 @@ jobs:
         run: scripts/is_image_push.sh "${{ github.event.before }}" "${{ github.sha }}" >> "$GITHUB_OUTPUT"
 
       # PLAIN `docker' CLI STEPS, NO docker/* ACTIONS, so the job runs on a
-      # GitHub-hosted runner (docker) and on a self-hosted one whose `docker' is
+      # GitHub-hosted runner (docker) and on a runner whose `docker' is
       # a shim for podman alike. docker/build-push-action needs Docker's buildx,
       # which podman is not.
       #
@@ -112,8 +112,8 @@ jobs:
               docker push "$tag"
           done
 
-      # BY NAME, NEVER BY WILDCARD: a prune on a shared image store removes
-      # other jobs' images mid-run. Keyed on the LOGIN, so the credentials go
+      # BY NAME, NEVER BY WILDCARD: on a shared image store, a wildcard removal
+      # takes other jobs' images mid-run. Keyed on the LOGIN, so the credentials go
       # even when a step between login and build failed; an image that was
       # never built is skipped. A red job here after a green push means the
       # image is published and only this cleanup failed.
