@@ -51,10 +51,11 @@ Producer-only services (no event store) omit both callbacks. See
                             %% 600000 ms (macula 12.2; default 30000).
                             handler_timeout_ms => 1..600000,
                             %% How calls must be protected on the wire (0.34.0,
-                            %% macula 13): `preferred' seals when the advertisement
-                            %% names a KEM key, `required' refuses a clear call and
-                            %% needs macula's kem_advertise enabled. Absent: as before.
-                            confidential => preferred | required}.
+                            %% macula 13's provider modes): `off' names no KEM key,
+                            %% `preferred' names one when macula's kem_advertise is
+                            %% enabled, `required' also refuses a clear call and
+                            %% needs kem_advertise enabled. Absent: as before.
+                            confidential => off | preferred | required}.
 -type identity_spec()  :: #{scope := binary(),
                             actions := [binary()],
                             resources := [binary()],

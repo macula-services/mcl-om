@@ -163,13 +163,17 @@ gets without writing it:
 - **`handler_timeout_ms`** on a capability, 1 to 600000: how long macula waits
   for the handler before answering the caller `temporary_relay_failure`
   (default 30000). Response capabilities only.
-- **`confidential`** on a capability (0.34.0, macula 13): how its calls must be
-  protected on the wire. `preferred` lets callers seal when the advertisement
-  names a KEM key; `required` refuses a clear call. `required` needs macula's
-  `kem_advertise` enabled (`{macula, [{kem_advertise, enabled}]}` in
-  sys.config), and a service that declares it without that refuses to boot,
-  naming every such capability. Response and streamer capabilities alike;
-  absent, nothing changes.
+- **`confidential`** on a capability (0.34.0, macula 13's provider modes): how
+  its calls must be protected on the wire. `off` names no KEM key (the
+  procedure stays keyless even with `kem_advertise` enabled); `preferred`
+  names one when macula's `kem_advertise` is enabled, so callers seal;
+  `required` also refuses a clear call and needs `kem_advertise` enabled
+  (`{macula, [{kem_advertise, enabled}]}` in sys.config). Absent, nothing
+  changes (macula reads it as `preferred`). Response and streamer capabilities
+  alike. A service refuses to boot, naming the capability and the setting, on
+  any other value, on a `kem_advertise` that is not `enabled`/`disabled`, and on
+  `required` without `kem_advertise` enabled, instead of running green and
+  unreachable.
 - **`failed_publishes`** on /health: publishes whose publisher exited before
   resolving. `mcl_om_pubsub` runs each publisher under a watcher, so such an
   exit is counted and logged instead of killing the process that published.

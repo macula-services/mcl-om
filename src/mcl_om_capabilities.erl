@@ -575,29 +575,51 @@ handler_timeout_opts(_) ->
     #{}.
 
 %% @doc `Cap''s `confidential', merged into `advertise_direct''s `Opts' for
-%% response AND streamer capabilities: `preferred' (callers seal when the
-%% advertisement names a KEM key) or `required' (the provider refuses a clear
-%% call; macula 13 turns it into a keyed, required advertisement). Absent, the
-%% Opts are unchanged. `off' is a CALLER's choice and meaningless here, so it,
-%% and anything else, is refused by name rather than advertised as if it had
-%% taken effect.
+%% response AND streamer capabilities. macula 13's provider modes: `off' (the
+%% advertisement names no KEM key, even with kem_advertise enabled), `preferred'
+%% (it names one when kem_advertise is enabled; callers seal) and `required'
+%% (it names one and the provider refuses a clear call). Absent, the Opts are
+%% unchanged, which macula reads as `preferred'. Any other value never gets
+%% here: `register/1' refuses it at boot (confidentiality_verdict/2); called
+%% directly with one, this still refuses it by name.
 -spec confidentiality_opts(mcl_om_service:capability()) -> map().
-confidentiality_opts(#{confidential := preferred}) -> #{confidential => preferred};
-confidentiality_opts(#{confidential := required})  -> #{confidential => required};
+confidentiality_opts(#{confidential := Mode}) when Mode =:= off; Mode =:= preferred;
+                                                   Mode =:= required ->
+    #{confidential => Mode};
 confidentiality_opts(#{confidential := Other, name := Name}) ->
     error({confidential_not_a_provider_mode, Name, Other});
 confidentiality_opts(_) ->
     #{}.
 
 %% @doc Whether `Caps' can be advertised as declared under macula's
-%% `kem_advertise' setting. A `required' capability needs it `enabled': macula
-%% refuses the advertisement otherwise (kem_advertise_disabled), which would
-%% leave the service green and unreachable. `register/1' turns an error into a
-%% boot failure naming every such capability and the setting to change.
--spec confidentiality_verdict([mcl_om_service:capability()], enabled | disabled | term()) ->
-          ok | {error, {mcl_om_confidential_required_without_kem_advertise, map()}}.
+%% `kem_advertise' setting. Every way this could fail at advertise time would
+%% be caught per republish tick as a warning, leaving the service green and
+%% unreachable, so `register/1' turns each into a boot failure, by name:
+%% a `confidential' that is not one of macula's provider modes (a typo), a
+%% `kem_advertise' that is not `enabled' or `disabled' (macula raises
+%% not_a_switch on every advertise), and a `required' capability while
+%% kem_advertise is not `enabled' (macula refuses it: kem_advertise_disabled).
+-spec confidentiality_verdict([mcl_om_service:capability()], term()) ->
+          ok | {error, {mcl_om_confidential_not_a_provider_mode
+                        | mcl_om_kem_advertise_not_a_switch
+                        | mcl_om_confidential_required_without_kem_advertise, map()}}.
 confidentiality_verdict(Caps, KemAdvertise) ->
-    required_verdict([Name || #{name := Name, confidential := required} <- Caps], KemAdvertise).
+    mode_verdict([{Name, Mode} || #{name := Name, confidential := Mode} <- Caps,
+                                  not lists:member(Mode, [off, preferred, required])],
+                 Caps, KemAdvertise).
+
+mode_verdict([], Caps, KemAdvertise) ->
+    switch_verdict(lists:member(KemAdvertise, [enabled, disabled]), Caps, KemAdvertise);
+mode_verdict(Bad, _Caps, _KemAdvertise) ->
+    {error, {mcl_om_confidential_not_a_provider_mode,
+             #{capabilities => Bad, allowed => [off, preferred, required]}}}.
+
+switch_verdict(true, Caps, KemAdvertise) ->
+    required_verdict([Name || #{name := Name, confidential := required} <- Caps], KemAdvertise);
+switch_verdict(false, _Caps, KemAdvertise) ->
+    {error, {mcl_om_kem_advertise_not_a_switch,
+             #{kem_advertise => KemAdvertise, allowed => [enabled, disabled],
+               setting => <<"{macula, [{kem_advertise, enabled | disabled}]} in sys.config">>}}}.
 
 required_verdict([], _KemAdvertise) ->
     ok;

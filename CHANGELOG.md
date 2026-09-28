@@ -7,17 +7,23 @@ Versioning: [SemVer](https://semver.org/).
 
 ### Added
 
-- **`confidential => preferred | required` on a capability** (macula 13's end-to-end sealing). It is
-  forwarded into `advertise_direct`'s `Opts` for response and streamer capabilities alike, so a
-  service can advertise a procedure that refuses clear calls (`required`) or invites sealing
-  (`preferred`). Absent, the `Opts` are exactly what they were. `off` and anything else is a
-  caller's choice or a typo, refused by name as `{confidential_not_a_provider_mode, Name, Value}`
-  rather than advertised as if it had taken effect.
-- **`required` without macula's `kem_advertise` refuses to boot.** macula refuses such an
-  advertisement at advertise time (`kem_advertise_disabled`), which would leave the service green
-  and unreachable. `register/1` now checks in the caller, before its server call, and fails the
-  boot with `{mcl_om_confidential_required_without_kem_advertise, #{capabilities => [...],
-  kem_advertise => ..., setting => ...}}`, naming every such capability and the setting to change.
+- **`confidential => off | preferred | required` on a capability**: macula 13's provider modes for
+  end-to-end sealing, forwarded into `advertise_direct`'s `Opts` for response and streamer
+  capabilities alike. `off` keeps a procedure keyless even with macula's `kem_advertise` enabled;
+  `preferred` names the KEM key when `kem_advertise` is enabled, so callers seal; `required` also
+  refuses a clear call. Absent, the `Opts` are exactly what they were (macula reads it as
+  `preferred`).
+- **A misconfiguration refuses to boot, by name, instead of running green and unreachable.**
+  Each of these would otherwise fail inside the republish loop, which logs a warning per tick and
+  never advertises the capability. `register/1` checks them in the caller, before its server
+  call, and fails the boot:
+  - `{mcl_om_confidential_not_a_provider_mode, #{capabilities => [{Name, Value}], ...}}` for any
+    value other than `off`, `preferred` or `required` (a typo);
+  - `{mcl_om_kem_advertise_not_a_switch, #{kem_advertise => Value, ...}}` when macula's
+    `kem_advertise` is neither `enabled` nor `disabled`;
+  - `{mcl_om_confidential_required_without_kem_advertise, #{capabilities => [...], ...}}` for a
+    `required` capability while `kem_advertise` is not `enabled` (macula refuses such an
+    advertisement as `kem_advertise_disabled`).
 
 ## [0.33.2]
 

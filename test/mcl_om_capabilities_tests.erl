@@ -821,11 +821,34 @@ confidentiality_opts_carries_required_for_a_streamer_capability_test() ->
                      handler => {my_mod, []}, kind => streamer,
                      confidential => required})).
 
-confidentiality_opts_refuses_anything_else_by_name_test() ->
-    ?assertError({confidential_not_a_provider_mode, <<"svc.do">>, off},
+%% `off' is a real provider mode in macula 13: the procedure stays keyless even
+%% with kem_advertise enabled (absent means macula's default, `preferred').
+confidentiality_opts_carries_off_test() ->
+    ?assertEqual(#{confidential => off},
                  mcl_om_capabilities:confidentiality_opts(
                    #{name => <<"svc.do">>, version => 1,
                      handler => {my_mod, []}, confidential => off})).
+
+confidentiality_opts_still_refuses_a_bad_mode_by_name_test() ->
+    ?assertError({confidential_not_a_provider_mode, <<"svc.do">>, requried},
+                 mcl_om_capabilities:confidentiality_opts(
+                   #{name => <<"svc.do">>, version => 1,
+                     handler => {my_mod, []}, confidential => requried})).
+
+confidentiality_verdict_names_every_capability_with_a_bad_mode_test() ->
+    Caps = [#{name => <<"a">>, version => 1, confidential => requried},
+            #{name => <<"b">>, version => 1, confidential => preferred},
+            #{name => <<"c">>, version => 1, confidential => <<"required">>}],
+    ?assertMatch({error, {mcl_om_confidential_not_a_provider_mode,
+                          #{capabilities := [{<<"a">>, requried}, {<<"c">>, <<"required">>}],
+                            allowed := [off, preferred, required]}}},
+                 mcl_om_capabilities:confidentiality_verdict(Caps, enabled)).
+
+confidentiality_verdict_refuses_a_kem_advertise_that_is_not_a_switch_test() ->
+    ?assertMatch({error, {mcl_om_kem_advertise_not_a_switch,
+                          #{kem_advertise := "enabled"}}},
+                 mcl_om_capabilities:confidentiality_verdict(
+                   [#{name => <<"a">>, version => 1}], "enabled")).
 
 confidentiality_verdict_is_ok_with_no_required_capability_test() ->
     Caps = [#{name => <<"a">>, version => 1},
@@ -857,6 +880,13 @@ register_refuses_required_without_kem_advertise_at_boot_test() ->
     after
         restore_env(macula, kem_advertise, Prev)
     end.
+
+register_refuses_a_misspelled_mode_at_boot_test() ->
+    ?assertError({mcl_om_confidential_not_a_provider_mode,
+                  #{capabilities := [{<<"a">>, requried}]}},
+                 mcl_om_capabilities:register(
+                   [#{name => <<"a">>, version => 1, handler => {my_mod, []},
+                      confidential => requried}])).
 
 restore_env(App, Key, undefined)   -> application:unset_env(App, Key);
 restore_env(App, Key, {ok, Value}) -> application:set_env(App, Key, Value).
