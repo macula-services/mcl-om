@@ -49,7 +49,12 @@ Producer-only services (no event store) omit both callbacks. See
                             stream_opts => #{mode => server_stream | client_stream},
                             %% A response capability's handler budget, 1 to
                             %% 600000 ms (macula 12.2; default 30000).
-                            handler_timeout_ms => 1..600000}.
+                            handler_timeout_ms => 1..600000,
+                            %% How calls must be protected on the wire (0.34.0,
+                            %% macula 13): `preferred' seals when the advertisement
+                            %% names a KEM key, `required' refuses a clear call and
+                            %% needs macula's kem_advertise enabled. Absent: as before.
+                            confidential => preferred | required}.
 -type identity_spec()  :: #{scope := binary(),
                             actions := [binary()],
                             resources := [binary()],

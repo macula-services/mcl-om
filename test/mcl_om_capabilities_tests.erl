@@ -788,3 +788,75 @@ a_capability_call_hands_macula_the_verified_advertisement_test() ->
     after
         meck:unload([macula, macula_direct_dial])
     end.
+
+%%% Confidentiality (0.34.0). A capability may declare how its calls must be
+%%% protected on the wire: `confidential => preferred' (callers seal when the
+%%% advertisement names a KEM key) or `required' (the provider refuses a clear
+%%% call). It is forwarded into advertise_direct's Opts for response AND
+%%% streamer capabilities; absent, the Opts are exactly what they were.
+%%% `required' needs macula's `kem_advertise' switched on (macula refuses it
+%%% at advertise time otherwise), so register/1 refuses it at boot, by name.
+
+confidentiality_opts_is_absent_when_the_capability_sets_none_test() ->
+    ?assertEqual(#{}, mcl_om_capabilities:confidentiality_opts(
+                         #{name => <<"svc.do">>, version => 1,
+                           handler => {my_mod, []}})).
+
+confidentiality_opts_carries_preferred_test() ->
+    ?assertEqual(#{confidential => preferred},
+                 mcl_om_capabilities:confidentiality_opts(
+                   #{name => <<"svc.do">>, version => 1,
+                     handler => {my_mod, []}, confidential => preferred})).
+
+confidentiality_opts_carries_required_for_a_response_capability_test() ->
+    ?assertEqual(#{confidential => required},
+                 mcl_om_capabilities:confidentiality_opts(
+                   #{name => <<"svc.do">>, version => 1,
+                     handler => {my_mod, []}, confidential => required})).
+
+confidentiality_opts_carries_required_for_a_streamer_capability_test() ->
+    ?assertEqual(#{confidential => required},
+                 mcl_om_capabilities:confidentiality_opts(
+                   #{name => <<"svc.watch">>, version => 1,
+                     handler => {my_mod, []}, kind => streamer,
+                     confidential => required})).
+
+confidentiality_opts_refuses_anything_else_by_name_test() ->
+    ?assertError({confidential_not_a_provider_mode, <<"svc.do">>, off},
+                 mcl_om_capabilities:confidentiality_opts(
+                   #{name => <<"svc.do">>, version => 1,
+                     handler => {my_mod, []}, confidential => off})).
+
+confidentiality_verdict_is_ok_with_no_required_capability_test() ->
+    Caps = [#{name => <<"a">>, version => 1},
+            #{name => <<"b">>, version => 1, confidential => preferred}],
+    ?assertEqual(ok, mcl_om_capabilities:confidentiality_verdict(Caps, disabled)).
+
+confidentiality_verdict_is_ok_for_required_with_kem_advertise_enabled_test() ->
+    Caps = [#{name => <<"a">>, version => 1, confidential => required}],
+    ?assertEqual(ok, mcl_om_capabilities:confidentiality_verdict(Caps, enabled)).
+
+confidentiality_verdict_names_every_required_capability_without_kem_test() ->
+    Caps = [#{name => <<"a">>, version => 1, confidential => required},
+            #{name => <<"b">>, version => 1},
+            #{name => <<"c">>, version => 1, kind => streamer, confidential => required}],
+    ?assertMatch({error, {mcl_om_confidential_required_without_kem_advertise,
+                          #{capabilities := [<<"a">>, <<"c">>],
+                            setting := <<"{macula, [{kem_advertise, enabled}]}", _/binary>>}}},
+                 mcl_om_capabilities:confidentiality_verdict(Caps, disabled)).
+
+register_refuses_required_without_kem_advertise_at_boot_test() ->
+    Prev = application:get_env(macula, kem_advertise),
+    ok = application:unset_env(macula, kem_advertise),
+    try
+        ?assertError({mcl_om_confidential_required_without_kem_advertise,
+                      #{capabilities := [<<"a">>]}},
+                     mcl_om_capabilities:register(
+                       [#{name => <<"a">>, version => 1, handler => {my_mod, []},
+                          confidential => required}]))
+    after
+        restore_env(macula, kem_advertise, Prev)
+    end.
+
+restore_env(App, Key, undefined)   -> application:unset_env(App, Key);
+restore_env(App, Key, {ok, Value}) -> application:set_env(App, Key, Value).

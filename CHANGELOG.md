@@ -3,6 +3,22 @@
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [SemVer](https://semver.org/).
 
+## [0.34.0] - 2026-09-28
+
+### Added
+
+- **`confidential => preferred | required` on a capability** (macula 13's end-to-end sealing). It is
+  forwarded into `advertise_direct`'s `Opts` for response and streamer capabilities alike, so a
+  service can advertise a procedure that refuses clear calls (`required`) or invites sealing
+  (`preferred`). Absent, the `Opts` are exactly what they were. `off` and anything else is a
+  caller's choice or a typo, refused by name as `{confidential_not_a_provider_mode, Name, Value}`
+  rather than advertised as if it had taken effect.
+- **`required` without macula's `kem_advertise` refuses to boot.** macula refuses such an
+  advertisement at advertise time (`kem_advertise_disabled`), which would leave the service green
+  and unreachable. `register/1` now checks in the caller, before its server call, and fails the
+  boot with `{mcl_om_confidential_required_without_kem_advertise, #{capabilities => [...],
+  kem_advertise => ..., setting => ...}}`, naming every such capability and the setting to change.
+
 ## [0.33.2]
 
 ### Fixed

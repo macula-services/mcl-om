@@ -159,6 +159,7 @@
          station_url/2, has_handler/1, auth_opts/1, unguarded_capabilities/1,
          reuse_sup_opts/1, advertise_opts/0,
          provider_module/1, stream_opts/1, handler_timeout_opts/1,
+         confidentiality_opts/1, confidentiality_verdict/2,
          discovery_key_org/3, org_scoped_full_or_any/5,
          pinned_providers/2,
          choose_serving_station/2,
@@ -236,7 +237,16 @@ start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
 register(Caps) when is_list(Caps) ->
+    %% Checked in the CALLER, before the call: a misconfigured service fails
+    %% its own boot with a named reason, and this server keeps running.
+    ok = refuse_unless_ok(confidentiality_verdict(Caps, macula_kem_advertise())),
     gen_server:call(?MODULE, {register, Caps}).
+
+refuse_unless_ok(ok)               -> ok;
+refuse_unless_ok({error, Reason})  -> error(Reason).
+
+macula_kem_advertise() ->
+    application:get_env(macula, kem_advertise, disabled).
 
 %% @doc The last `macula:provider_authorization/3' answer for each
 %% org-namespaced procedure this service advertises, as
@@ -564,6 +574,43 @@ handler_timeout_opts(#{handler_timeout_ms := Ms}) ->
 handler_timeout_opts(_) ->
     #{}.
 
+%% @doc `Cap''s `confidential', merged into `advertise_direct''s `Opts' for
+%% response AND streamer capabilities: `preferred' (callers seal when the
+%% advertisement names a KEM key) or `required' (the provider refuses a clear
+%% call; macula 13 turns it into a keyed, required advertisement). Absent, the
+%% Opts are unchanged. `off' is a CALLER's choice and meaningless here, so it,
+%% and anything else, is refused by name rather than advertised as if it had
+%% taken effect.
+-spec confidentiality_opts(mcl_om_service:capability()) -> map().
+confidentiality_opts(#{confidential := preferred}) -> #{confidential => preferred};
+confidentiality_opts(#{confidential := required})  -> #{confidential => required};
+confidentiality_opts(#{confidential := Other, name := Name}) ->
+    error({confidential_not_a_provider_mode, Name, Other});
+confidentiality_opts(_) ->
+    #{}.
+
+%% @doc Whether `Caps' can be advertised as declared under macula's
+%% `kem_advertise' setting. A `required' capability needs it `enabled': macula
+%% refuses the advertisement otherwise (kem_advertise_disabled), which would
+%% leave the service green and unreachable. `register/1' turns an error into a
+%% boot failure naming every such capability and the setting to change.
+-spec confidentiality_verdict([mcl_om_service:capability()], enabled | disabled | term()) ->
+          ok | {error, {mcl_om_confidential_required_without_kem_advertise, map()}}.
+confidentiality_verdict(Caps, KemAdvertise) ->
+    required_verdict([Name || #{name := Name, confidential := required} <- Caps], KemAdvertise).
+
+required_verdict([], _KemAdvertise) ->
+    ok;
+required_verdict(_Required, enabled) ->
+    ok;
+required_verdict(Required, KemAdvertise) ->
+    {error, {mcl_om_confidential_required_without_kem_advertise,
+             #{capabilities => Required,
+               kem_advertise => KemAdvertise,
+               setting => <<"{macula, [{kem_advertise, enabled}]} in sys.config: a "
+                            "confidential => required capability needs macula to "
+                            "advertise its KEM key">>}}}.
+
 %% `advertise_one/7' does real network I/O -- a synchronous call into
 %% the station-link connection process -- for every capability on every
 %% republish tick. A single slow or timed-out call must not crash this
@@ -631,7 +678,8 @@ advertise_one(Pool, Key, Realm, Org,
     %% `stations => [Station]' (macula 12.7.0) registers the handler on
     %% that station's link only and names it in the DHT record.
     Opts = maps:merge(maps:merge(maps:merge(auth_opts(Cap), stream_opts(Cap)),
-                                 handler_timeout_opts(Cap)),
+                                 maps:merge(handler_timeout_opts(Cap),
+                                            confidentiality_opts(Cap))),
                       maps:merge(Authorization,
                                  reuse_sup_opts(maps:get(OrgProcedure, Sups, undefined)))),
     advertised_on(serving_station(Pool, Key), Provider, Pool, Key, Realm, OrgProcedure,
