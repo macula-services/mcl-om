@@ -7,6 +7,14 @@ Versioning: [SemVer](https://semver.org/).
 
 ### Fixed
 
+- **Every image a house service pushes is signed.** The scaffold's `build-push.yml` had no attest job, so
+  mcl-mail, like any service scaffolded since, shipped unsigned (M6). With the new `attest` template variable, which
+  `scaffold-service.sh` sets for the macula-services, macula-internal and macula-io orgs, the build reads the pushed
+  digest back from ghcr and an `attest` job signs it by digest, keyless, with SBOM and provenance attestations, via
+  macula-ci-images' `attest-image.yml` pinned by full commit sha, on the build's own runner. A stranger's scaffold has
+  no such job. `runs_on` is now a JSON array (`["ubuntu-latest"]`, `["self-hosted", "msi00", "pq"]`), which is valid
+  YAML after `runs-on:` and what the attest workflow's `runs-on` input takes.
+
 - **A pending boot claim is recognised under macula 13, and says so.** The realm refuses a node it has not admitted
   yet, and files its claim as pending. Under macula 13 that refusal arrives as a bare `{error, <<"not_admitted">>}`;
   0.33.1 knew only the older `{error, {call_error, Code, <<"not_admitted">>}}`, so on macula 13 a claim the realm had

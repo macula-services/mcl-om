@@ -78,8 +78,8 @@ esac
 # (msi00, one per org, labels self-hosted, msi00 and pq, as registered); everything else runs on
 # GitHub's.
 case "${MCL_VISIBILITY}:${ORG}" in
-    private:macula-services|private:macula-internal) DEFAULT_RUNS_ON="[self-hosted, msi00, pq]" ;;
-    *)                                               DEFAULT_RUNS_ON="ubuntu-latest" ;;
+    private:macula-services|private:macula-internal) DEFAULT_RUNS_ON='["self-hosted", "msi00", "pq"]' ;;
+    *)                                               DEFAULT_RUNS_ON='["ubuntu-latest"]' ;;
 esac
 RUNS_ON="${MCL_RUNS_ON:-${DEFAULT_RUNS_ON}}"
 
@@ -88,6 +88,13 @@ if [ "${MCL_VISIBILITY}" = public ] && printf '%s' "${RUNS_ON}" | grep -q 'self-
          "a pull request from anyone would run its code on that machine" >&2
     exit 64
 fi
+
+# THE HOUSE SIGNS EVERY IMAGE IT PUSHES (M6), with macula-ci-images'
+# attest-image.yml; anyone else's scaffold has no such job.
+case "${ORG}" in
+    macula-services|macula-internal|macula-io) ATTEST=1 ;;
+    *)                                         ATTEST= ;;
+esac
 
 HOLDER_ARGS=()
 if [ -n "${MCL_HOLDER:-}" ]; then
@@ -136,6 +143,7 @@ rebar3 new mcl_service \
     health_port="${HEALTH_PORT}" \
     proprietary="${PROPRIETARY}" \
     runs_on="${RUNS_ON}" \
+    attest="${ATTEST}" \
     ${HOLDER_ARGS[@]+"${HOLDER_ARGS[@]}"} \
     ${IMAGE_ARGS[@]+"${IMAGE_ARGS[@]}"}
 

@@ -45,6 +45,11 @@ jobs:
     permissions:
       contents: read
       packages: write
+<%#attest%>
+    # The digest the push produced: the one the attest job signs.
+    outputs:
+      digest: ${{ steps.digest.outputs.digest }}
+<%/attest%>
 
     steps:
       # The whole history, so the gate below can diff the pushed range.
@@ -111,6 +116,29 @@ jobs:
               docker tag "$LOCAL" "$tag"
               docker push "$tag"
           done
+<%#attest%>
+
+      # THE DIGEST THE PUSH PRODUCED, read back from the registry by the tag
+      # just pushed: the steps above are plain docker CLI (they must run on a
+      # podman shim too), so no action reports it. The concurrency group keeps
+      # another build of this ref from moving the tag in between.
+      - name: Resolve the pushed digest
+        if: steps.gate.outputs.build == 'true'
+        id: digest
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAGS: ${{ steps.tag.outputs.tags }}
+        run: |
+          tag="${TAGS%% *}"
+          digest=$(curl -fsSI -H "Authorization: Bearer $(printf %s "$TOKEN" | base64 -w0)" \
+              -H "Accept: application/vnd.docker.distribution.manifest.v2+json, application/vnd.oci.image.manifest.v1+json, application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json" \
+              "https://ghcr.io/v2/<%org%>/<%repo%>/manifests/${tag##*:}" \
+            | tr -d '\r' | sed -n 's/^[Dd]ocker-[Cc]ontent-[Dd]igest: //p')
+          case "$digest" in
+            sha256:*) echo "digest=$digest" >> "$GITHUB_OUTPUT" ;;
+            *) echo "::error::the registry named no digest for $tag"; exit 1 ;;
+          esac
+<%/attest%>
 
       # BY NAME, NEVER BY WILDCARD: on a shared image store, a wildcard removal
       # takes other jobs' images mid-run. Keyed on the LOGIN, so the credentials go
@@ -127,3 +155,23 @@ jobs:
               if docker image inspect "$image" >/dev/null 2>&1; then docker rmi "$image"; fi
           done
           rm -rf "$RUNNER_TEMP/docker-config" "$RUNNER_TEMP/auth.json"
+<%#attest%>
+
+  # SIGNED BY DIGEST, SBOM AND PROVENANCE ATTESTED, keyless, so a box can refuse any
+  # digest of this image that did not come from this workflow on a commit of this
+  # repository (macula-fleet's reconciler checks it before it runs the image). Pinned
+  # by full commit sha: the signing identity is that file at that ref. Runs on the
+  # build's own runner. See macula-ci-images' README.
+  attest:
+    needs: build-and-push
+    if: needs.build-and-push.outputs.digest != ''
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    uses: macula-io/macula-ci-images/.github/workflows/attest-image.yml@b304162c9b46b366f93af362d3a76f17ae01794f
+    with:
+      image: ghcr.io/<%org%>/<%repo%>
+      digest: ${{ needs.build-and-push.outputs.digest }}
+      runs-on: '<%runs_on%>'
+<%/attest%>

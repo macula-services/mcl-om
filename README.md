@@ -211,7 +211,7 @@ things that must agree:
 | | `private` | `public` |
 |---|---|---|
 | `LICENSE`, app.src `licenses`, README | proprietary notice, `["Proprietary"]` | Apache-2.0 |
-| CI runner (`runs-on`) | the org's own, `[self-hosted, msi00, pq]`, in macula-services and macula-internal; GitHub's elsewhere | GitHub's, `ubuntu-latest`; a self-hosted runner is refused |
+| CI runner (`runs-on`) | the org's own, `["self-hosted", "msi00", "pq"]`, in macula-services and macula-internal; GitHub's elsewhere | GitHub's, `["ubuntu-latest"]`; a self-hosted runner is refused |
 | `gh repo create` in the closing text | `--private` | `--public` |
 
 A public repository never runs on a self-hosted runner, because a pull request
@@ -243,7 +243,7 @@ nothing generated names our organisation, our registry, our images, our
 copyright holder, our runners, our deployment repository or our hosts. If you
 are building a service for your own mesh, set the first five and everything
 else follows (`proprietary` is empty for Apache-2.0, `1` for a proprietary
-notice; `runs_on` defaults to `ubuntu-latest`). `scaffold-service.sh` defaults
+notice; `runs_on` is a JSON array and defaults to `["ubuntu-latest"]`). In the house orgs (macula-services, macula-internal, macula-io) `attest` is set, so every image the service pushes is signed by digest, with its SBOM and provenance attested, by macula-ci-images' `attest-image.yml` pinned by commit. `scaffold-service.sh` defaults
 them to ours because that is who runs it most; `MCL_ORG`, `MCL_REGISTRY`,
 `MCL_BUILDER_IMAGE`, `MCL_RUNTIME_IMAGE`, `MCL_HOLDER` and `MCL_RUNS_ON`
 override, and `MCL_VISIBILITY` sets `proprietary`. A test generates a service as a stranger and
