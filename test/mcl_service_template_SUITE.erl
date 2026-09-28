@@ -907,6 +907,9 @@ image_build_runs_on_docker_and_podman_alike(Config) ->
                    <<"--password-stdin">>,
                    <<"${{ github.run_id }}">>,
                    <<"docker rmi ">>,
+                   %% the credentials are removed whenever a login ran, even
+                   %% when a later step failed before the build
+                   <<"steps.login.outcome != 'skipped'">>,
                    %% podman builds OCI by default, which has no HEALTHCHECK:
                    %% the image would lose the one its Containerfile declares.
                    %% docker ignores the variable.
