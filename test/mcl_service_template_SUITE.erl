@@ -687,7 +687,9 @@ generated_text_is_current(Config) ->
     Stale = [{filename:basename(F), S}
              || F <- all_files(Root),
                 S <- [<<"11.x">>, <<"plus the semver tag">>,
-                      <<"both `:latest` and the semver tag">>],
+                      <<"both `:latest` and the semver tag">>,
+                      %% the fleet is a dev and demo fleet (Raf, 2026-09-28)
+                      <<"production">>],
                 binary:match(folded(read(F)), S) =/= nomatch],
     ?assertEqual([], Stale),
     Readme = read(filename:join(Root, "README.md")),
