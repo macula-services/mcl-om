@@ -370,7 +370,7 @@ Known gap: the store-wiring callbacks are the part of the contract with no test
 of their own. `mcl_om_SUITE` boots a producer-only dummy service.
 
 Consumers: the `macula-services/mcl-*` services, `mcl-echo` deployed on the
-fleet. Not yet burned in under sustained production load.
+fleet. Not yet burned in under sustained load.
 
 ## License
 

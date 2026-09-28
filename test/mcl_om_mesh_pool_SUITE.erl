@@ -50,7 +50,7 @@ init_per_testcase(_TestCase, Config) ->
     application:load(mcl_om),
     %% Ephemeral health port per suite convention (mcl_om_SUITE) --
     %% these tests don't touch /health, but a boot must not collide
-    %% with the production default.
+    %% with the configured default.
     application:set_env(mcl_om, health_port, 0),
     application:set_env(mcl_om, realm, ?REALM),
     application:set_env(mcl_om, realm_key, realm_key_hex()),

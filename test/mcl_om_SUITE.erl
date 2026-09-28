@@ -19,7 +19,7 @@ all() ->
 init_per_suite(Config) ->
     %% Bind the /health listener on an OS-assigned ephemeral port so the
     %% suite never collides with a real service (or a prior run's beam)
-    %% holding the production default. The health tests exercise
+    %% holding the configured default. The health tests exercise
     %% mcl_om:health/0, not the HTTP socket, so the port is irrelevant.
     application:load(mcl_om),
     application:set_env(mcl_om, health_port, 0),

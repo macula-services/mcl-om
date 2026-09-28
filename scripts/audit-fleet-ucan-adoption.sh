@@ -65,7 +65,7 @@ for repo_path in "$WORKSPACE_ROOT"/*/; do
 
     # test/ and test_live/ deliberately excluded: a live-fleet test
     # fixture calling advertise_direct to stand up a fake peer is not
-    # the service's own production capability path (found live:
+    # the service's own capability path (found live:
     # hecate-tube/test_live/tube_content_live_station_tests.erl).
     direct_calls="$( { grep -rlE "$BYPASS_PATTERN" --include='*.erl' \
                         --exclude-dir=_build --exclude-dir=test --exclude-dir=test_live \
