@@ -448,6 +448,11 @@ mesh_config_test_() ->
       ?_assertEqual({error, {mcl_om_realm_malformed,
                              #{setting => <<"MCL_REALM">>, bytes => 3}}},
                     boot_with(undefined, <<"abc">>, <<>>, "", "")),
+      %% and a realm that is not a binary at all, named by its type only:
+      %% the value never goes into the refusal
+      ?_assertEqual({error, {mcl_om_realm_malformed,
+                             #{setting => <<"MCL_REALM">>, type => list}}},
+                    boot_with(undefined, "abc", <<>>, "", "")),
       %% and so is a mesh setting that is neither `required' nor `optional'
       ?_assertEqual({error, {mcl_om_mesh_setting_unknown, yes}},
                     boot_with(yes, <<>>, <<>>, "", ""))

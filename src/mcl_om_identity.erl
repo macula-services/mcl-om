@@ -170,7 +170,18 @@ configured_realm() ->
 realm_from(undefined) ->
     {ok, undefined};
 realm_from({ok, R}) when is_binary(R) ->
-    realm_value(unset(R), R).
+    realm_value(unset(R), R);
+realm_from({ok, Other}) ->
+    %% Named by its type only: whatever was configured stays out of logs.
+    {error, {mcl_om_realm_malformed,
+             #{setting => <<"MCL_REALM">>, type => type_of(Other)}}}.
+
+type_of(T) when is_list(T)    -> list;
+type_of(T) when is_atom(T)    -> atom;
+type_of(T) when is_integer(T) -> integer;
+type_of(T) when is_tuple(T)   -> tuple;
+type_of(T) when is_map(T)     -> map;
+type_of(_)                    -> other.
 
 realm_value(true, _R) ->
     {ok, undefined};
