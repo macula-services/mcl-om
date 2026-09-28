@@ -26,6 +26,13 @@ Versioning: [SemVer](https://semver.org/).
 - **The script's closing text is true of what it generated**: a tag publishes only its own version (it said `:latest`
   and the semver tag), the fleet deploys from macula-fleet (it said watchtower rolls the beams), the remote is
   `origin`, and a private package needs a registry login where a public one needs checking that it is public.
+- **The scaffold's image build runs on a podman runner too.** `build-push.yml` used `docker/login-action` and
+  `docker/build-push-action`; the house's self-hosted runners have no docker, only a shim that hands the `docker` CLI
+  to podman, whose `buildx` is buildah, so a private house service could never publish an image. It is now plain
+  `docker` CLI steps, which run on GitHub's runners and ours alike. The login goes to `DOCKER_CONFIG` and
+  `REGISTRY_AUTH_FILE` under `$RUNNER_TEMP`, since runners on one box can share one podman and its default auth file.
+  The image is built under a tag unique to the run and removed by name afterwards, never pruned. `BUILDAH_FORMAT=docker`
+  is set because podman's default OCI format drops the Containerfile's `HEALTHCHECK`.
 - `guides/container_deployment.md`: rollback text matched to the two channels.
 
 ## [0.33.0]
