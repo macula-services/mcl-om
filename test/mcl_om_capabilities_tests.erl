@@ -49,13 +49,30 @@ node_id(Key) ->
 verified(Record) ->
     macula_record:verify(maps:with([key, tbs, signature], Record), profile()).
 
+%% pq_hybrid keygen (RSA-4096 among its parts) takes seconds on a slow
+%% runner, past eunit's 5 s per test: a test that made its own keys was
+%% cancelled on msi00 under load and at --cpus=0.25. So the tests that sign
+%% draw from two distinct keys made once, and the group, setup included,
+%% has its own timeout.
+signed_records_test_() ->
+    {timeout, 120,
+     {setup, fun key_pool/0, fun(_) -> ok end,
+      fun(Keys) ->
+          [?_test(build_advertisement_round_trips(Keys)),
+           ?_test(decode_resolved_returns_verified_providers(Keys)),
+           ?_test(decode_resolved_drops_tampered_and_foreign_records(Keys)),
+           ?_test(discovery_key_org_matches_what_gets_published_under_it(Keys))]
+      end}}.
+
+key_pool() ->
+    [node_key(), node_key()].
+
 %% The record the provider publishes and the record the consumer
 %% resolves under must name the same realm, the org-qualified procedure,
 %% the advertiser's node id and the serving station -- the 11.x record
 %% carries the realm as its own field, no realm-hex prefix in the
 %% procedure string.
-build_advertisement_round_trips_test() ->
-    Key = node_key(),
+build_advertisement_round_trips([Key | _]) ->
     R   = realm(),
     St  = station(),
     Rec = mcl_om_capabilities:build_advertisement(Key, R, <<"acme">>,
@@ -73,12 +90,10 @@ build_advertisement_round_trips_test() ->
 
 %% The Slice-2 DONE-WHEN in pure form: two providers advertise one
 %% capability; decode_resolved recovers both as {advertiser, station}.
-decode_resolved_returns_verified_providers_test() ->
+decode_resolved_returns_verified_providers([KpA, KpB | _]) ->
     R   = realm(),
     St1 = station(),
     St2 = station(),
-    KpA = node_key(),
-    KpB = node_key(),
     A = mcl_om_capabilities:build_advertisement(KpA, R, <<"acme">>, cap(<<"c">>), St1),
     B = mcl_om_capabilities:build_advertisement(KpB, R, <<"acme">>, cap(<<"c">>), St2),
     Got = mcl_om_capabilities:decode_resolved([A, B]),
@@ -88,15 +103,13 @@ decode_resolved_returns_verified_providers_test() ->
     ?assert(lists:member(#{advertiser => node_id(KpB),
                            serving_station => St2}, Got)).
 
-decode_resolved_drops_tampered_and_foreign_records_test() ->
+decode_resolved_drops_tampered_and_foreign_records([Kp, NodeKp | _]) ->
     R   = realm(),
     St  = station(),
-    Kp  = node_key(),
     Good     = mcl_om_capabilities:build_advertisement(Kp, R, <<"acme">>, cap(<<"c">>), St),
     Tampered = Good#{signature := binary:copy(<<255>>,
                                               byte_size(maps:get(signature, Good)))},
     %% a node_record is not a procedure_advertisement
-    NodeKp = node_key(),
     Node   = macula_record:sign(
                macula_record:node_record(node_id(NodeKp), [], 0),
                NodeKp),
@@ -124,8 +137,7 @@ discovery_key_org_is_distinct_per_org_test() ->
 %% Name) -- otherwise the org-qualified record advertise_one/7 publishes
 %% would be unfindable by the org-scoped lookup that's supposed to find
 %% it, and the scoping would silently do nothing.
-discovery_key_org_matches_what_gets_published_under_it_test() ->
-    Kp   = node_key(),
+discovery_key_org_matches_what_gets_published_under_it([Kp | _]) ->
     R    = realm(),
     St   = station(),
     Org  = <<"acme">>,
