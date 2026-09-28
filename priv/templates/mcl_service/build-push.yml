@@ -67,6 +67,7 @@ jobs:
       # there is readable by, and overwritten by, the other runners' jobs.
       - name: Log in to the registry
         if: steps.gate.outputs.build == 'true'
+        id: login
         env:
           TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -109,9 +110,12 @@ jobs:
           done
 
       # BY NAME, NEVER BY WILDCARD: a prune on a shared image store removes
-      # other jobs' images mid-run.
-      - name: Remove this run's images
-        if: always() && steps.build.outcome != 'skipped'
+      # other jobs' images mid-run. Keyed on the LOGIN, so the credentials go
+      # even when a step between login and build failed; an image that was
+      # never built is skipped. A red job here after a green push means the
+      # image is published and only this cleanup failed.
+      - name: Remove this run's images and credentials
+        if: always() && steps.login.outcome != 'skipped'
         env:
           LOCAL: <%repo%>:ci-${{ github.run_id }}-${{ github.run_attempt }}
           TAGS: ${{ steps.tag.outputs.tags }}
