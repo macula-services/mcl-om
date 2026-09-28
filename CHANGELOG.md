@@ -23,7 +23,10 @@ Versioning: [SemVer](https://semver.org/).
   the claim's state (not delivered, pending, issued) is one log line naming the realm and the org: a warning for
   pending and not delivered, a notice for issued. `/health` carries the state under `claim`
   (`unsent`, `not_delivered` with its reason, `pending`, `issued`, or `no_mesh`), with the org and how long it has
-  held. Found on mcl-fovea's first boot, 2026-09-28.
+  held. The worker publishes that state when it changes and `/health` reads it, never calling the worker, which may
+  be inside a claim call of up to 15 s. Found on mcl-fovea's first boot, 2026-09-28.
+- `scaffold-service.sh` refuses an `MCL_RUNS_ON` that is not a JSON array of labels, which would pass as YAML and then
+  break the attest job's `runs-on` input at run time.
 
 ## [0.33.1]
 

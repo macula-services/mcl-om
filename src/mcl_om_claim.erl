@@ -35,6 +35,10 @@
 
 -define(RETRY_MS, 60_000).
 -define(CALL_TIMEOUT_MS, 15_000).
+%% Where the worker publishes its claim state for status/0. Read, never
+%% called: the worker spends up to CALL_TIMEOUT_MS inside a claim call, and
+%% /health must not wait on it. Written only when the state changes.
+-define(STATUS_KEY, {mcl_om_claim, status}).
 
 %% The realm's HOPE name for the request RPC — its configured name is
 %% io.macula, the realm every mcl-* service lives in.
@@ -58,13 +62,14 @@ init([]) ->
             %% degrade contract. `ignore', not `{stop, normal}': a
             %% supervisor treats a stop from init/1 as a failed start and
             %% takes the whole application down with it.
+            _ = persistent_term:erase(?STATUS_KEY),
             ignore;
         _ ->
-            {ok, claim(#state{retry_ref = undefined})}
+            State = #state{retry_ref = undefined},
+            ok = publish(State),
+            {ok, claim(State)}
     end.
 
-handle_call(status, _From, #state{claim = Claim, since = Since} = State) ->
-    {reply, status_map(Claim, Since), State};
 handle_call(_Msg, _From, State) ->
     {reply, ok, State}.
 
@@ -108,7 +113,17 @@ dispatch_claim(State, {Org, Pool, Realm}) ->
 settle(Reply, Org, Realm, #state{claim = Old} = State) ->
     New = classify(Reply),
     announce(announcement(Old, New, Org, Realm)),
-    next(New, (moved(Old, New, State))#state{claim = New}).
+    next(New, published(Old, New, (moved(Old, New, State))#state{claim = New})).
+
+%% Written on a change of kind only, as the log line is.
+published(Old, New, State) ->
+    publish_if(same_kind(Old, New), State).
+
+publish_if(true, State)  -> State;
+publish_if(false, State) -> ok = publish(State), State.
+
+publish(#state{claim = Claim, since = Since}) ->
+    persistent_term:put(?STATUS_KEY, {Claim, Since}).
 
 next({not_delivered, _}, State) -> retry(State);
 next(_Settled, State)            -> State.
@@ -171,9 +186,10 @@ announce({Level, Text})  -> logger:log(Level, "~ts", [Text]).
 %% no claim to make.
 -spec status() -> map().
 status() ->
-    try gen_server:call(?MODULE, status, 5_000)
-    catch exit:{noproc, _} -> #{state => <<"no_mesh">>}
-    end.
+    status_of(persistent_term:get(?STATUS_KEY, undefined)).
+
+status_of(undefined)       -> #{state => <<"no_mesh">>};
+status_of({Claim, Since})  -> status_map(Claim, Since).
 
 status_map(Claim, Since) ->
     (claim_fields(Claim))#{org => mcl_om_identity:org(),

@@ -83,6 +83,14 @@ case "${MCL_VISIBILITY}:${ORG}" in
 esac
 RUNS_ON="${MCL_RUNS_ON:-${DEFAULT_RUNS_ON}}"
 
+# A JSON array of labels: valid YAML after `runs-on:', and the form
+# attest-image.yml's runs-on input takes. `[self-hosted, msi00]' is YAML but
+# not JSON, and would pass here only to break the attest job at run time.
+if ! printf '%s' "${RUNS_ON}" | grep -Eq '^\[ *"[^"]+"( *, *"[^"]+")* *\]$'; then
+    echo "MCL_RUNS_ON='${RUNS_ON}' is not a JSON array of runner labels, e.g. '[\"ubuntu-latest\"]'" >&2
+    exit 64
+fi
+
 if [ "${MCL_VISIBILITY}" = public ] && printf '%s' "${RUNS_ON}" | grep -q 'self-hosted'; then
     echo "MCL_RUNS_ON='${RUNS_ON}' names a self-hosted runner for a public repository:" \
          "a pull request from anyone would run its code on that machine" >&2

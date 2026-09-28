@@ -882,7 +882,7 @@ public_scaffold_says_public_and_stays_off_our_runners(Config) ->
     ?assertNot(filelib:is_dir(filename:join(Dir, "mcl-runner-not-json"))),
     {Refused, Why} = scaffold_status(Dir, "mcl-public-on-ours",
                                      ["MCL_VISIBILITY=public",
-                                      "MCL_RUNS_ON=[self-hosted, msi00, pq]"]),
+                                      "MCL_RUNS_ON=[\"self-hosted\", \"msi00\", \"pq\"]"]),
     ?assertNotEqual(0, Refused),
     ?assertNotEqual(nomatch, binary:match(Why, <<"self-hosted">>)),
     ?assertNot(filelib:is_dir(filename:join(Dir, "mcl-public-on-ours"))),
