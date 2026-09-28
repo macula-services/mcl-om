@@ -404,3 +404,82 @@ set_realm_env(Realm, Key) ->
 
 env_value(undefined) -> undefined;
 env_value(V)         -> {ok, V}.
+
+%%% A service scaffolded from the mcl_service template sets
+%%% `{mesh, required}': it exists to answer on the mesh, so booting it
+%%% without its realm or its pinned seeds is refused, and the refusal
+%%% names every setting that is missing at once. Before this, an unset
+%%% MCL_REALM reached init as `<<>>' (relx expands an unset variable to
+%%% nothing) and stopped the process with `{case_clause, {ok, <<>>}}',
+%%% naming nothing; and unset seeds booted a green service with no pool,
+%%% unable to answer anything, forever.
+-define(ALL_MESH_SETTINGS,
+        [<<"MCL_REALM">>, <<"MCL_REALM_KEY">>,
+         <<"MACULA_STATION_SEEDS">>, <<"MACULA_STATION_NODE_IDS">>]).
+
+mesh_config_test_() ->
+    {foreach, fun save_mesh_config/0, fun restore_mesh_config/1,
+     [
+      %% required, nothing configured at all: every setting named
+      ?_assertEqual({error, {mcl_om_mesh_unconfigured,
+                             #{missing => ?ALL_MESH_SETTINGS}}},
+                    boot_with(required, undefined, undefined, false, false)),
+      %% required, relx expanded every unset variable to nothing: the same
+      ?_assertEqual({error, {mcl_om_mesh_unconfigured,
+                             #{missing => ?ALL_MESH_SETTINGS}}},
+                    boot_with(required, <<>>, <<>>, "", "")),
+      %% required, relx left the variables unexpanded: the same
+      ?_assertEqual({error, {mcl_om_mesh_unconfigured,
+                             #{missing => ?ALL_MESH_SETTINGS}}},
+                    boot_with(required, <<"${MCL_REALM}">>, <<"${MCL_REALM_KEY}">>,
+                              "", "")),
+      %% required, only the trust anchor missing: only it is named
+      ?_assertEqual({error, {mcl_om_mesh_unconfigured,
+                             #{missing => [<<"MCL_REALM_KEY">>]}}},
+                    boot_with(required, realm_hex(), <<>>, "a", node_id_hex(1))),
+      %% required and complete: boots
+      ?_assertEqual(ok, boot_with(required, realm_hex(), ?TRUST_KEY_HEX,
+                                  "a", node_id_hex(1))),
+      %% not required (the library default): an empty realm is an unset
+      %% realm, and the service boots without a mesh as before
+      ?_assertEqual(ok, boot_with(undefined, <<>>, <<>>, "", "")),
+      %% a realm that is set but is neither 32 bytes nor 64 hex is refused
+      %% whatever the mode, naming the setting and what it held
+      ?_assertEqual({error, {mcl_om_realm_malformed,
+                             #{setting => <<"MCL_REALM">>, bytes => 3}}},
+                    boot_with(undefined, <<"abc">>, <<>>, "", "")),
+      %% and so is a mesh setting that is neither `required' nor `optional'
+      ?_assertEqual({error, {mcl_om_mesh_setting_unknown, yes}},
+                    boot_with(yes, <<>>, <<>>, "", ""))
+     ]}.
+
+realm_hex() ->
+    binary:encode_hex(?TRUST_REALM, lowercase).
+
+save_mesh_config() ->
+    {ensure_identity_not_running(),
+     application:get_env(mcl_om, mesh),
+     save_realm_env(),
+     clear_seed_config()}.
+
+restore_mesh_config({Running, Mesh, Realm, Seeds}) ->
+    _ = ensure_identity_not_running(),
+    restore_app_env(mesh, Mesh),
+    restore_realm_env(Realm),
+    set_env("MACULA_STATION_SEEDS", false),
+    set_env("MACULA_STATION_NODE_IDS", false),
+    restore_seed_config(Seeds),
+    restore_identity(Running).
+
+%% Boots mcl_om_identity on the given settings and answers `ok' when it
+%% started (stopping it again) or the refusal it returned.
+boot_with(Mesh, Realm, RealmKey, Seeds, NodeIds) ->
+    restore_app_env(mesh, env_value(Mesh)),
+    set_realm_env(Realm, RealmKey),
+    set_env("MACULA_STATION_SEEDS", Seeds),
+    set_env("MACULA_STATION_NODE_IDS", NodeIds),
+    set_app_env(undefined),
+    started(start_in_helper()).
+
+started({ok, _Pid}) -> _ = ensure_identity_not_running(), ok;
+started(Refused)    -> Refused.

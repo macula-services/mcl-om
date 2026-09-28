@@ -20,6 +20,15 @@
 %%% returns `{error, no_client}' forever — consumers fall back to
 %%% no-op behaviour. The service stays up either way.
 %%%
+%%% UNLESS THE SERVICE SAYS THE MESH IS REQUIRED. `{mesh, required}' (the
+%%% mcl_service template sets it; the library default is `optional') means
+%%% the service exists to answer on the mesh, so booting it without its
+%%% realm, its realm key or its pinned seeds is refused, naming every
+%%% missing setting at once: `{mcl_om_mesh_unconfigured, #{missing =>
+%%% [<<"MCL_REALM">>, ...]}}'. A value relx expanded to nothing, or left
+%%% unexpanded, counts as missing. Whatever the mode, a realm that is set
+%%% but is neither 32 bytes nor 64 hex is refused by name.
+%%%
 %%% The pool itself is not this gen_server's state: it is an ordinary
 %%% supervised sibling (`mcl_om_sup', `restart => permanent'), started
 %%% strictly after this gen_server has loaded the key, so `identity_key/0'
@@ -106,7 +115,15 @@ safe_call(Msg) ->
     end.
 
 init([]) ->
-    init_with_key(load_node_key()).
+    init_checked(mesh_verdict(application:get_env(mcl_om, mesh, optional),
+                              configured_realm())).
+
+%% Checked before the node key: a refused boot should not first grind a
+%% puzzle-hardened key and persist it.
+init_checked(ok) ->
+    init_with_key(load_node_key());
+init_checked({error, Reason}) ->
+    {stop, Reason}.
 
 init_with_key({error, Reason}) ->
     {stop, Reason};
@@ -141,16 +158,68 @@ terminate(_Reason, _State) -> ok.
 %%% Internals
 
 %% Realm tag = 32-byte binary, read from env (the operator pins it in
-%% the service's deploy env), hex or raw.
+%% the service's deploy env), hex or raw. Runs after init/1 has refused a
+%% malformed one, so only the two good shapes reach it.
 load_realm() ->
-    case application:get_env(mcl_om, realm) of
-        {ok, R} when is_binary(R), byte_size(R) =:= 32 ->
-            R;
-        {ok, HexB} when is_binary(HexB), byte_size(HexB) =:= 64 ->
-            decode_hex(HexB);
-        undefined ->
-            undefined
-    end.
+    {ok, Realm} = configured_realm(),
+    Realm.
+
+configured_realm() ->
+    realm_from(application:get_env(mcl_om, realm)).
+
+realm_from(undefined) ->
+    {ok, undefined};
+realm_from({ok, R}) when is_binary(R) ->
+    realm_value(unset(R), R).
+
+realm_value(true, _R) ->
+    {ok, undefined};
+realm_value(false, <<_:256>> = R) ->
+    {ok, R};
+realm_value(false, R) ->
+    realm_hex(byte_size(R) =:= 64 andalso hex_shaped(R), R).
+
+realm_hex(true, Hex) ->
+    {ok, decode_hex(Hex)};
+realm_hex(false, R) ->
+    {error, {mcl_om_realm_malformed,
+             #{setting => <<"MCL_REALM">>, bytes => byte_size(R)}}}.
+
+%% What relx leaves of a variable that was not set: nothing when it
+%% expanded it, the reference itself when it did not.
+unset(<<>>) -> true;
+unset(<<"${", _/binary>>) -> true;
+unset(_) -> false.
+
+mesh_verdict(_Mesh, {error, _} = Malformed) ->
+    Malformed;
+mesh_verdict(optional, {ok, _Realm}) ->
+    ok;
+mesh_verdict(required, {ok, Realm}) ->
+    missing_verdict([Setting || {Setting, false} <- mesh_settings(Realm)]);
+mesh_verdict(Other, {ok, _Realm}) ->
+    {error, {mcl_om_mesh_setting_unknown, Other}}.
+
+mesh_settings(Realm) ->
+    [{<<"MCL_REALM">>, Realm =/= undefined},
+     {<<"MCL_REALM_KEY">>, configured_realm_key() =/= undefined}
+     | seed_settings(app_env_seeds())].
+
+%% `station_seeds' in the app env carry their own pins; otherwise both
+%% environment variables are needed.
+seed_settings([_ | _]) ->
+    [];
+seed_settings([]) ->
+    [{<<"MACULA_STATION_SEEDS">>, env_set("MACULA_STATION_SEEDS")},
+     {<<"MACULA_STATION_NODE_IDS">>, env_set("MACULA_STATION_NODE_IDS")}].
+
+env_set(Var) ->
+    parse_csv(os:getenv(Var)) =/= [].
+
+missing_verdict([]) ->
+    ok;
+missing_verdict(Missing) ->
+    {error, {mcl_om_mesh_unconfigured, #{missing => Missing}}}.
 
 %% Start function for the mesh-pool child `mcl_om_sup' includes whenever
 %% pinned seeds are configured. Runs strictly after this gen_server, so
@@ -221,10 +290,15 @@ realm_trust(<<_:256>> = Realm, KeyHex) ->
     #{Realm => realm_key_decoded(hex_shaped(KeyHex), KeyHex)}.
 
 configured_realm_key() ->
-    case application:get_env(mcl_om, realm_key) of
-        {ok, Hex} when is_binary(Hex), Hex =/= <<>> -> Hex;
-        _                                           -> undefined
-    end.
+    realm_key_from(application:get_env(mcl_om, realm_key)).
+
+realm_key_from({ok, Hex}) when is_binary(Hex) ->
+    realm_key_value(unset(Hex), Hex);
+realm_key_from(undefined) ->
+    undefined.
+
+realm_key_value(true, _Hex) -> undefined;
+realm_key_value(false, Hex) -> Hex.
 
 %% Checked before decoding rather than after: decode_hex/1 on a stray
 %% character raises a bare badarg naming nothing.
