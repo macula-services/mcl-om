@@ -30,6 +30,13 @@ exports_every_required_callback_test() ->
                     not erlang:function_exported(?SERVICE, N, A)],
     ?assertEqual([], Missing).
 
+%% THE ATTRIBUTE ITSELF. Dropped to silence a warning, it would leave compile
+%% and the export check above green, and the next callback mcl_om requires
+%% would be an `undef' at boot instead of a compile error.
+declares_the_mcl_om_service_behaviour_test() ->
+    Attrs = ?SERVICE:module_info(attributes),
+    ?assert(lists:member(mcl_om_service, proplists:get_value(behaviour, Attrs, []))).
+
 info_carries_the_three_keys_test() ->
     #{name := Name, version := Vsn, description := Desc} = ?SERVICE:info(),
     ?assert(is_binary(Name)),

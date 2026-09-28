@@ -33,6 +33,11 @@ Versioning: [SemVer](https://semver.org/).
   `REGISTRY_AUTH_FILE` under `$RUNNER_TEMP`, since runners on one box can share one podman and its default auth file.
   The image is built under a tag unique to the run and removed by name afterwards, never pruned. `BUILDAH_FORMAT=docker`
   is set because podman's default OCI format drops the Containerfile's `HEALTHCHECK`.
+- **Only main publishes `:latest` and only a `v*` tag publishes a version.** The scaffold's `build-push.yml` can be
+  run by hand, and every ref that was not a `v*` tag fell through to `:latest`, so a branch build overwrote the deploy
+  channel. Any other ref is now refused, naming it.
+- **The generated suite guards the `-behaviour(mcl_om_service)` attribute**, as the generated README and service
+  module already said. Only the export check existed, and it survives the attribute's removal.
 - `guides/container_deployment.md`: rollback text matched to the two channels.
 
 ## [0.33.0]

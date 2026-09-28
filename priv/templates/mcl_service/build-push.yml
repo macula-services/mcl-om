@@ -76,16 +76,19 @@ jobs:
           export DOCKER_CONFIG="$RUNNER_TEMP/docker-config" REGISTRY_AUTH_FILE="$RUNNER_TEMP/auth.json"
           echo "$TOKEN" | docker login <%registry%> -u "${{ github.actor }}" --password-stdin
 
-      # Emits the COMPLETE tag list, so the condition governs all of it.
+      # Emits the COMPLETE tag list, so the condition governs all of it. ONLY
+      # MAIN FEEDS :latest AND ONLY A v* TAG FEEDS THE ARCHIVE: the workflow can
+      # be run by hand from any branch, and a branch build must never overwrite
+      # the deploy channel, so any other ref is refused, naming it.
       - name: Set tags
         if: steps.gate.outputs.build == 'true'
         id: tag
         run: |
-          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
-            echo "tags=<%registry%>/<%org%>/<%repo%>:${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
-          else
-            echo "tags=<%registry%>/<%org%>/<%repo%>:latest" >> "$GITHUB_OUTPUT"
-          fi
+          case "${GITHUB_REF}" in
+            refs/tags/v*)    echo "tags=<%registry%>/<%org%>/<%repo%>:${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT" ;;
+            refs/heads/main) echo "tags=<%registry%>/<%org%>/<%repo%>:latest" >> "$GITHUB_OUTPUT" ;;
+            *) echo "::error::only main publishes :latest and only a v* tag publishes a version; refusing $GITHUB_REF"; exit 1 ;;
+          esac
 
       # BUILT UNDER A TAG UNIQUE TO THIS RUN, then tagged for the registry and
       # pushed. A shared image store sees every runner's builds, and the run id
