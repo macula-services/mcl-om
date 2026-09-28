@@ -58,6 +58,7 @@
          closing_text_is_true_to_the_template/1,
          image_build_runs_on_docker_and_podman_alike/1,
          only_main_and_release_tags_publish/1,
+         house_images_are_signed_by_digest/1,
          generated_tests_guard_the_behaviour_attribute/1]).
 
 -define(REPO, "mcl-probe-svc").
@@ -118,6 +119,7 @@ all() ->
      closing_text_is_true_to_the_template,
      image_build_runs_on_docker_and_podman_alike,
      only_main_and_release_tags_publish,
+     house_images_are_signed_by_digest,
      generated_tests_guard_the_behaviour_attribute].
 
 %%%---------------------------------------------------------------------------
@@ -835,9 +837,10 @@ app_licences(Root, App) ->
 %% THE RUNNER IS A CHOICE. The house runs private services' CI on its own
 %% runners, labelled per org; anyone else, and anything public, gets GitHub's.
 runner_follows_the_visibility(Config) ->
-    ?assertEqual([<<"ubuntu-latest">>, <<"ubuntu-latest">>],
+    ?assertEqual([<<"[\"ubuntu-latest\"]">>, <<"[\"ubuntu-latest\"]">>],
                  runners(?config(root, Config))),
-    ?assertEqual([<<"[self-hosted, msi00, pq]">>, <<"[self-hosted, msi00, pq]">>],
+    ?assertEqual([<<"[\"self-hosted\", \"msi00\", \"pq\"]">>,
+                  <<"[\"self-hosted\", \"msi00\", \"pq\"]">>],
                  runners(?config(house_root, Config))).
 
 runners(Root) ->
@@ -880,7 +883,7 @@ public_scaffold_says_public_and_stays_off_our_runners(Config) ->
     Root = filename:join(Dir, "mcl-public-probe"),
     ?assertNotEqual(nomatch, binary:match(Out, <<"--public">>)),
     ?assertEqual(nomatch, binary:match(Out, <<"--private">>)),
-    ?assertEqual([<<"ubuntu-latest">>, <<"ubuntu-latest">>], runners(Root)),
+    ?assertEqual([<<"[\"ubuntu-latest\"]">>, <<"[\"ubuntu-latest\"]">>], runners(Root)),
     ?assertEqual(["Apache-2.0"], app_licences(Root, "mcl_public_probe")).
 
 %% WHAT THE SCRIPT SAYS WHEN IT IS DONE MUST BE TRUE OF WHAT IT GENERATED. It
@@ -934,6 +937,32 @@ only_main_and_release_tags_publish(Config) ->
     ?assertMatch({match, _}, re:run(Body, "^\\s+\\*\\) echo \"::error::.*\\$GITHUB_REF.*exit 1",
                                     [multiline])),
     ?assertEqual(nomatch, binary:match(Body, <<"else">>)).
+
+%% EVERY HOUSE IMAGE IS SIGNED BY DIGEST (M6). mcl-mail shipped unsigned
+%% because its build-push had no attest job, and the scaffold had none either.
+%% The house scaffold now calls macula-ci-images' attest-image.yml, pinned by
+%% full commit sha (the signing identity is that file at that ref), after the
+%% build, with the digest the build pushed and the build's own runner. The
+%% stranger's scaffold has no attest job: the workflow is ours.
+house_images_are_signed_by_digest(Config) ->
+    House = read(filename:join(?config(house_root, Config), ".github/workflows/build-push.yml")),
+    ?assertMatch({match, _},
+                 re:run(House, "^  attest:\n    needs: build-and-push\n", [multiline])),
+    ?assertMatch({match, _},
+                 re:run(House, "^    uses: macula-io/macula-ci-images/\\.github/workflows/"
+                               "attest-image\\.yml@[0-9a-f]{40}$", [multiline])),
+    ?assertMatch({match, _},
+                 re:run(House, "^      image: ghcr\\.io/macula-services/" ?HOUSE_REPO "$", [multiline])),
+    ?assertMatch({match, _},
+                 re:run(House, "^      digest: \\$\\{\\{ needs\\.build-and-push\\.outputs\\.digest \\}\\}$",
+                        [multiline])),
+    ?assertMatch({match, _},
+                 re:run(House, "^      runs-on: '\\[\"self-hosted\", \"msi00\", \"pq\"\\]'$", [multiline])),
+    ?assertMatch({match, _},
+                 re:run(House, "^      digest: \\$\\{\\{ steps\\.digest\\.outputs\\.digest \\}\\}$",
+                        [multiline])),
+    Stranger = read(filename:join(?config(root, Config), ".github/workflows/build-push.yml")),
+    ?assertEqual(nomatch, binary:match(Stranger, <<"attest">>)).
 
 %% THE GENERATED SUITE GUARDS THE ATTRIBUTE, as the generated README and
 %% service module say it does. The export check survives the attribute being
