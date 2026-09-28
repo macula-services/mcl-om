@@ -829,7 +829,7 @@ app_licences(Root, App) ->
 runner_follows_the_visibility(Config) ->
     ?assertEqual([<<"ubuntu-latest">>, <<"ubuntu-latest">>],
                  runners(?config(root, Config))),
-    ?assertEqual([<<"[self-hosted, msi00]">>, <<"[self-hosted, msi00]">>],
+    ?assertEqual([<<"[self-hosted, msi00, pq]">>, <<"[self-hosted, msi00, pq]">>],
                  runners(?config(house_root, Config))).
 
 runners(Root) ->
@@ -864,7 +864,7 @@ public_scaffold_says_public_and_stays_off_our_runners(Config) ->
     ok = filelib:ensure_path(Dir),
     {Refused, Why} = scaffold_status(Dir, "mcl-public-on-ours",
                                      ["MCL_VISIBILITY=public",
-                                      "MCL_RUNS_ON=[self-hosted, msi00]"]),
+                                      "MCL_RUNS_ON=[self-hosted, msi00, pq]"]),
     ?assertNotEqual(0, Refused),
     ?assertNotEqual(nomatch, binary:match(Why, <<"self-hosted">>)),
     ?assertNot(filelib:is_dir(filename:join(Dir, "mcl-public-on-ours"))),

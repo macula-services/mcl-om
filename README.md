@@ -211,7 +211,7 @@ things that must agree:
 | | `private` | `public` |
 |---|---|---|
 | `LICENSE`, app.src `licenses`, README | proprietary notice, `["Proprietary"]` | Apache-2.0 |
-| CI runner (`runs-on`) | the org's own, `[self-hosted, msi00]`, in macula-services and macula-internal; GitHub's elsewhere | GitHub's, `ubuntu-latest`; a self-hosted runner is refused |
+| CI runner (`runs-on`) | the org's own, `[self-hosted, msi00, pq]`, in macula-services and macula-internal; GitHub's elsewhere | GitHub's, `ubuntu-latest`; a self-hosted runner is refused |
 | `gh repo create` in the closing text | `--private` | `--public` |
 
 A public repository never runs on a self-hosted runner, because a pull request

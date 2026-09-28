@@ -19,7 +19,7 @@ Versioning: [SemVer](https://semver.org/).
   now requires the floor to be the minor the template was released with.
 - **`scaffold-service.sh` asks whether the service is private or public** (`MCL_VISIBILITY`, refused when unset or
   anything else) instead of printing `gh repo create --public` for every service. The choice sets the licence
-  (proprietary notice and `["Proprietary"]`, or Apache-2.0), the CI runner (the org's own `[self-hosted, msi00]` for a
+  (proprietary notice and `["Proprietary"]`, or Apache-2.0), the CI runner (the org's own `[self-hosted, msi00, pq]` for a
   private service in macula-services or macula-internal, `ubuntu-latest` otherwise; a self-hosted runner for a public
   repository is refused) and the `gh repo create` flag. New template variables `proprietary`, `runs_on` and `holder`
   (the copyright holder, which the Apache LICENSE hardcoded); `MCL_RUNS_ON` and `MCL_HOLDER` override.

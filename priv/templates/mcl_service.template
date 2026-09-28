@@ -56,7 +56,7 @@
     {proprietary, "",
      "EMPTY FOR APACHE-2.0, 1 FOR PROPRIETARY. A private service carries a proprietary notice in LICENSE and {licenses, [\"Proprietary\"]} in its app.src; a public one is Apache-2.0 in both. scripts/scaffold-service.sh sets it from MCL_VISIBILITY. Like `store', EXACTLY ONE CHARACTER."},
     {runs_on, "ubuntu-latest",
-     "The runner CI jobs run on, as it appears after `runs-on:', e.g. [self-hosted, msi00]. NEVER a self-hosted runner for a public repository: a pull request from anyone would run its code on that machine. scripts/scaffold-service.sh picks it from the org and MCL_VISIBILITY."},
+     "The runner CI jobs run on, as it appears after `runs-on:', e.g. [self-hosted, msi00, pq]. NEVER a self-hosted runner for a public repository: a pull request from anyone would run its code on that machine. scripts/scaffold-service.sh picks it from the org and MCL_VISIBILITY."},
     {store, "",
      "OFF BY DEFAULT. Empty means no store, which is what most services want. Set it to 1 and the service opens a reckon-db store called <name>_store: store_id/0 and data_dir/0 are generated, sys.config gains the evoq adapter block without which the node will not boot, the compose file gains a volume, and three boundary guards are generated to keep them in step. WARNING: the value must be EXACTLY ONE CHARACTER, so 1 and not yes. rebar3 passes template variables as strings and mustache iterates a string as a list, so a longer value repeats every generated block once per character and the result does not compile. That is a limitation of the template engine, not a preference."}
 ]}.

@@ -75,10 +75,10 @@ case "${MCL_VISIBILITY:-}" in
 esac
 
 # THE RUNNER. The house orgs run private services' CI on their own runners
-# (msi00, one per org, labels self-hosted and msi00); everything else runs on
+# (msi00, one per org, labels self-hosted, msi00 and pq, as registered); everything else runs on
 # GitHub's.
 case "${MCL_VISIBILITY}:${ORG}" in
-    private:macula-services|private:macula-internal) DEFAULT_RUNS_ON="[self-hosted, msi00]" ;;
+    private:macula-services|private:macula-internal) DEFAULT_RUNS_ON="[self-hosted, msi00, pq]" ;;
     *)                                               DEFAULT_RUNS_ON="ubuntu-latest" ;;
 esac
 RUNS_ON="${MCL_RUNS_ON:-${DEFAULT_RUNS_ON}}"
