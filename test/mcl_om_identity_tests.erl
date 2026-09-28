@@ -99,6 +99,8 @@ key_written_by_macula_11_4_loads_as_the_same_node_test() ->
 %% leave the file exactly as it was. The fixture is a throwaway key written by
 %% macula 12.6.0's own macula_node_keys:save/2 at the fleet puzzle difficulty;
 %% the node id below is the one 12.6.0 computed for it.
+%% THROWAWAY, NEVER DEPLOYED: a private key in a public repository, minted for
+%% this test only; no service, box or realm grant uses it.
 -define(KEY_12_6_FIXTURE, "fixtures/identity_written_by_macula_12_6.key").
 -define(KEY_12_6_NODE_ID,
         <<"00c963e27097e7e7fb983b7c65ee283056cfa1c80fa04157ea3675f9b7a8367d">>).
