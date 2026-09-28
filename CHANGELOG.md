@@ -3,6 +3,20 @@
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [SemVer](https://semver.org/).
 
+## [0.33.2]
+
+### Fixed
+
+- **A pending boot claim is recognised under macula 13, and says so.** The realm refuses a node it has not admitted
+  yet, and files its claim as pending. Under macula 13 that refusal arrives as a bare `{error, <<"not_admitted">>}`;
+  0.33.1 knew only the older `{error, {call_error, Code, <<"not_admitted">>}}`, so on macula 13 a claim the realm had
+  on file was taken for "not delivered", re-sent every minute forever and logged only at debug, while macula's
+  direct-dial telemetry reported it as `not_answered`. `mcl_om_claim` now settles on both shapes, and each change of
+  the claim's state (not delivered, pending, issued) is one log line naming the realm and the org: a warning for
+  pending and not delivered, a notice for issued. `/health` carries the state under `claim`
+  (`unsent`, `not_delivered` with its reason, `pending`, `issued`, or `no_mesh`), with the org and how long it has
+  held. Found on mcl-fovea's first boot, 2026-09-28.
+
 ## [0.33.1]
 
 ### Fixed

@@ -17,12 +17,19 @@
 %%% the informational labels the realm's operator sees on the pending
 %%% row, `service_name' and `box' (see labels/0).
 %%%
+%%% THE CLAIM'S STATE IS LOUD. Each change (not delivered, pending,
+%%% issued) is one log line naming the realm and the org, and /health
+%%% carries it under `claim' (status/0). A pending claim is an operator's
+%%% to admit; it must be visible without reading debug logs.
+%%%
 %%% See PLAN_PROVIDER_AUTHORIZATION_FLOW.md §3.2 (macula-realm).
 %%%-------------------------------------------------------------------
 -module(mcl_om_claim).
 -behaviour(gen_server).
 
--export([start_link/0, labels/0]).
+-export([start_link/0, labels/0, status/0]).
+%% Exported for mcl_om_claim_tests.erl: pure classification and announcing.
+-export([classify/1, announcement/4]).
 
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
 
@@ -34,7 +41,11 @@
 -define(CLAIM_PROCEDURE,
         <<"io.macula/_realm/_realm/identity/request_provider_authorization_v1">>).
 
--record(state, {retry_ref :: reference() | undefined}).
+-type claim() :: unsent | pending | issued | {not_delivered, term()}.
+
+-record(state, {retry_ref :: reference() | undefined,
+                claim = unsent :: claim(),
+                since = erlang:monotonic_time(millisecond) :: integer()}).
 
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
@@ -52,6 +63,8 @@ init([]) ->
             {ok, claim(#state{retry_ref = undefined})}
     end.
 
+handle_call(status, _From, #state{claim = Claim, since = Since} = State) ->
+    {reply, status_map(Claim, Since), State};
 handle_call(_Msg, _From, State) ->
     {reply, ok, State}.
 
@@ -86,24 +99,90 @@ dispatch_claim(State, not_ready) ->
 dispatch_claim(State, {Org, Pool, Realm}) ->
     Reply = macula:call(Pool, Realm, ?CLAIM_PROCEDURE,
                         payload(Org), ?CALL_TIMEOUT_MS),
-    settle(Reply, Org, State).
+    settle(Reply, Org, Realm, State).
 
 %% The realm answered: either it issued the delegation or it recorded
-%% the pending request (the refusal text arrives under whatever
-%% call_error code the responder used — measured live as both
-%% handler_error and unknown_error). Both mean the claim is on file —
-%% stop retrying. Anything else (mesh not resolved yet, pool still
-%% connecting) retries.
-settle({ok, Result}, Org, State) ->
-    logger:info("mcl_om_claim: realm answered for org=~s: ~p", [Org, Result]),
-    State;
-settle({error, {call_error, _Code, <<"not_admitted">>}}, Org, State) ->
-    logger:notice("mcl_om_claim: claim recorded as pending for org=~s", [Org]),
-    State;
-settle({error, Reason}, Org, State) ->
-    logger:debug("mcl_om_claim: claim not delivered for org=~s (~p); retrying",
-                 [Org, Reason]),
-    retry(State).
+%% the pending request. Both mean the claim is on file: stop retrying.
+%% Anything else (mesh not resolved yet, pool still connecting) retries.
+%% Each change of state is announced once (announcement/4).
+settle(Reply, Org, Realm, #state{claim = Old} = State) ->
+    New = classify(Reply),
+    announce(announcement(Old, New, Org, Realm)),
+    next(New, (moved(Old, New, State))#state{claim = New}).
+
+next({not_delivered, _}, State) -> retry(State);
+next(_Settled, State)            -> State.
+
+moved(Old, New, State) ->
+    moved_since(same_kind(Old, New), State).
+
+moved_since(true, State)   -> State;
+moved_since(false, State)  -> State#state{since = erlang:monotonic_time(millisecond)}.
+
+%% @doc The realm's reply, classified. The refusal of a not yet admitted
+%% node is the realm filing the claim as pending. Under macula 13 it
+%% arrives as a bare `{error, <<"not_admitted">>}'; before, as a
+%% `call_error' carrying the same text under whatever code the responder
+%% used (measured live as both handler_error and unknown_error). mcl_om
+%% 0.33.1 knew only the second shape, so on macula 13 a pending claim was
+%% taken for "not delivered" and re-sent every minute, silently.
+-spec classify({ok, term()} | {error, term()}) -> claim().
+classify({ok, _Result})                                 -> issued;
+classify({error, <<"not_admitted">>})                   -> pending;
+classify({error, {call_error, _Code, <<"not_admitted">>}}) -> pending;
+classify({error, Reason})                               -> {not_delivered, Reason}.
+
+%% @doc The log line a change of state deserves, or `none' when the state
+%% has not changed kind (a claim that cannot be delivered for an hour is one
+%% warning, not sixty lines). Names the realm and the org.
+-spec announcement(claim(), claim(), binary(), binary()) ->
+    none | {logger:level(), string()}.
+announcement(Old, New, Org, Realm) ->
+    announce_change(same_kind(Old, New), New, Org, Realm).
+
+announce_change(true, _New, _Org, _Realm) ->
+    none;
+announce_change(false, pending, Org, Realm) ->
+    {warning, lists:flatten(io_lib:format(
+        "mcl_om_claim: claim for org=~s is PENDING in realm ~s: an operator must "
+        "admit this node before its procedures can be advertised",
+        [Org, binary:encode_hex(Realm, lowercase)]))};
+announce_change(false, issued, Org, Realm) ->
+    {notice, lists:flatten(io_lib:format(
+        "mcl_om_claim: realm ~s issued the delegation for org=~s",
+        [binary:encode_hex(Realm, lowercase), Org]))};
+announce_change(false, {not_delivered, Reason}, Org, Realm) ->
+    {warning, lists:flatten(io_lib:format(
+        "mcl_om_claim: claim for org=~s not delivered to realm ~s (~0p); retrying every ~b s",
+        [Org, binary:encode_hex(Realm, lowercase), Reason, ?RETRY_MS div 1000]))};
+announce_change(false, unsent, _Org, _Realm) ->
+    none.
+
+same_kind({not_delivered, _}, {not_delivered, _}) -> true;
+same_kind(Same, Same)                             -> true;
+same_kind(_Old, _New)                             -> false.
+
+announce(none)           -> ok;
+announce({Level, Text})  -> logger:log(Level, "~ts", [Text]).
+
+%% @doc The boot claim's state for /health: `unsent' (the pool or realm is
+%% not ready), `not_delivered', `pending' (an operator must admit the node)
+%% or `issued'; `no_mesh' when the service runs without seeds, so there is
+%% no claim to make.
+-spec status() -> map().
+status() ->
+    try gen_server:call(?MODULE, status, 5_000)
+    catch exit:{noproc, _} -> #{state => <<"no_mesh">>}
+    end.
+
+status_map(Claim, Since) ->
+    (claim_fields(Claim))#{org => mcl_om_identity:org(),
+                           since_ms => erlang:monotonic_time(millisecond) - Since}.
+
+claim_fields({not_delivered, Reason}) ->
+    #{state => <<"not_delivered">>, reason => iolist_to_binary(io_lib:format("~0p", [Reason]))};
+claim_fields(Claim) ->
+    #{state => atom_to_binary(Claim)}.
 
 claim_target() ->
     case {mcl_om_identity:org(), mcl_om_identity:macula_client(), mcl_om_identity:realm()} of

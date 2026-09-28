@@ -5,7 +5,7 @@
 %%% Kubernetes-style liveness probes consume this.
 -module(mcl_om_health_handler).
 
--export([init/2, routes/0, body/5]).
+-export([init/2, routes/0, body/6]).
 
 routes() ->
     [{"/health", ?MODULE, []}].
@@ -13,7 +13,8 @@ routes() ->
 init(Req0, State) ->
     Health = mcl_om:health(),
     Body = body(Health, service_info(mcl_om:service_module()), grant_report(),
-                advertise_report(), mcl_om_pubsub:failed_publishes()),
+                advertise_report(), mcl_om_claim:status(),
+                mcl_om_pubsub:failed_publishes()),
     Req = cowboy_req:reply(code(Health),
                            #{<<"content-type">> => <<"application/json">>},
                            jsx:encode(Body), Req0),
@@ -25,16 +26,20 @@ init(Req0, State) ->
 %% every state also lists the advertise loop's last outcome per
 %% procedure (last successful advertise age), so a dead advertise loop
 %% cannot hide behind `ok' + `failed_publishes: 0' -- zero is exactly
-%% what a loop that makes no attempts produces (issue #5).
--spec body(mcl_om_service:health(), map(), [map()], [map()], non_neg_integer()) -> map().
-body(ok, Info, Grants, Advertise, FailedPublishes) ->
+%% what a loop that makes no attempts produces (issue #5). Every state
+%% also carries the boot claim's state (mcl_om_claim:status/0), so a
+%% claim the realm holds as pending is visible to its operator here.
+-spec body(mcl_om_service:health(), map(), [map()], [map()], map(), non_neg_integer()) -> map().
+body(ok, Info, Grants, Advertise, Claim, FailedPublishes) ->
     Info#{status => <<"ok">>, provider_grants => Grants,
-          advertise_liveness => Advertise,
+          advertise_liveness => Advertise, claim => Claim,
           failed_publishes => FailedPublishes};
-body({degraded, Reason}, _Info, Grants, Advertise, FailedPublishes) ->
-    (unhealthy(<<"degraded">>, Reason, Grants, Advertise))#{failed_publishes => FailedPublishes};
-body({down, Reason}, _Info, Grants, Advertise, FailedPublishes) ->
-    (unhealthy(<<"down">>, Reason, Grants, Advertise))#{failed_publishes => FailedPublishes}.
+body({degraded, Reason}, _Info, Grants, Advertise, Claim, FailedPublishes) ->
+    (unhealthy(<<"degraded">>, Reason, Grants, Advertise))#{claim => Claim,
+                                                           failed_publishes => FailedPublishes};
+body({down, Reason}, _Info, Grants, Advertise, Claim, FailedPublishes) ->
+    (unhealthy(<<"down">>, Reason, Grants, Advertise))#{claim => Claim,
+                                                       failed_publishes => FailedPublishes}.
 
 unhealthy(Status, Reason, Grants, Advertise) ->
     #{status             => Status,
