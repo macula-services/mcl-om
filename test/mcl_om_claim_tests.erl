@@ -126,3 +126,52 @@ issued_is_announced_test() ->
 %%% /health's view of the claim, and a service with no mesh says so.
 status_without_a_claim_worker_test() ->
     ?assertEqual(#{state => <<"no_mesh">>}, mcl_om_claim:status()).
+
+%%% /HEALTH NEVER WAITS ON A CLAIM CALL. The claim runs inside the worker (in
+%%% init/1 and on every retry), and a call to an unreachable realm takes up to
+%%% 15 s; a status that asked the worker waited 5 s and crashed /health with a
+%%% 500 (Mercurius). status/0 reads what the worker last wrote instead.
+
+status_answers_while_a_claim_call_is_in_flight_test_() ->
+    {setup, fun blocked_claim/0, fun release_blocked/1,
+     fun({_Starter, Answer}) ->
+        [?_assertMatch({Ms, #{state := <<"unsent">>}} when Ms < 1000, Answer)]
+     end}.
+
+blocked_claim() ->
+    Parent = self(),
+    ok = meck:new(mcl_om_identity, [passthrough]),
+    ok = meck:expect(mcl_om_identity, configured_seeds, fun() -> [#{host => <<"h">>}] end),
+    ok = meck:expect(mcl_om_identity, org, fun() -> <<"acme">> end),
+    ok = meck:expect(mcl_om_identity, macula_client, fun() -> {ok, self()} end),
+    ok = meck:expect(mcl_om_identity, realm, fun() -> {ok, <<1:256>>} end),
+    ok = meck:new(macula, [passthrough, no_link]),
+    ok = meck:expect(macula, call, fun(_, _, _, _, _) ->
+                                           Parent ! in_call,
+                                           receive release -> {error, <<"not_admitted">>} end
+                                   end),
+    Starter = spawn(fun() -> Parent ! {started, mcl_om_claim:start_link()},
+                             receive stop -> ok end
+                    end),
+    receive in_call -> ok after 5000 -> error(claim_never_called) end,
+    T0 = erlang:monotonic_time(millisecond),
+    Status = mcl_om_claim:status(),
+    {Starter, {erlang:monotonic_time(millisecond) - T0, Status}}.
+
+release_blocked({Starter, _}) ->
+    whereis(mcl_om_claim) ! release,
+    receive {started, _} -> ok after 5000 -> ok end,
+    Starter ! stop,
+    wait_gone(mcl_om_claim),
+    meck:unload([macula, mcl_om_identity]),
+    persistent_term:erase({mcl_om_claim, status}),
+    ok.
+
+wait_gone(Name) ->
+    wait_gone(whereis(Name), Name).
+
+wait_gone(undefined, _Name) -> ok;
+wait_gone(Pid, _Name) ->
+    Ref = monitor(process, Pid),
+    exit(Pid, kill),
+    receive {'DOWN', Ref, process, Pid, _} -> ok end.

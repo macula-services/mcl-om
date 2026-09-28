@@ -873,6 +873,13 @@ scaffold_asks_the_visibility(Config) ->
 public_scaffold_says_public_and_stays_off_our_runners(Config) ->
     Dir = filename:join(?config(priv_dir, Config), "public"),
     ok = filelib:ensure_path(Dir),
+    %% A runner that is not a JSON array would break attest-image.yml's
+    %% runs-on input at run time; the script refuses it at scaffold time.
+    {NotJson, WhyNot} = scaffold_status(Dir, "mcl-runner-not-json",
+                                        ["MCL_VISIBILITY=private", "MCL_RUNS_ON=[self-hosted, msi00, pq]"]),
+    ?assertNotEqual(0, NotJson),
+    ?assertNotEqual(nomatch, binary:match(WhyNot, <<"JSON array">>)),
+    ?assertNot(filelib:is_dir(filename:join(Dir, "mcl-runner-not-json"))),
     {Refused, Why} = scaffold_status(Dir, "mcl-public-on-ours",
                                      ["MCL_VISIBILITY=public",
                                       "MCL_RUNS_ON=[self-hosted, msi00, pq]"]),
