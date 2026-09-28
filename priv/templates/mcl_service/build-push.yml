@@ -56,13 +56,24 @@ jobs:
         id: gate
         run: scripts/is_image_push.sh "${{ github.event.before }}" "${{ github.sha }}" >> "$GITHUB_OUTPUT"
 
+      # PLAIN `docker' CLI STEPS, NO docker/* ACTIONS, so the job runs on a
+      # GitHub-hosted runner (docker) and on a self-hosted one whose `docker' is
+      # a shim for podman alike. docker/build-push-action needs Docker's buildx,
+      # which podman is not.
+      #
+      # THE LOGIN GOES TO THIS JOB'S OWN FILES, DOCKER_CONFIG for docker and
+      # REGISTRY_AUTH_FILE for podman, both under $RUNNER_TEMP. Runners on one
+      # box can share one podman and its default auth file, and a token written
+      # there is readable by, and overwritten by, the other runners' jobs.
       - name: Log in to the registry
         if: steps.gate.outputs.build == 'true'
-        uses: docker/login-action@v3
-        with:
-          registry: <%registry%>
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "DOCKER_CONFIG=$RUNNER_TEMP/docker-config" >> "$GITHUB_ENV"
+          echo "REGISTRY_AUTH_FILE=$RUNNER_TEMP/auth.json" >> "$GITHUB_ENV"
+          export DOCKER_CONFIG="$RUNNER_TEMP/docker-config" REGISTRY_AUTH_FILE="$RUNNER_TEMP/auth.json"
+          echo "$TOKEN" | docker login <%registry%> -u "${{ github.actor }}" --password-stdin
 
       # Emits the COMPLETE tag list, so the condition governs all of it.
       - name: Set tags
@@ -75,14 +86,37 @@ jobs:
             echo "tags=<%registry%>/<%org%>/<%repo%>:latest" >> "$GITHUB_OUTPUT"
           fi
 
+      # BUILT UNDER A TAG UNIQUE TO THIS RUN, then tagged for the registry and
+      # pushed. A shared image store sees every runner's builds, and the run id
+      # keeps two of them from racing on one local name. REVISION is the commit
+      # the image was built from, readable from the image itself.
+      #
+      # BUILDAH_FORMAT: podman builds OCI by default, and OCI has no
+      # HEALTHCHECK, so the image would silently lose the one the Containerfile
+      # declares. docker ignores the variable.
       - name: Build and push
         if: steps.gate.outputs.build == 'true'
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: Containerfile
-          push: true
-          tags: ${{ steps.tag.outputs.tags }}
-          # The commit the image was built from, readable from the image itself.
-          build-args: |
-            REVISION=${{ github.sha }}
+        id: build
+        env:
+          BUILDAH_FORMAT: docker
+          LOCAL: <%repo%>:ci-${{ github.run_id }}-${{ github.run_attempt }}
+          TAGS: ${{ steps.tag.outputs.tags }}
+        run: |
+          docker build --file Containerfile --build-arg REVISION=${{ github.sha }} --tag "$LOCAL" .
+          for tag in $TAGS; do
+              docker tag "$LOCAL" "$tag"
+              docker push "$tag"
+          done
+
+      # BY NAME, NEVER BY WILDCARD: a prune on a shared image store removes
+      # other jobs' images mid-run.
+      - name: Remove this run's images
+        if: always() && steps.build.outcome != 'skipped'
+        env:
+          LOCAL: <%repo%>:ci-${{ github.run_id }}-${{ github.run_attempt }}
+          TAGS: ${{ steps.tag.outputs.tags }}
+        run: |
+          for image in "$LOCAL" $TAGS; do
+              if docker image inspect "$image" >/dev/null 2>&1; then docker rmi "$image"; fi
+          done
+          rm -rf "$RUNNER_TEMP/docker-config" "$RUNNER_TEMP/auth.json"
