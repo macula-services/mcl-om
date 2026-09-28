@@ -120,7 +120,7 @@ jobs:
           IMAGE=$(yq -r '.jobs.check.container.image' .github/workflows/lint-and-test.yml)
           case "$IMAGE" in *@sha256:*) ;; *) echo "check job image not found or not pinned: '$IMAGE'" >&2; exit 1 ;; esac
           mkdir -p "$RUNNER_TEMP/house"
-          docker run --rm -v "$PWD:/mcl_om:ro" -v "$RUNNER_TEMP/house:/house" -w /house "$IMAGE" \
+          docker run --rm -e MCL_VISIBILITY=private -v "$PWD:/mcl_om:ro" -v "$RUNNER_TEMP/house:/house" -w /house "$IMAGE" \
             bash -euo pipefail -c '/mcl_om/scripts/install-templates.sh >/dev/null && /mcl_om/scripts/scaffold-service.sh mcl-house-probe "House probe" 8498'
       - run: scripts/is_lint_toolchain_runnable.sh "$RUNNER_TEMP/house/mcl-house-probe/.github/workflows/lint.yml"
       - name: The house image pair is published
