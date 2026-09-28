@@ -55,7 +55,8 @@
          runner_follows_the_visibility/1,
          scaffold_asks_the_visibility/1,
          public_scaffold_says_public_and_stays_off_our_runners/1,
-         closing_text_is_true_to_the_template/1]).
+         closing_text_is_true_to_the_template/1,
+         image_build_runs_on_docker_and_podman_alike/1]).
 
 -define(REPO, "mcl-probe-svc").
 -define(APP,  "mcl_probe_svc").
@@ -112,7 +113,8 @@ all() ->
      runner_follows_the_visibility,
      scaffold_asks_the_visibility,
      public_scaffold_says_public_and_stays_off_our_runners,
-     closing_text_is_true_to_the_template].
+     closing_text_is_true_to_the_template,
+     image_build_runs_on_docker_and_podman_alike].
 
 %%%---------------------------------------------------------------------------
 %%% Generate once, compile once, then assert
@@ -650,7 +652,7 @@ generated_image_carries_its_revision(Config) ->
                         [multiline])),
     ?assertMatch({match, _},
                  re:run(read(filename:join(Root, ".github/workflows/build-push.yml")),
-                        "^\\s+REVISION=\\$\\{\\{ github\\.sha \\}\\}$", [multiline])).
+                        "--build-arg REVISION=\\$\\{\\{ github\\.sha \\}\\}", [multiline])).
 
 %% DIALYZER IS A GATE, SO CI RUNS IT. A service's handler implements
 %% `macula_response' and calls `macula' directly, but macula reaches the
@@ -886,6 +888,26 @@ closing_text_is_true_to_the_template(Config) ->
      || S <- [<<"--public">>, <<"the semver tag">>, <<"watchtower">>,
               <<"--remote=github">>]],
     ?assertNotEqual(nomatch, binary:match(Out, <<"--remote=origin">>)).
+
+%% THE IMAGE BUILD RUNS ON GITHUB'S RUNNERS AND ON OURS ALIKE. Ours have no
+%% docker: a shim hands the `docker' CLI to podman, and docker/build-push-action
+%% needs Docker's buildx, which podman is not. Plain `docker' CLI steps run on
+%% both. The registry login goes to files under $RUNNER_TEMP, DOCKER_CONFIG for
+%% docker and REGISTRY_AUTH_FILE for podman, because the runners on one box share
+%% one podman and one default auth file. The image is built under a tag unique
+%% to the run and removed by name afterwards, never by wildcard.
+image_build_runs_on_docker_and_podman_alike(Config) ->
+    [begin
+         Body = read(filename:join([Root, ".github", "workflows", "build-push.yml"])),
+         ?assertEqual(nomatch, binary:match(Body, <<"uses: docker/">>)),
+         [?assertNotEqual({S, nomatch}, {S, binary:match(Body, S)})
+          || S <- [<<"DOCKER_CONFIG=$RUNNER_TEMP/">>,
+                   <<"REGISTRY_AUTH_FILE=$RUNNER_TEMP/">>,
+                   <<"--password-stdin">>,
+                   <<"${{ github.run_id }}">>,
+                   <<"docker rmi ">>]],
+         ?assertEqual(nomatch, binary:match(Body, <<"prune">>))
+     end || Root <- [?config(root, Config), ?config(house_root, Config)]].
 
 scaffold_status(Dir, Repo, Env) ->
     Port = erlang:open_port(
