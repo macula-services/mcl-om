@@ -56,7 +56,9 @@
          scaffold_asks_the_visibility/1,
          public_scaffold_says_public_and_stays_off_our_runners/1,
          closing_text_is_true_to_the_template/1,
-         image_build_runs_on_docker_and_podman_alike/1]).
+         image_build_runs_on_docker_and_podman_alike/1,
+         only_main_and_release_tags_publish/1,
+         generated_tests_guard_the_behaviour_attribute/1]).
 
 -define(REPO, "mcl-probe-svc").
 -define(APP,  "mcl_probe_svc").
@@ -114,7 +116,9 @@ all() ->
      scaffold_asks_the_visibility,
      public_scaffold_says_public_and_stays_off_our_runners,
      closing_text_is_true_to_the_template,
-     image_build_runs_on_docker_and_podman_alike].
+     image_build_runs_on_docker_and_podman_alike,
+     only_main_and_release_tags_publish,
+     generated_tests_guard_the_behaviour_attribute].
 
 %%%---------------------------------------------------------------------------
 %%% Generate once, compile once, then assert
@@ -916,6 +920,27 @@ image_build_runs_on_docker_and_podman_alike(Config) ->
                    <<"BUILDAH_FORMAT: docker">>]],
          ?assertEqual(nomatch, binary:match(Body, <<"prune">>))
      end || Root <- [?config(root, Config), ?config(house_root, Config)]].
+
+%% ONLY MAIN FEEDS :latest AND ONLY A v* TAG FEEDS THE ARCHIVE. The workflow
+%% can be run by hand, and from a branch every ref that was not a v* tag fell
+%% through to :latest: an ungated branch build overwrote the deploy channel
+%% (Fable, on mcl-fovea). Any other ref is refused, naming it.
+only_main_and_release_tags_publish(Config) ->
+    Body = read(filename:join(?config(root, Config), ".github/workflows/build-push.yml")),
+    ?assertMatch({match, _}, re:run(Body, "^\\s+refs/heads/main\\) echo \"tags=\\S+:latest\"",
+                                    [multiline])),
+    ?assertMatch({match, _}, re:run(Body, "^\\s+\\*\\) echo \"::error::.*\\$GITHUB_REF.*exit 1",
+                                    [multiline])),
+    ?assertEqual(nomatch, binary:match(Body, <<"else">>)).
+
+%% THE GENERATED SUITE GUARDS THE ATTRIBUTE, as the generated README and
+%% service module say it does. The export check survives the attribute being
+%% removed, so on its own it made that claim false (Fable, on mcl-fovea).
+generated_tests_guard_the_behaviour_attribute(Config) ->
+    Tests = read(filename:join([?config(root, Config), "apps", ?APP, "test",
+                                ?APP "_service_tests.erl"])),
+    ?assertMatch({match, _},
+                 re:run(Tests, "lists:member\\(mcl_om_service,\\s*proplists:get_value\\(behaviour")).
 
 scaffold_status(Dir, Repo, Env) ->
     Port = erlang:open_port(
