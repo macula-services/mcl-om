@@ -253,17 +253,17 @@ fails if any of our own specifics survive.
 the one the generated lint job runs in; `runtime_image` is the one it runs on.
 Both are pinned by digest, and they are a pair: a release built in one runs on
 the other's libc and OpenSSL, so `scaffold-service.sh` refuses to override
-just one. The defaults are the fleet's plain pair from
-`macula-io/macula-ci-images`, the pair mcl-tube, mcl-sentinel, mcl-warden and
-most other mcl services build `FROM`. Not all of them: mcl-echo (and
-mcl-graph) still build on the retired hexpm Alpine OTP and run on Alpine, and
+just one. The defaults are the current plain pair from
+`macula-io/macula-ci-images`, the one build (20260928-1800) that republished
+every download against a pinned checksum. Services move onto it as they
+release; until then some still build on the previous pair (20260923-1444), and
 the services with a rocksdb read model (mcl-stations, mcl-mail, mcl-rag) use
 the rocksdb pair.
 
 | Variable | Default | Must carry |
 |----------|---------|------------|
-| `builder_image` | `ghcr.io/macula-io/macula-ci-otp:20260923-1444@sha256:dd2ba6eb…` | OTP 28.4.3 with an OpenSSL that has ML-DSA, rebar3, Rust, a C toolchain, git |
-| `runtime_image` | `ghcr.io/macula-io/macula-pq-runtime:20260923-1444@sha256:15a5501b…` | the builder's libc, OpenSSL with ML-DSA, libstdc++, ncurses, curl |
+| `builder_image` | `ghcr.io/macula-io/macula-ci-otp:20260928-1800@sha256:7318a443…` | OTP 28.4.3 with an OpenSSL that has ML-DSA, rebar3, Rust, a C toolchain, git |
+| `runtime_image` | `ghcr.io/macula-io/macula-pq-runtime:20260928-1800@sha256:a1d18c6a…` | the builder's libc, OpenSSL with ML-DSA, libstdc++, ncurses, curl |
 
 They are named once, as the defaults in `priv/templates/mcl_service.template`;
 the script passes an image only when one is overridden, and the template suite

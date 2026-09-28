@@ -59,7 +59,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     container:
-      image: ghcr.io/macula-io/macula-ci-otp:20260923-1444@sha256:dd2ba6eb858a0eacedf0179300323fe5c6da46fb308d22da0ca8cfcd1f0718dc
+      image: ghcr.io/macula-io/macula-ci-otp:20260928-1800@sha256:7318a443021f8a4ceb7ad56b0ab21f52db95db92996ea0f0897a1eff0b678832
     steps:
       - uses: actions/checkout@v4
 

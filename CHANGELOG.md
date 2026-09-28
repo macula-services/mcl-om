@@ -38,6 +38,9 @@ Versioning: [SemVer](https://semver.org/).
   channel. Any other ref is now refused, naming it.
 - **The generated suite guards the `-behaviour(mcl_om_service)` attribute**, as the generated README and service
   module already said. Only the export check existed, and it survives the attribute's removal.
+- **The scaffold and mcl-om's own CI move to the current image pair, 20260928-1800** (`macula-ci-otp`
+  sha256:7318a443…, `macula-pq-runtime` sha256:a1d18c6a…), which macula-ci-images republished with every download
+  checked against a pinned checksum. One pair across the template, the CI that tests it and the services it releases.
 - `guides/container_deployment.md`: rollback text matched to the two channels.
 
 ## [0.33.0]
