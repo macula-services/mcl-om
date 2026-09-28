@@ -255,6 +255,22 @@ configured_seeds_test_() ->
 node_id_hex(N) ->
     binary_to_list(binary:encode_hex(<<N:256>>, lowercase)).
 
+%% A seed variable that was unset before a test is unset after it. Left
+%% set, a pin from here reached every later suite in the same VM: under
+%% `rebar3 do eunit, ct' the mesh pool suite booted with ids and no seeds
+%% and failed on `node_ids_without_seeds'.
+seed_config_restore_unsets_what_was_unset_test() ->
+    Outer = {os:getenv("MACULA_STATION_SEEDS"), os:getenv("MACULA_STATION_NODE_IDS")},
+    set_env("MACULA_STATION_SEEDS", false),
+    set_env("MACULA_STATION_NODE_IDS", false),
+    Saved = clear_seed_config(),
+    _ = seeds("a", node_id_hex(1), undefined),
+    restore_seed_config(Saved),
+    Left = {os:getenv("MACULA_STATION_SEEDS"), os:getenv("MACULA_STATION_NODE_IDS")},
+    set_env("MACULA_STATION_SEEDS", element(1, Outer)),
+    set_env("MACULA_STATION_NODE_IDS", element(2, Outer)),
+    ?assertEqual({false, false}, Left).
+
 clear_seed_config() ->
     {os:getenv("MACULA_STATION_SEEDS"),
      os:getenv("MACULA_STATION_NODE_IDS"),
@@ -265,8 +281,8 @@ restore_seed_config({Env, EnvIds, AppEnv}) ->
     restore_env("MACULA_STATION_NODE_IDS", EnvIds),
     restore_app_env(AppEnv).
 
-restore_env(_Var, false) -> ok;
-restore_env(Var, Val)    -> os:putenv(Var, Val).
+restore_env(Var, false) -> os:unsetenv(Var);
+restore_env(Var, Val)   -> os:putenv(Var, Val).
 
 restore_app_env(undefined)  -> application:unset_env(mcl_om, station_seeds);
 restore_app_env({ok, Seeds}) -> application:set_env(mcl_om, station_seeds, Seeds).
@@ -501,8 +517,6 @@ restore_mesh_config({Running, Mesh, Realm, Seeds}) ->
     _ = ensure_identity_not_running(),
     restore_app_env(mesh, Mesh),
     restore_realm_env(Realm),
-    set_env("MACULA_STATION_SEEDS", false),
-    set_env("MACULA_STATION_NODE_IDS", false),
     restore_seed_config(Seeds),
     restore_identity(Running).
 
