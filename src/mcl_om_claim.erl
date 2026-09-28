@@ -144,7 +144,7 @@ announce_change(true, _New, _Org, _Realm) ->
     none;
 announce_change(false, pending, Org, Realm) ->
     {warning, lists:flatten(io_lib:format(
-        "mcl_om_claim: claim for org=~s is PENDING in realm ~s: an operator must "
+        "mcl_om_claim: claim for org=~s is pending in realm ~s: an operator must "
         "admit this node before its procedures can be advertised",
         [Org, binary:encode_hex(Realm, lowercase)]))};
 announce_change(false, issued, Org, Realm) ->
