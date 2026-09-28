@@ -895,7 +895,8 @@ closing_text_is_true_to_the_template(Config) ->
 %% both. The registry login goes to files under $RUNNER_TEMP, DOCKER_CONFIG for
 %% docker and REGISTRY_AUTH_FILE for podman, because the runners on one box share
 %% one podman and one default auth file. The image is built under a tag unique
-%% to the run and removed by name afterwards, never by wildcard.
+%% to the run and removed by name afterwards, never by wildcard. And in docker
+%% format, or podman drops the image's HEALTHCHECK (seen on msi00, 2026-09-28).
 image_build_runs_on_docker_and_podman_alike(Config) ->
     [begin
          Body = read(filename:join([Root, ".github", "workflows", "build-push.yml"])),
@@ -905,7 +906,11 @@ image_build_runs_on_docker_and_podman_alike(Config) ->
                    <<"REGISTRY_AUTH_FILE=$RUNNER_TEMP/">>,
                    <<"--password-stdin">>,
                    <<"${{ github.run_id }}">>,
-                   <<"docker rmi ">>]],
+                   <<"docker rmi ">>,
+                   %% podman builds OCI by default, which has no HEALTHCHECK:
+                   %% the image would lose the one its Containerfile declares.
+                   %% docker ignores the variable.
+                   <<"BUILDAH_FORMAT: docker">>]],
          ?assertEqual(nomatch, binary:match(Body, <<"prune">>))
      end || Root <- [?config(root, Config), ?config(house_root, Config)]].
 
