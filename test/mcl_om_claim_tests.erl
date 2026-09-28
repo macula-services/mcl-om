@@ -155,7 +155,10 @@ blocked_claim() ->
                     end),
     receive in_call -> ok after 5000 -> error(claim_never_called) end,
     T0 = erlang:monotonic_time(millisecond),
-    Status = mcl_om_claim:status(),
+    %% Caught here, so a status/0 that waits on the worker fails THIS test's
+    %% assertion and the cleanup still runs: a setup that crashes leaves both
+    %% mocks loaded and breaks unrelated suites (seen on the red run).
+    Status = (catch mcl_om_claim:status()),
     {Starter, {erlang:monotonic_time(millisecond) - T0, Status}}.
 
 release_blocked({Starter, _}) ->
