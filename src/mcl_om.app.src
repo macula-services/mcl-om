@@ -1,6 +1,6 @@
 {application, mcl_om, [
     {description, "PQ-only over-mesh substrate for the macula-services/mcl-* daemons"},
-    {vsn, "0.33.0"},
+    {vsn, "0.33.1"},
     {registered, [mcl_om_sup]},
     {mod, {mcl_om_app, []}},
     {applications, [
@@ -18,6 +18,12 @@
         reckon_evoq
     ]},
     {env, [
+        %% `required' (the mcl_service template sets it): refuse to boot
+        %% without the realm, the realm key and pinned station seeds,
+        %% naming every one missing. `optional': run without a mesh when
+        %% no seeds are configured. See mcl_om_identity.
+        {mesh, optional},
+
         %% Service-principal cert path. The container mounts
         %% /etc/hecate/secrets/<service-name> read-only on this path
         %% (Quadlet maps the per-service host directory to it).

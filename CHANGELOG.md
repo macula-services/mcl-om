@@ -3,6 +3,31 @@
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [SemVer](https://semver.org/).
 
+## [0.33.1]
+
+### Fixed
+
+- **A service that needs the mesh refuses to boot without it, naming what is missing.** New app env `mesh`,
+  `optional` (the default, unchanged behaviour) or `required`. With `required`, `mcl_om_identity` stops the boot with
+  `{mcl_om_mesh_unconfigured, #{missing => [...]}}`, listing each of `MCL_REALM`, `MCL_REALM_KEY`,
+  `MACULA_STATION_SEEDS` and `MACULA_STATION_NODE_IDS` that is unset, empty (relx expands an unset variable to
+  nothing) or left unexpanded. An unset seed list used to boot a green service with no pool, answering `/health` and
+  nothing else. Whatever the mode, a realm that is set but is neither 32 bytes nor 64 hex is refused as
+  `{mcl_om_realm_malformed, #{setting => <<"MCL_REALM">>, bytes => N}}`; an empty `MCL_REALM` used to stop the process
+  with `{case_clause, {ok, <<>>}}`, naming nothing. The check runs before the node key is loaded or generated.
+- **The scaffold sets `{mesh, required}`**, and its mcl_om floor is `~> 0.33` (it was `~> 0.26`). The template suite
+  now requires the floor to be the minor the template was released with.
+- **`scaffold-service.sh` asks whether the service is private or public** (`MCL_VISIBILITY`, refused when unset or
+  anything else) instead of printing `gh repo create --public` for every service. The choice sets the licence
+  (proprietary notice and `["Proprietary"]`, or Apache-2.0), the CI runner (the org's own `[self-hosted, msi00]` for a
+  private service in macula-services or macula-internal, `ubuntu-latest` otherwise; a self-hosted runner for a public
+  repository is refused) and the `gh repo create` flag. New template variables `proprietary`, `runs_on` and `holder`
+  (the copyright holder, which the Apache LICENSE hardcoded); `MCL_RUNS_ON` and `MCL_HOLDER` override.
+- **The script's closing text is true of what it generated**: a tag publishes only its own version (it said `:latest`
+  and the semver tag), the fleet deploys from macula-fleet (it said watchtower rolls the beams), the remote is
+  `origin`, and a private package needs a registry login where a public one needs checking that it is public.
+- `guides/container_deployment.md`: rollback text matched to the two channels.
+
 ## [0.33.0]
 
 ### Changed (breaking)
