@@ -62,13 +62,20 @@ exposed. `~> 0.N` in hex means `< 1.0.0`, so 9 of the 11 store-using consumers w
 2. mcl-bookclub-observer and mcl-graph first: they use evoq/reckon_evoq without a store, so they
    declare what they use and nothing more.
 3. The 8 store owners, one range each: declare reckon_db, evoq and reckon_evoq; open the store in
-   their own start/2 before `mcl_om:boot/1` (their own copy of the wiring, with its tests); set the
+   their own start/2 before `mcl_om:boot/1` (their own copy of the wiring, with its tests); STOP
+   exporting `store_id/0` and `data_dir/0` from the service module (on 0.35 that pair means "built
+   on the old contract" and warns at every boot; the template uses one `event_store/0` map); set the
    constraint to `">= 0.34.0 and < 0.36.0"`, gated green on 0.34, where boot's own store ensure
    then finds the store up (both are idempotent), so they are ready for 0.35 by construction. The
    deployed ones (the bookclubs, mcl-mail, mcl-tube) get their fleet repin as its own step.
 4. mcl-rag settled by what its code starts.
-5. Tag mcl_om v0.35.0 only when no consumer floats onto it unmigrated (checked on fetched
-   origin/main of each, in the tag ask).
+5. Tag mcl_om v0.35.0 only when no consumer floats onto it unmigrated, and no consumer's service
+   module exports `store_id/0` and `data_dir/0` together (both checked on fetched origin/main of
+   each, in the tag ask).
+
+Later, not in this change: the evoq subscription the wiring starts runs from `start/2`, linked to
+the application master rather than supervised, exactly as `mcl_om_store` did (Mercurius). Putting
+it under the service's supervisor is a separate improvement.
 
 ## Done when
 

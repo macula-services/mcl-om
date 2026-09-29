@@ -22,13 +22,16 @@ Versioning: [SemVer](https://semver.org/).
   and app.src, and opens its store in its application's `start/2` BEFORE `mcl_om:boot/1`: start
   the store (`reckon_db_sup:start_store/1`), wait until `reckon_db_sup:which_stores/0` lists it,
   start `evoq_store_subscription:start_link/1`. `rebar3 new mcl_service store=1` generates that
-  wiring in `<name>_app`, the store's name, directory, indexes, mode and integrity in
-  `<name>_service`, and the three dependencies; a storeless scaffold names none of them.
-- **A service still exporting the old callbacks boots without a store, and is told so.**
-  `mcl_om:boot/1` logs a warning, `mcl_om_no_longer_opens_a_store`, naming the service, the
-  callbacks it still exports and the way out, rather than letting its projections fail later
-  where nobody connects them to this release (`mcl_om:leftover_store_callbacks/1`,
-  `mcl_om:warn_leftover_store/1`).
+  wiring in `<name>_app`, the store's id, directory, indexes, mode and integrity in
+  `<name>_service:event_store/0`, and the three dependencies; a storeless scaffold names none of
+  them.
+- **A service still exporting the old callbacks boots without a store, and is told so.** When
+  its service module exports `store_id/0` and `data_dir/0` together (the old contract's
+  activation), `mcl_om:boot/1` logs a warning, `mcl_om_no_longer_opens_a_store`, naming the
+  service, the old callbacks it still exports and the way out, rather than letting its
+  projections fail later where nobody connects them to this release
+  (`mcl_om:leftover_store_callbacks/1`, `mcl_om:warn_leftover_store/1`). A service that opens
+  its own store therefore exports neither name; a `data_dir/0` alone warns about nothing.
 
 ## [0.34.0] - 2026-09-28
 

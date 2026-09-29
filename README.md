@@ -188,12 +188,14 @@ application's `start/2`, before `mcl_om:boot/1`, so projections and process
 managers find it up when `start/1` runs. `rebar3 new mcl_service store=1`
 generates exactly that: the deps, the wiring in `<name>_app` (start the store,
 wait until reckon-db lists it, start the per-store evoq subscription), the
-store's name, directory, indexes, mode and integrity in `<name>_service`, and the
-`evoq` adapter block in `config/sys.config.src`.
+store's id, directory, indexes, mode and integrity in
+`<name>_service:event_store/0`, and the `evoq` adapter block in
+`config/sys.config.src`.
 
 A service module that still exports the old `store_id/0` and `data_dir/0`
-callbacks boots WITHOUT a store, and `mcl_om:boot/1` logs a warning
-(`mcl_om_no_longer_opens_a_store`) naming them and the way out.
+callbacks together boots WITHOUT a store, and `mcl_om:boot/1` logs a warning
+(`mcl_om_no_longer_opens_a_store`) naming them and the way out. So a service that
+opens its own store must not export those two names from its service module.
 
 ## Scaffold a new service
 

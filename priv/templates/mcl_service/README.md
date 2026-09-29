@@ -88,11 +88,11 @@ This service was scaffolded with `store=1`, so it owns a `reckon-db` store calle
 starts no reckon-db or evoq application. This service declares `reckon_db`, `evoq`
 and `reckon_evoq` in `rebar.config` and its app.src, and `<%name%>_app` opens the
 store and its evoq subscription in `start/2`, before `mcl_om:boot/1`, from what
-`<%name%>_service` says (`store_id/0`, `data_dir/0`, `store_indexes/0`,
-`store_mode/0`, `store_integrity/0`). `config/sys.config.src` carries the `evoq`
+`<%name%>_service:event_store/0` says (id, directory, indexes, mode, integrity).
+`config/sys.config.src` carries the `evoq`
 adapter block the subscription requires.
 
-⚠ **The store id is written in two places**, `store_id/0` and the `evoq` block,
+⚠ **The store id is written in two places**, `event_store/0` and the `evoq` block,
 and nothing makes them agree by itself. A generated test compares them, along
 with a second one asserting the `evoq` block is present at all. Keep both.
 
@@ -100,8 +100,12 @@ with a second one asserting the `evoq` block is present at all. Keep both.
 it the record lives inside the container and every recreate destroys it, which is
 the same as not keeping one.
 
-The store is node-local. To make it span every node running the same `store_id`,
-return `cluster` from `store_mode/0`, and reckon-db forms a Ra cluster across them.
+The store is node-local. To make it span every node running the same store id,
+set its `mode` to `cluster`, and reckon-db forms a Ra cluster across them.
+
+⚠ **Not `store_id/0` and `data_dir/0`.** Those were mcl_om callbacks before 0.35;
+a service module exporting both is taken for one built on the old contract, and
+mcl_om warns about it at every boot.
 <%/store%><%^store%>### Adding a store later
 
 This service has no `reckon-db` store, which is the right answer for most, and

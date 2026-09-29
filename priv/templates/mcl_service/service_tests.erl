@@ -118,7 +118,7 @@ supervisor_starts_and_stops_test() ->
 %% what neither side's own tests can do.
 the_evoq_adapter_is_configured_wherever_a_store_is_opened_test() ->
     {ok, Text} = file:read_file(alongside("config/sys.config.src")),
-    ?assert(erlang:function_exported(?SERVICE, store_id, 0)),
+    ?assert(erlang:function_exported(?SERVICE, event_store, 0)),
     lists:foreach(
       fun(Needed) ->
               ?assertNotEqual(nomatch, binary:match(Text, Needed),
@@ -128,13 +128,13 @@ the_evoq_adapter_is_configured_wherever_a_store_is_opened_test() ->
        <<"reckon_evoq_adapter">>]).
 
 %% ⚠ AND THE STORE ID IS IN TWO PLACES, WHICH IS ONE MORE THAN IT SHOULD BE.
-%% `store_id/0' is what <%name%>_app opens; the `{store_id, ...}' in the evoq block
+%% `event_store/0''s `id' is what <%name%>_app opens; the `{store_id, ...}' in the evoq block
 %% is what evoq falls back to when it resolves a dispatch before knowing there is
 %% none. Nothing makes them agree, and disagreeing opens one store and addresses
 %% another. Same boundary guard, other side.
 the_store_id_agrees_between_erlang_and_config_test() ->
     {ok, Text} = file:read_file(alongside("config/sys.config.src")),
-    Declared = atom_to_binary(?SERVICE:store_id(), utf8),
+    Declared = atom_to_binary(maps:get(id, ?SERVICE:event_store()), utf8),
     ?assertNotEqual(nomatch, binary:match(Text, Declared),
                     {store_id_not_in_sys_config, Declared}).
 
@@ -142,9 +142,15 @@ the_store_id_agrees_between_erlang_and_config_test() ->
 %% not fine is shipping that default to a node, which is why the generated
 %% compose file mounts a volume and sets the variable this reads.
 the_data_directory_is_answerable_test() ->
-    ?assert(erlang:function_exported(?SERVICE, data_dir, 0)),
-    ?assert(is_list(?SERVICE:data_dir())),
-    ?assertNotEqual("", ?SERVICE:data_dir()).
+    Dir = maps:get(dir, ?SERVICE:event_store()),
+    ?assert(is_list(Dir)),
+    ?assertNotEqual("", Dir).
+
+%% ⚠ NOT THE OLD CONTRACT'S NAMES. mcl_om warns at every boot about a service
+%% module exporting store_id/0 and data_dir/0 together, the shape of a service
+%% built before 0.35; this one opens its own store and must not look like one.
+no_old_store_callbacks_are_exported_test() ->
+    ?assertEqual([], mcl_om:leftover_store_callbacks(?SERVICE)).
 <%/store%>
 %%==============================================================================
 %% The runtime is pinned in two places, and neither is the one you are running

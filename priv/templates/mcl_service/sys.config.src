@@ -96,7 +96,7 @@
         {subscription_adapter,   reckon_evoq_adapter},
         {snapshot_store_adapter, reckon_evoq_adapter},
         %% A fallback evoq resolves before it knows whether anything dispatches a
-        %% command. It must name the SAME store as `store_id/0', and a generated
+        %% command. It must name the SAME store as `event_store/0''s `id', and a generated
         %% test compares the two.
         {store_id,               <%name%>_store}
     ]},

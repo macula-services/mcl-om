@@ -28,6 +28,14 @@ leftover_store_callbacks_are_named_test() ->
                  mcl_om:leftover_store_callbacks(leftover_service())),
     ?assertEqual([], mcl_om:leftover_store_callbacks(mcl_om_storeless_tests)).
 
+%% Only the old contract's activation counts: store_id/0 AND data_dir/0, which is
+%% what made 0.34 open a store. A storeless service with its own data_dir/0 (for
+%% its files) never had a store and is told nothing (Mercurius, on e72fbb5).
+a_data_dir_alone_is_not_a_leftover_store_test() ->
+    Mod = compiled(mcl_om_storeless_data_dir_only, [{data_dir, "/tmp/y"}]),
+    ?assertEqual([], mcl_om:leftover_store_callbacks(Mod)),
+    ?assertEqual(ok, mcl_om:warn_leftover_store(Mod)).
+
 %% ...and boot says so as a warning, once, with the change and the way out.
 leftover_store_is_warned_at_boot_test() ->
     ok = logger:add_handler(?MODULE, ?MODULE, #{level => warning, config => #{pid => self()}}),
@@ -39,7 +47,10 @@ leftover_store_is_warned_at_boot_test() ->
                              service := Mod, callbacks := Cbs, instead := Instead}} ->
                 ?assertEqual(leftover_service(), Mod),
                 ?assertEqual([store_id, data_dir, store_mode], Cbs),
-                ?assert(is_binary(Instead))
+                ?assert(is_binary(Instead)),
+                %% The way out names the file the template really generates.
+                ?assertNotEqual(nomatch, binary:match(Instead, <<"<name>_app">>)),
+                ?assertEqual(nomatch, binary:match(Instead, <<"<name>_store.erl">>))
         after 2000 -> error(no_warning_logged)
         end,
         ?assertEqual(ok, mcl_om:warn_leftover_store(mcl_om_storeless_tests))
@@ -64,6 +75,15 @@ leftover_service() ->
              {function, 5, store_mode, 0, [{clause, 5, [], [], [{atom, 5, single}]}]}],
     {ok, Mod, Bin} = compile:forms(Forms),
     {module, Mod} = code:load_binary(Mod, "leftover.erl", Bin),
+    Mod.
+
+%% compiled(Mod, [{Fun, Value}]): a module exporting each Fun/0 returning Value.
+compiled(Mod, Funs) ->
+    Forms = [{attribute, 1, module, Mod},
+             {attribute, 2, export, [{F, 0} || {F, _} <- Funs]}
+             | [{function, 3, F, 0, [{clause, 3, [], [], [erl_parse:abstract(V)]}]} || {F, V} <- Funs]],
+    {ok, Mod, Bin} = compile:forms(Forms),
+    {module, Mod} = code:load_binary(Mod, atom_to_list(Mod) ++ ".erl", Bin),
     Mod.
 
 load(App) ->

@@ -21,10 +21,15 @@
 %% AND THE STORE THIS SERVICE OWNS
 %% ==========================================================================
 %%
-%% Generated because this service was scaffolded with `store=1'. These are NOT
-%% mcl_om callbacks: mcl_om opens no store since 0.35.0. <%name%>_app reads them
-%% and opens the store in its own start/2 before mcl_om:boot/1, with reckon_db,
-%% evoq and reckon_evoq declared by this service in rebar.config and its app.src.
+%% Generated because this service was scaffolded with `store=1'. NOT an mcl_om
+%% callback: mcl_om opens no store since 0.35.0. <%name%>_app reads it and opens
+%% the store in its own start/2 before mcl_om:boot/1, with reckon_db, evoq and
+%% reckon_evoq declared by this service in rebar.config and its app.src.
+%%
+%% ⚠ ONE MAP, NOT THE OLD `store_id/0' AND `data_dir/0' CALLBACKS. mcl_om 0.35
+%% warns at every boot about a service module exporting those two together,
+%% because that is how a service built for the old contract looks, and a false
+%% warning teaches everyone to ignore the true one.
 %%
 %% ⚠ `config/sys.config.src' MUST CARRY THE `evoq' BLOCK, which is why it was
 %% generated with one. The per-store evoq subscription reads the global log, and
@@ -32,7 +37,7 @@
 %% as a release-boot application before any service's `start/2' runs, so nothing
 %% can inject it later. A sibling put two of three fleet nodes into a boot-crash
 %% loop this exact way.
--export([store_id/0, data_dir/0, store_indexes/0, store_mode/0, store_integrity/0]).
+-export([event_store/0]).
 <%/store%>
 
 info() ->
@@ -71,41 +76,38 @@ identity_spec() ->
 %% The store
 %% ==========================================================================
 
-%% @doc The reckon-db store this service owns.
+%% @doc The reckon-db store this service owns, as <%name%>_app opens it.
 %%
-%% ⚠ IT IS NAMED IN TWO PLACES, here and in the `evoq' block of
+%% `id': ⚠ IT IS NAMED IN TWO PLACES, here and in the `evoq' block of
 %% `config/sys.config.src', and nothing makes them agree by itself. Disagreeing
 %% opens one store and addresses another. A generated test compares the two.
--spec store_id() -> atom().
-store_id() -> <%name%>_store.
-
-%% @doc Where it lives on disk.
 %%
-%% ⚠ DEFAULTS TO A PATH INSIDE THE CONTAINER AND MUST NOT STAY THERE ON A NODE.
-%% The fleet keeps application data on its `/bulk' drives and boots from a small
-%% eMMC, so `deploy/docker-compose.yml' mounts a volume and sets this. The default
-%% is what a laptop wants; a container without the mount loses its record on every
-%% recreate, which is the same as not keeping one.
--spec data_dir() -> string().
-data_dir() -> chosen(os:getenv("MCL_DATA_DIR")).
+%% `dir': where it lives on disk (the store itself at <dir>/<id>/). ⚠ DEFAULTS TO
+%% A PATH INSIDE THE CONTAINER AND MUST NOT STAY THERE ON A NODE. The fleet keeps
+%% application data on its `/bulk' drives and boots from a small eMMC, so
+%% `deploy/docker-compose.yml' mounts a volume and sets MCL_DATA_DIR. A container
+%% without the mount loses its record on every recreate.
+%%
+%% `indexes': the secondary indexes the store maintains, e.g. [tags, event_type,
+%% {payload, <<"plate">>}], declared when it opens (a store already running
+%% ignores a second declaration). None until a query needs one.
+%%
+%% `mode': `single', one node's store; `cluster' makes reckon-db form a Ra cluster
+%% across every node that opens the same id.
+%%
+%% `integrity': `disabled', or `#{enabled => true, key_source => {env_var, Name}}'
+%% for per-store HMAC tamper-resistance. The store refuses to start when integrity
+%% is enabled and the key cannot be loaded, so provision the key first.
+-spec event_store() -> #{id := atom(), dir := string(), indexes := [term()],
+                         mode := single | cluster, integrity := disabled | map()}.
+event_store() ->
+    #{id => <%name%>_store,
+      dir => chosen(os:getenv("MCL_DATA_DIR")),
+      indexes => [],
+      mode => single,
+      integrity => disabled}.
 
 chosen(false) -> "/tmp/<%name%>";
 chosen("") -> "/tmp/<%name%>";
 chosen(Path) -> Path.
-
-%% @doc The secondary indexes the store maintains, e.g. [tags, event_type,
-%% {payload, <<"plate">>}]. None until a query needs one.
--spec store_indexes() -> [term()].
-store_indexes() -> [].
-
-%% @doc `single': one node's store. `cluster' makes reckon-db form a Ra cluster
-%% across every node that opens the same store_id.
--spec store_mode() -> single | cluster.
-store_mode() -> single.
-
-%% @doc `disabled', or `#{enabled => true, key_source => {env_var, Name}}' for
-%% per-store HMAC tamper-resistance. The store refuses to start when integrity is
-%% enabled and the key cannot be loaded, so provision the key first.
--spec store_integrity() -> disabled | map().
-store_integrity() -> disabled.
 <%/store%>

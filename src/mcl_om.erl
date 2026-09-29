@@ -111,10 +111,19 @@ wire_subscriptions(true, ServiceMod) ->
 %% 0.35.0, when `boot/1' opened a reckon-db store for a service exporting
 %% `store_id/0' and `data_dir/0'. It does not any more (mcl-om#10): each
 %% service chooses its own persistence and opens its own store.
+%%
+%% Only the old contract's ACTIVATION counts, `store_id/0' and `data_dir/0'
+%% together, which is what made 0.34 open a store: a storeless service with a
+%% `data_dir/0' of its own never had one. Then every old store callback it still
+%% exports is named.
 -spec leftover_store_callbacks(module()) -> [atom()].
 leftover_store_callbacks(ServiceMod) ->
     _ = code:ensure_loaded(ServiceMod),
-    [F || F <- ?OLD_STORE_CALLBACKS, erlang:function_exported(ServiceMod, F, 0)].
+    Exported = [F || F <- ?OLD_STORE_CALLBACKS, erlang:function_exported(ServiceMod, F, 0)],
+    activated(lists:member(store_id, Exported) andalso lists:member(data_dir, Exported), Exported).
+
+activated(true, Exported) -> Exported;
+activated(false, _Exported) -> [].
 
 %% @doc A service built for the old contract boots WITHOUT the store it expects,
 %% and would fail later, where nobody connects it to this release. So boot says
@@ -131,9 +140,11 @@ warned(Callbacks, ServiceMod) ->
                      callbacks => Callbacks,
                      instead => <<"mcl_om 0.35.0 opens no store and starts no reckon_db, evoq or "
                                   "reckon_evoq. Declare those three in the service's own deps and "
-                                  "applications, and open the store in its own start/2 before "
-                                  "mcl_om:boot/1: `rebar3 new mcl_service store=1' generates the "
-                                  "wiring (<name>_store.erl). See mcl_om's CHANGELOG, 0.35.0.">>}),
+                                  "applications, open the store in the application's own start/2 "
+                                  "before mcl_om:boot/1, and stop exporting store_id/0 and "
+                                  "data_dir/0 from the service module: `rebar3 new mcl_service "
+                                  "store=1' generates that wiring in <name>_app. See mcl_om's "
+                                  "CHANGELOG, 0.35.0.">>}),
     {warned, Callbacks}.
 
 -spec service_module() -> module() | undefined.

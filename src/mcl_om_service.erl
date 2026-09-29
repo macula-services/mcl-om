@@ -14,8 +14,9 @@ Persistence is the service's own. mcl_om opens no store and starts no reckon-db
 or evoq application (mcl-om#10, 0.35.0): an event-sourced service declares
 reckon_db, evoq and reckon_evoq itself and opens its store in its own `start/2`
 before `mcl_om:boot/1`. `rebar3 new mcl_service store=1` generates that wiring
-as the service's own `<name>_store` module. A service module that still exports
-the old `store_id/0` and `data_dir/0` callbacks boots without a store, and
+in the service's own `<name>_app`, reading the store's settings from
+`<name>_service:event_store/0`. A service module that still exports the old
+`store_id/0` and `data_dir/0` callbacks together boots without a store, and
 `mcl_om:boot/1` warns, naming them.
 """.
 

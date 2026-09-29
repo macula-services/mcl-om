@@ -76,7 +76,7 @@ services:
       - MCL_BOX=${MCL_BOX:-}
 <%#store%>
       # Where the store lands, matching the volume above. <%name%>_app appends
-      # `store_id/0', so the store itself is at /data/<%name%>_store.
+      # the store's id, so the store itself is at /data/<%name%>_store.
       - MCL_DATA_DIR=/data
 <%/store%>
 

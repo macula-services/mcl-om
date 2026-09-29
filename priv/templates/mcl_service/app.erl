@@ -13,8 +13,8 @@
 %% service's own start/1 runs its projections and process managers. The wiring
 %% below is this service's own copy of the canonical pattern (start the store,
 %% wait until reckon_db lists it, start the per-store evoq subscription); the
-%% store's name, directory, indexes, mode and integrity come from
-%% <%name%>_service.
+%% store's id, directory, indexes, mode and integrity come from
+%% <%name%>_service:event_store/0.
 %%
 %% ⚠ config/sys.config.src MUST CARRY THE `evoq' BLOCK: the subscription reads
 %% the global log through evoq, which crashes on
@@ -44,9 +44,9 @@ stop(_State) -> ok.
 %% A store that cannot open stops the boot, naming why: a service whose store
 %% is not there would otherwise start green and lose every command.
 open_store() ->
-    S = <%name%>_service,
-    opened(ensure_store(S:store_id(), S:data_dir(), S:store_indexes(), S:store_mode(),
-                        S:store_integrity())).
+    #{id := Id, dir := Dir, indexes := Indexes, mode := Mode, integrity := Integrity} =
+        <%name%>_service:event_store(),
+    opened(ensure_store(Id, Dir, Indexes, Mode, Integrity)).
 
 opened(ok) -> ok;
 opened({error, Why}) -> error({<%name%>_store_failed, Why}).
