@@ -68,7 +68,9 @@ exposed. `~> 0.N` in hex means `< 1.0.0`, so 9 of the 11 store-using consumers w
    constraint to `">= 0.34.0 and < 0.36.0"`, gated green on 0.34, where boot's own store ensure
    then finds the store up (both are idempotent), so they are ready for 0.35 by construction. The
    deployed ones (the bookclubs, mcl-mail, mcl-tube) get their fleet repin as its own step.
-4. mcl-rag settled by what its code starts.
+4. mcl-rag settled by what its code starts. mcl-rag and mcl-graph (M3, beam01) are STORELESS and
+   ship on `~> 0.33.3` (the register fix); after the tag each takes a one-line bump to the 0.35
+   line (mcl-graph's mcl_graph_register_tests guards its register latency).
 5. Tag mcl_om v0.35.0 only when no consumer floats onto it unmigrated, and no consumer's service
    module exports `store_id/0` and `data_dir/0` together (both checked on fetched origin/main of
    each, in the tag ask).
@@ -76,6 +78,26 @@ exposed. `~> 0.N` in hex means `< 1.0.0`, so 9 of the 11 store-using consumers w
 Later, not in this change: the evoq subscription the wiring starts runs from `start/2`, linked to
 the application master rather than supervised, exactly as `mcl_om_store` did (Mercurius). Putting
 it under the service's supervisor is a separate improvement.
+
+## Exposure, measured 2026-09-29
+
+mcl_om 0.31.1–0.32.1 require macula `>= 12.7.0 and < 13.0.0`; 0.33.0 onward require `~> 13.0.1`. A
+consumer pinning macula 12 therefore cannot resolve onto 0.33+ at all, and stays on ≤ 0.32.1 (which
+still opens its store) until it moves to macula 13. Of the 7 store owners:
+
+| Service | Constraint that decides | Floats onto 0.35 unmigrated? |
+|---|---|---|
+| mcl-victron | migrated, `>= 0.34.0 and < 0.36.0` (0179b95) | no |
+| mcl-sentinel | migration in review (31ee429) | no, once landed |
+| mcl-bookclub | `{mcl_om, "~> 0.31"}`, no macula pin | YES: migrate before the tag |
+| mcl-bookclub-gleam | `mcl_om = "~> 0.31"`, no macula pin | YES: migrate before the tag |
+| mcl-bookclub-phoenix | `{:macula, "~> 12.7"}` | no: held on ≤ 0.32.1 |
+| mcl-tube | `{macula, "~> 12.7"}` | no: held on ≤ 0.32.1 |
+| mcl-whiteboard | `{:macula, "~> 12.2"}` (guide_board_lifecycle) | no: held on ≤ 0.32.1 |
+| mcl-mail | `~> 0.33.1` | no |
+
+The tag's precondition holds after victron, sentinel, bookclub and bookclub-gleam. The macula-12
+three migrate their store inside their own macula 13 move; mail when its floor next moves.
 
 ## Done when
 

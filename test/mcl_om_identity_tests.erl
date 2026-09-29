@@ -34,7 +34,13 @@ node_key() ->
 unconfigured_path_stays_ephemeral_test() ->
     ?assertEqual(undefined, mcl_om_identity:node_key_from(undefined)).
 
-first_boot_generates_and_persists_a_keypair_test() ->
+%% Its own timeout: this is the one test that generates a real identity, puzzle
+%% grind included, and on a loaded runner (msi00 at load 19, 2026-09-29) that
+%% outlived eunit's 5 s default and was cancelled.
+first_boot_generates_and_persists_a_keypair_test_() ->
+    {timeout, 120, fun first_boot_generates_and_persists_a_keypair/0}.
+
+first_boot_generates_and_persists_a_keypair() ->
     Path = tmp_path(),
     ?assertEqual(false, filelib:is_regular(Path)),
 
@@ -53,7 +59,12 @@ first_boot_generates_and_persists_a_keypair_test() ->
                                            macula_node_keys:puzzle_difficulty())),
     file:delete(Path).
 
-existing_keypair_is_loaded_not_regenerated_test() ->
+%% Its own timeout too: it generates a real key to save and load back, and on a
+%% slow runner that alone outlives eunit's 5 s default.
+existing_keypair_is_loaded_not_regenerated_test_() ->
+    {timeout, 60, fun existing_keypair_is_loaded_not_regenerated/0}.
+
+existing_keypair_is_loaded_not_regenerated() ->
     Path = tmp_path(),
     Original = node_key(),
     ok = macula_node_keys:save(Path, Original),
@@ -154,7 +165,12 @@ key_path_that_is_a_directory_is_refused_test() ->
 %% attribute its records to, and no sign of it but a changed id. A directory
 %% at the write's temporary path makes the save fail even when the tests
 %% run as root, where an unwritable mode would not.
-unsaveable_new_key_is_refused_naming_the_path_test() ->
+%% Its own timeout: it generates a real key before the save fails, and on a
+%% slow runner that alone outlives eunit's 5 s default.
+unsaveable_new_key_is_refused_naming_the_path_test_() ->
+    {timeout, 120, fun unsaveable_new_key_is_refused_naming_the_path/0}.
+
+unsaveable_new_key_is_refused_naming_the_path() ->
     Path = tmp_path(),
     Tmp = <<Path/binary, ".tmp">>,
     ok = file:make_dir(Tmp),

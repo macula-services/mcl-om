@@ -595,6 +595,31 @@ register_does_not_wait_for_the_network_test_() ->
           end}]
       end}}.
 
+%% publish/0 (mcl_om:advertise_capabilities/0) is the same call shape, and a service
+%% with many capabilities timed it out the way register/1 did (Neptunus, on 0.33.3):
+%% it replies at once too, and the republish runs right after.
+publish_does_not_wait_for_the_network_test_() ->
+    {timeout, 60,
+     {setup, fun() -> start_live_with_links([<<11:256>>]) end,
+      fun stop_live_with_links/1,
+      fun(_) ->
+         [{timeout, 30, fun() ->
+             Caps = [#{name => <<"svc.pub", (integer_to_binary(I))/binary>>, version => 1,
+                       handler => {?MODULE, []}} || I <- lists:seq(1, 3)],
+             ok = registered(Caps),
+             ok = meck:expect(macula_response, advertise_direct,
+                              fun(_Pool, _Realm, _Proc, _Mod, _Args, _Key, _Opts) ->
+                                  timer:sleep(2_000),
+                                  {ok, spawn(fun() -> receive stop -> ok end end)}
+                              end),
+             {Us, Result} = timer:tc(fun() -> mcl_om_capabilities:publish() end),
+             ?assertEqual(ok, Result),
+             ?assert(Us < 1_000_000),
+             _ = gen_server:call(mcl_om_capabilities, list, 30_000),
+             ?assertEqual(6, meck:num_calls(macula_response, advertise_direct, '_'))
+          end}]
+      end}}.
+
 %% registered(Caps): register/1, then one call to the server, which it serves only
 %% after the advertising register/1 set off, so what a test asserts next is what
 %% the advertising did.

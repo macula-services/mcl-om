@@ -364,10 +364,11 @@ handle_call({register, Caps}, _From, S) ->
     self() ! advertise_registered,
     {reply, ok, S#state{capabilities = Caps}};
 
-handle_call(publish, _From, #state{capabilities = Caps,
-                                   advertise_sups = Sups} = S) ->
-    NewSups = do_advertise(Caps, Sups),
-    {reply, ok, S#state{advertise_sups = NewSups}};
+%% Same reason as register: publish/0 (mcl_om:advertise_capabilities/0) waits only the
+%% gen_server default, so it replies first and the advertising follows.
+handle_call(publish, _From, S) ->
+    self() ! advertise_registered,
+    {reply, ok, S};
 
 handle_call({lookup, CapName}, _From, S) ->
     {reply, {ok, do_resolve(CapName)}, S};

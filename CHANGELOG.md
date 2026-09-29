@@ -9,9 +9,12 @@ Versioning: [SemVer](https://semver.org/).
 
 - **A service with many capabilities boots** (also shipped as 0.33.3). `register/1`, which
   `mcl_om:boot/1` calls with the gen_server default of 5 s, advertised every capability over the
-  network before it replied; mcl-rag's 17 ran past it and crash-looped on msi00, 2026-09-29. It
-  now records the set, replies at once and advertises right after in the same process, so every
-  capability is still advertised and a later call to the server finds it done.
+  network before it replied; mcl-rag's 18 (17 of its own plus `info`) ran past it and
+  crash-looped on msi00, 2026-09-29. It now records the set, replies at once and advertises right
+  after in the same process, so every capability is still advertised and a later call to the
+  server finds it done. `publish/0` (`mcl_om:advertise_capabilities/0`) had the same shape and
+  does the same now (Neptunus). Calls that arrive while the advertising runs still wait behind
+  it: mcl-om#11.
 
 ### Removed
 
