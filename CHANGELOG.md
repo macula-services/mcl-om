@@ -5,6 +5,14 @@ Versioning: [SemVer](https://semver.org/).
 
 ## [0.35.0]
 
+### Fixed
+
+- **A service with many capabilities boots** (also shipped as 0.33.3). `register/1`, which
+  `mcl_om:boot/1` calls with the gen_server default of 5 s, advertised every capability over the
+  network before it replied; mcl-rag's 17 ran past it and crash-looped on msi00, 2026-09-29. It
+  now records the set, replies at once and advertises right after in the same process, so every
+  capability is still advertised and a later call to the server finds it done.
+
 ### Removed
 
 - **mcl_om opens no store and starts no reckon-db or evoq application** (mcl-om#10, decided by

@@ -348,15 +348,21 @@ init([]) ->
                                       {read_concurrency, true}]),
     {ok, arm_timer(#state{})}.
 
-handle_call({register, Caps}, _From, #state{advertise_sups = Sups} = S) ->
+handle_call({register, Caps}, _From, S) ->
     log_unguarded(Caps),
     %% A new capability set: a procedure no longer advertised must not keep
     %% degrading /health -- neither as a stale grant nor as a stale
     %% advertise loop.
     true = ets:delete_all_objects(?GRANTS),
     true = ets:delete_all_objects(?ADVERTISE),
-    NewSups = do_advertise(Caps, Sups),
-    {reply, ok, S#state{capabilities = Caps, advertise_sups = NewSups}};
+    %% REPLY FIRST, ADVERTISE RIGHT AFTER. Advertising is network I/O for every
+    %% capability, and the caller (mcl_om:boot/1, from the service's start/2)
+    %% waits only the gen_server default 5 s: a service with many capabilities
+    %% or slow stations failed its boot on the timeout (mcl-rag's 17, 2026-09-29).
+    %% The message is this process's own, so it is handled before any later
+    %% call: a caller that asks next finds the capabilities advertised.
+    self() ! advertise_registered,
+    {reply, ok, S#state{capabilities = Caps}};
 
 handle_call(publish, _From, #state{capabilities = Caps,
                                    advertise_sups = Sups} = S) ->
@@ -377,6 +383,9 @@ handle_call(_Msg, _From, S) ->
 
 handle_cast(_Msg, S) -> {noreply, S}.
 
+handle_info(advertise_registered, #state{capabilities = Caps,
+                                         advertise_sups = Sups} = S) ->
+    {noreply, S#state{advertise_sups = do_advertise(Caps, Sups)}};
 handle_info(republish, #state{capabilities = Caps,
                               advertise_sups = Sups} = S) ->
     NewSups = do_advertise(Caps, Sups),

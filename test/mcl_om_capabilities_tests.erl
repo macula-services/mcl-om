@@ -423,7 +423,7 @@ live_pool_handler_capability_test_() ->
           {"register with a handler-bearing capability reaches the SDK "
            "boundary and degrades cleanly with no healthy station",
            fun() ->
-              ?assertEqual(ok, mcl_om_capabilities:register([Cap]))
+              ?assertEqual(ok, registered([Cap]))
            end},
           {"a second tick (simulating the 30s republish timer) is just "
            "as stable -- proves repeated failed advertise_direct calls "
@@ -448,7 +448,7 @@ live_pool_records_the_provider_grant_test_() ->
                  handler => {?MODULE, []}},
          [fun() ->
              ?assertEqual(#{}, mcl_om_capabilities:provider_grants()),
-             ok = mcl_om_capabilities:register([Cap]),
+             ok = registered([Cap]),
              Grants = mcl_om_capabilities:provider_grants(),
              ?assertEqual([<<"acme/svc.answer">>], maps:keys(Grants)),
              ?assertMatch(#{result := {not_granted, _}, since := Since}
@@ -477,7 +477,7 @@ unset_org_advertises_nothing_and_says_so_test_() ->
       fun(_) ->
          Cap = #{name => <<"svc.answer">>, version => 1, handler => {?MODULE, []}},
          [fun() ->
-             ok = mcl_om_capabilities:register([Cap]),
+             ok = registered([Cap]),
              ?assertEqual(0, meck:num_calls(macula_response, advertise_direct, '_')),
              ?assertMatch(#{<<"_/svc.answer">> :=
                               #{result := {not_granted, {org_unset, <<"_">>}}}},
@@ -506,7 +506,7 @@ live_pool_streamer_capability_test_() ->
           {"register with a streamer-kind capability reaches macula_streamer's "
            "advertise_direct and degrades cleanly with no healthy station",
            fun() ->
-              ?assertEqual(ok, mcl_om_capabilities:register([Cap]))
+              ?assertEqual(ok, registered([Cap]))
            end},
           {"a second tick is just as stable for the streamer path too",
            fun() ->
@@ -554,13 +554,54 @@ advertise_one_timeout_test_() ->
                     fun(_Pool, _Realm, Proc, _Mod, _Args, _Key, _Opts) ->
                        advertise_direct_stub(Proc)
                     end),
-              ?assertEqual(ok, mcl_om_capabilities:register([Ok, Boom])),
+              ?assertEqual(ok, registered([Ok, Boom])),
               ?assert(is_process_alive(Pid)),
               ?assertEqual(Pid, whereis(mcl_om_capabilities)),
               meck:unload(macula_response)
            end}
          ]
       end}}.
+
+%% REGISTER DOES NOT WAIT FOR THE NETWORK. register/1 is a gen_server call with the
+%% caller's default 5 s patience, and mcl_om:boot/1 makes it from the service's
+%% start/2. It used to advertise every capability over the network INSIDE that
+%% call, so a service with many capabilities, or slow stations, failed its boot
+%% with {timeout, {gen_server, call, [mcl_om_capabilities, {register, ...}]}}:
+%% mcl-rag's 17 did, on msi00, 2026-09-29, crash-looping every boot. It replies at
+%% once now and advertises right after, in the same process, so every capability
+%% is still advertised, and a later call to this server sees it done.
+register_does_not_wait_for_the_network_test_() ->
+    {timeout, 60,
+     {setup, fun() -> start_live_with_links([<<11:256>>]) end,
+      fun stop_live_with_links/1,
+      fun(_) ->
+         %% Its own timeout: the advertising takes 6 s, past eunit's 5 s default.
+         [{timeout, 30, fun() ->
+             %% Each advertisement takes 2 s: three take 6 s, past the 5 s the
+             %% register call waits.
+             ok = meck:expect(macula_response, advertise_direct,
+                              fun(_Pool, _Realm, _Proc, _Mod, _Args, _Key, _Opts) ->
+                                  timer:sleep(2_000),
+                                  {ok, spawn(fun() -> receive stop -> ok end end)}
+                              end),
+             Caps = [#{name => <<"svc.slow", (integer_to_binary(I))/binary>>, version => 1,
+                       handler => {?MODULE, []}} || I <- lists:seq(1, 3)],
+             {Us, Result} = timer:tc(fun() -> mcl_om_capabilities:register(Caps) end),
+             ?assertEqual(ok, Result),
+             ?assert(Us < 1_000_000),
+             %% A later call is served after the advertising: every one was made.
+             _ = gen_server:call(mcl_om_capabilities, list, 30_000),
+             ?assertEqual(3, meck:num_calls(macula_response, advertise_direct, '_'))
+          end}]
+      end}}.
+
+%% registered(Caps): register/1, then one call to the server, which it serves only
+%% after the advertising register/1 set off, so what a test asserts next is what
+%% the advertising did.
+registered(Caps) ->
+    ok = mcl_om_capabilities:register(Caps),
+    _ = gen_server:call(mcl_om_capabilities, list, 60_000),
+    ok.
 
 %% `Proc' is the org-qualified procedure -- match on substring so the
 %% "boom" capability triggers the same simulated timeout; the other
@@ -716,7 +757,7 @@ registration_names_only_the_serving_station_test_() ->
          Stream = #{name => <<"svc.watch">>, version => 1, handler => {?MODULE, []},
                     kind => streamer},
          [?_test(begin
-                     ?assertEqual(ok, mcl_om_capabilities:register([Resp, Stream])),
+                     ?assertEqual(ok, registered([Resp, Stream])),
                      Opts = [advertised_opts(macula_response), advertised_opts(macula_streamer)],
                      ?assertEqual([[Chosen], [Chosen]], [maps:get(stations, O, none) || O <- Opts]),
                      ?assertEqual([], [K || O <- Opts, K <- [advertise, publish_advertisement],
@@ -733,7 +774,7 @@ no_serving_station_advertises_nothing_test_() ->
       fun(_) ->
          Resp = #{name => <<"svc.answer">>, version => 1, handler => {?MODULE, []}},
          [?_test(begin
-                     ?assertEqual(ok, mcl_om_capabilities:register([Resp])),
+                     ?assertEqual(ok, registered([Resp])),
                      ?assertEqual(0, meck:num_calls(macula_response, advertise_direct, '_'))
                  end)]
       end}}.
