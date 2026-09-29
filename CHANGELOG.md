@@ -3,6 +3,19 @@
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [SemVer](https://semver.org/).
 
+## [0.33.3]
+
+### Fixed
+
+- **A service with many capabilities boots.** `mcl_om_capabilities:register/1`, which
+  `mcl_om:boot/1` calls from the service's `start/2` with the gen_server default of 5 s, advertised
+  every capability over the network before it replied. A service with many capabilities, or slow
+  stations, ran past the 5 s and failed its boot with `{timeout, {gen_server, call,
+  [mcl_om_capabilities, {register, ...}]}}`: mcl-rag's 17 did on msi00, 2026-09-29, and
+  crash-looped every boot. `register/1` now records the set, replies at once and advertises right
+  after in the same process, so every capability is still advertised, a later call to the server
+  sees it done, and `/health` reports each grant as it lands.
+
 ## [0.33.2]
 
 ### Fixed
