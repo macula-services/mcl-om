@@ -3,6 +3,33 @@
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [SemVer](https://semver.org/).
 
+## [0.35.0]
+
+### Removed
+
+- **mcl_om opens no store and starts no reckon-db or evoq application** (mcl-om#10, decided by
+  Raf). mcl_om is the basis for on-mesh services; each service chooses its own persistence. Gone:
+  the `reckon_db`, `evoq` and `reckon_evoq` dependencies and applications (so khepri, ra and
+  reckon_gater no longer start in every service), the `mcl_om_store` module, the optional
+  `store_id/0`, `data_dir/0`, `store_indexes/0`, `store_mode/0` and `store_integrity/0`
+  callbacks of `mcl_om_service`, and the store wiring in `mcl_om:boot/1`. The evoq and
+  reckon_evoq version floors go with them, into the services that use them.
+
+### Changed
+
+- **An event-sourced service owns its store.** It declares `reckon_db` (`~> 5.4`), `evoq`
+  (`>= 1.26.1 and < 2.0.0`) and `reckon_evoq` (`>= 2.7.2 and < 3.0.0`) in its own rebar.config
+  and app.src, and opens its store in its application's `start/2` BEFORE `mcl_om:boot/1`: start
+  the store (`reckon_db_sup:start_store/1`), wait until `reckon_db_sup:which_stores/0` lists it,
+  start `evoq_store_subscription:start_link/1`. `rebar3 new mcl_service store=1` generates that
+  wiring in `<name>_app`, the store's name, directory, indexes, mode and integrity in
+  `<name>_service`, and the three dependencies; a storeless scaffold names none of them.
+- **A service still exporting the old callbacks boots without a store, and is told so.**
+  `mcl_om:boot/1` logs a warning, `mcl_om_no_longer_opens_a_store`, naming the service, the
+  callbacks it still exports and the way out, rather than letting its projections fail later
+  where nobody connects them to this release (`mcl_om:leftover_store_callbacks/1`,
+  `mcl_om:warn_leftover_store/1`).
+
 ## [0.34.0] - 2026-09-28
 
 ### Added

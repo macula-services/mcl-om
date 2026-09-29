@@ -4,26 +4,19 @@ The behaviour every mcl service implements.
 
 Six callbacks are required: `c:info/0`, `c:start/1`, `c:stop/1`,
 `c:health/0`, `c:capabilities/0` and `c:identity_spec/0`. The optional
-callbacks let a service own a reckon-db store, mesh subscriptions and human-facing capability descriptions. Health wiring,
-capability advertisement and the optional stores are handled by the rest of
-mcl_om; a new service repository (release, Containerfile, CI workflows,
+callbacks let a service declare mesh subscriptions and human-facing capability
+descriptions. Health wiring and capability advertisement are handled by the rest
+of mcl_om; a new service repository (release, Containerfile, CI workflows,
 compose file) is generated with `rebar3 new mcl_service` from
 `priv/templates/mcl_service/` (see `scripts/scaffold-service.sh`).
 
-When a service exports the optional `c:store_id/0` and `c:data_dir/0`
-callbacks, `mcl_om:boot/1` does the following before it calls
-`ServiceMod:start/1`:
-
-- starts the store at `<data_dir>/<store_id>/` with
-  `reckon_db_sup:start_store/1`, in the mode `c:store_mode/0` names
-  (`single` when it is not exported);
-- waits up to 30s for the store to appear in
-  `reckon_db_sup:which_stores/0`;
-- starts `evoq_store_subscription:start_link/1` so projections and process
-  managers receive events.
-
-Producer-only services (no event store) omit both callbacks. See
-`m:mcl_om_store` for the helper module.
+Persistence is the service's own. mcl_om opens no store and starts no reckon-db
+or evoq application (mcl-om#10, 0.35.0): an event-sourced service declares
+reckon_db, evoq and reckon_evoq itself and opens its store in its own `start/2`
+before `mcl_om:boot/1`. `rebar3 new mcl_service store=1` generates that wiring
+as the service's own `<name>_store` module. A service module that still exports
+the old `store_id/0` and `data_dir/0` callbacks boots without a store, and
+`mcl_om:boot/1` warns, naming them.
 """.
 
 -type info()           :: #{name := binary(), version := binary(), description := binary()}.
@@ -89,40 +82,6 @@ Producer-only services (no event store) omit both callbacks. See
      "Until UCAN-delegation lands in realm, this is informational only.".
 -callback identity_spec() -> identity_spec().
 
--doc "OPTIONAL. The reckon-db store_id this service owns. When "
-     "exported alongside data_dir/0, mcl_om:boot/1 auto-starts "
-     "the store and the per-store evoq subscription before the "
-     "service module's own start/1 fires.".
--callback store_id() -> atom().
-
--doc "OPTIONAL. The on-disk root for this service's reckon-db store. "
-     "The store data lands at data_dir/store_id.".
--callback data_dir() -> string().
-
--doc "OPTIONAL. The reckon-db secondary index declarations this service's "
-     "store maintains, e.g. [tags, event_type, {payload, <<\"plate\">>}, "
-     "{payload_hash, [<<\"lot_id\">>, <<\"plate\">>]}]. When exported "
-     "alongside store_id/0 + data_dir/0, mcl_om:boot/1 installs these on "
-     "the auto-started store so CCC payload indexes are declared. Omit for a "
-     "store with no secondary indexes.".
--callback store_indexes() -> [term()].
-
--doc "OPTIONAL. The reckon-db store mode: `single` (default) or `cluster`. "
-     "`cluster` makes reckon-db discover peers and form a Ra cluster across "
-     "every node that starts the same store_id (RF = number of such nodes). "
-     "When exported alongside store_id/0 + data_dir/0, mcl_om:boot/1 "
-     "auto-starts the store in this mode. Omit for a standalone single-node "
-     "store.".
--callback store_mode() -> single | cluster.
-
--doc "OPTIONAL. The reckon-db integrity config for the store: `disabled` "
-     "(default), or `#{enabled => true, key_source => {env_var, Name} | "
-     "{sealed_file, Path}}` to enable per-store HMAC event tamper-resistance. "
-     "When exported, mcl_om:boot/1 threads it into the store config. The "
-     "store refuses to start if integrity is enabled but the key cannot be "
-     "loaded, so provision the key before enabling.".
--callback store_integrity() -> disabled | map().
-
 -doc "OPTIONAL. Topics this service subscribes to at boot: a list of "
      "{Topic, HandlerModule, Args} triples, HandlerModule implementing "
      "the `macula_subscriber` behaviour. mcl_om:boot/1 wires each "
@@ -172,7 +131,6 @@ Producer-only services (no event store) omit both callbacks. See
      "the mesh once exported.".
 -callback describe_pubsub_capabilities() -> [pubsub_capability_doc()].
 
--optional_callbacks([store_id/0, data_dir/0, store_indexes/0, store_mode/0,
-                     store_integrity/0, subscriptions/0,
+-optional_callbacks([subscriptions/0,
                      describe_rpc_capabilities/0,
                      describe_pubsub_capabilities/0]).

@@ -18,27 +18,21 @@
 -export([info/0, start/1, stop/1, health/0, capabilities/0, identity_spec/0]).
 <%#store%>
 %% ==========================================================================
-%% AND TWO OPTIONAL ONES, WHICH TURN THE STORE ON
+%% AND THE STORE THIS SERVICE OWNS
 %% ==========================================================================
 %%
-%% Generated because this service was scaffolded with `store=1'. Exporting
-%% `store_id/0' and `data_dir/0' TOGETHER makes `mcl_om:boot/1' open a
-%% reckon-db store before this module's `start/1' fires.
+%% Generated because this service was scaffolded with `store=1'. These are NOT
+%% mcl_om callbacks: mcl_om opens no store since 0.35.0. <%name%>_app reads them
+%% and opens the store in its own start/2 before mcl_om:boot/1, with reckon_db,
+%% evoq and reckon_evoq declared by this service in rebar.config and its app.src.
 %%
-%% ⚠ THE reckon-db APPLICATIONS RUN EITHER WAY. `reckon_db', `reckon_evoq',
-%% `reckon_gater', `evoq', `khepri' and `ra' start with `mcl_om' whether these
-%% callbacks exist or not. What the two add is a STORE: a data directory, an open
-%% handle, and something written. A sibling service claimed for months that they
-%% suppressed the whole stack while six of its thirty-one running applications
-%% quietly disproved it.
-%%
-%% ⚠⚠ AND `config/sys.config.src' MUST CARRY THE `evoq' BLOCK, which is why it was
-%% generated with one. mcl_om starts a per-store evoq subscription that reads
-%% the global log, and that crashes on `{not_configured, event_store_adapter}'
-%% without it. evoq starts as a release-boot application before any service's
-%% `start/2' runs, so nothing can inject it later. A sibling put two of three
-%% fleet nodes into a boot-crash loop this exact way.
--export([store_id/0, data_dir/0]).
+%% ⚠ `config/sys.config.src' MUST CARRY THE `evoq' BLOCK, which is why it was
+%% generated with one. The per-store evoq subscription reads the global log, and
+%% that crashes on `{not_configured, event_store_adapter}' without it. evoq starts
+%% as a release-boot application before any service's `start/2' runs, so nothing
+%% can inject it later. A sibling put two of three fleet nodes into a boot-crash
+%% loop this exact way.
+-export([store_id/0, data_dir/0, store_indexes/0, store_mode/0, store_integrity/0]).
 <%/store%>
 
 info() ->
@@ -98,4 +92,20 @@ data_dir() -> chosen(os:getenv("MCL_DATA_DIR")).
 chosen(false) -> "/tmp/<%name%>";
 chosen("") -> "/tmp/<%name%>";
 chosen(Path) -> Path.
+
+%% @doc The secondary indexes the store maintains, e.g. [tags, event_type,
+%% {payload, <<"plate">>}]. None until a query needs one.
+-spec store_indexes() -> [term()].
+store_indexes() -> [].
+
+%% @doc `single': one node's store. `cluster' makes reckon-db form a Ra cluster
+%% across every node that opens the same store_id.
+-spec store_mode() -> single | cluster.
+store_mode() -> single.
+
+%% @doc `disabled', or `#{enabled => true, key_source => {env_var, Name}}' for
+%% per-store HMAC tamper-resistance. The store refuses to start when integrity is
+%% enabled and the key cannot be loaded, so provision the key first.
+-spec store_integrity() -> disabled | map().
+store_integrity() -> disabled.
 <%/store%>

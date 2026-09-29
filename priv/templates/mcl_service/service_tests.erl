@@ -106,8 +106,8 @@ supervisor_starts_and_stops_test() ->
 %% ⚠ A SIBLING SERVICE'S FLEET CRASH-LOOPED ON TWO OF THREE NODES FOR WANT OF THE
 %% `evoq' BLOCK.
 %%
-%% Exporting `store_id/0' makes `mcl_om:boot/1' start the store AND a per-store
-%% evoq subscription. That subscription reads through evoq, which raises
+%% <%name%>_app opens the store AND a per-store evoq subscription before
+%% `mcl_om:boot/1'. That subscription reads through evoq, which raises
 %% `{not_configured, event_store_adapter}' unless sys.config names the adapter,
 %% and evoq starts as a release-boot application before any service's `start/2'
 %% runs, so nothing can inject it later.
@@ -128,7 +128,7 @@ the_evoq_adapter_is_configured_wherever_a_store_is_opened_test() ->
        <<"reckon_evoq_adapter">>]).
 
 %% ⚠ AND THE STORE ID IS IN TWO PLACES, WHICH IS ONE MORE THAN IT SHOULD BE.
-%% `store_id/0' is what mcl_om opens; the `{store_id, ...}' in the evoq block
+%% `store_id/0' is what <%name%>_app opens; the `{store_id, ...}' in the evoq block
 %% is what evoq falls back to when it resolves a dispatch before knowing there is
 %% none. Nothing makes them agree, and disagreeing opens one store and addresses
 %% another. Same boundary guard, other side.

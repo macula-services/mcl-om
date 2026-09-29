@@ -33,29 +33,22 @@ end_per_suite(_Config) ->
     ok.
 
 behaviour_attributes(_Config) ->
-    %% mcl_om_service declares 6 required callbacks + 8 optional ones
-    %% (store_id/0, data_dir/0, store_indexes/0, store_mode/0,
-    %% store_integrity/0, subscriptions/0) for CMD/PRJ services that wire a
-    %% reckon-db store and/or a declarative pubsub subscription set, plus
+    %% mcl_om_service declares 6 required callbacks + 3 optional ones:
+    %% subscriptions/0 for a declarative pubsub subscription set, and
     %% describe_rpc_capabilities/0 and describe_pubsub_capabilities/0 for the
-    %% describe_capabilities RPC. behaviour_info(callbacks) returns all 14.
-    %% A read model is the service's own business since 0.27.0: no
-    %% read_model_id/0 or read_model_ttl_sweep/0.
+    %% describe_capabilities RPC. No store callbacks since 0.35.0: each service
+    %% opens its own store (mcl-om#10). A read model is the service's own
+    %% business since 0.27.0.
     Callbacks = mcl_om_service:behaviour_info(callbacks),
-    ?assertEqual(14, length(Callbacks)),
+    ?assertEqual(9, length(Callbacks)),
     Names = lists:sort(lists:map(fun({N, _A}) -> N end, Callbacks)),
     Expected = lists:sort([info, start, stop, health, capabilities,
-                           identity_spec, store_id, data_dir, store_indexes,
-                           store_mode, store_integrity, subscriptions,
+                           identity_spec, subscriptions,
                            describe_rpc_capabilities,
                            describe_pubsub_capabilities]),
     ?assertEqual(Expected, Names),
-    %% The store-wiring, subscriptions and describe
-    %% callbacks must be the optional set.
     Optional = lists:sort(mcl_om_service:behaviour_info(optional_callbacks)),
-    ?assertEqual(lists:sort([{store_id, 0}, {data_dir, 0},
-                             {store_indexes, 0}, {store_mode, 0},
-                             {store_integrity, 0}, {subscriptions, 0},
+    ?assertEqual(lists:sort([{subscriptions, 0},
                              {describe_rpc_capabilities, 0},
                              {describe_pubsub_capabilities, 0}]),
                  Optional).

@@ -19,8 +19,13 @@
     realm/0,
     identity_key/0,
     mesh_handles/0,
-    service_module/0
+    service_module/0,
+    leftover_store_callbacks/1,
+    warn_leftover_store/1
 ]).
+
+%% The store callbacks of the contract before 0.35.0, in the order it listed them.
+-define(OLD_STORE_CALLBACKS, [store_id, data_dir, store_indexes, store_mode, store_integrity]).
 
 -define(SERVICE_MODULE_KEY, mcl_om_service_module).
 
@@ -38,7 +43,7 @@ boot(ServiceMod) ->
 boot(ServiceMod, Opts) when is_atom(ServiceMod), is_map(Opts) ->
     persistent_term:put(?SERVICE_MODULE_KEY, ServiceMod),
     ok = org_configured(mcl_om_identity:org()),
-    ok = maybe_wire_store(ServiceMod),
+    _ = warn_leftover_store(ServiceMod),
     ok = mcl_om_health:register(ServiceMod),
     %% ADVERTISE ONLY AFTER A SUCCESSFUL START. A procedure is announced
     %% only once the service can answer it, and a service that refuses to
@@ -102,60 +107,34 @@ wire_subscriptions(false, _ServiceMod) ->
 wire_subscriptions(true, ServiceMod) ->
     mcl_om_pubsub:ensure_subscriptions(ServiceMod:subscriptions()).
 
-%% @private When the service module exports both `store_id/0' and
-%% `data_dir/0', treat it as a CMD/PRJ service that owns a reckon-db
-%% store. Wire the canonical pattern before the service's own
-%% start/1 runs. Producer-only services omit the callbacks and pay
-%% nothing.
-maybe_wire_store(ServiceMod) ->
+%% @doc The store callbacks `ServiceMod' still exports from the contract before
+%% 0.35.0, when `boot/1' opened a reckon-db store for a service exporting
+%% `store_id/0' and `data_dir/0'. It does not any more (mcl-om#10): each
+%% service chooses its own persistence and opens its own store.
+-spec leftover_store_callbacks(module()) -> [atom()].
+leftover_store_callbacks(ServiceMod) ->
     _ = code:ensure_loaded(ServiceMod),
-    Has = erlang:function_exported(ServiceMod, store_id, 0) andalso
-          erlang:function_exported(ServiceMod, data_dir, 0),
-    wire_store(Has, ServiceMod).
+    [F || F <- ?OLD_STORE_CALLBACKS, erlang:function_exported(ServiceMod, F, 0)].
 
-wire_store(false, _ServiceMod) ->
+%% @doc A service built for the old contract boots WITHOUT the store it expects,
+%% and would fail later, where nobody connects it to this release. So boot says
+%% so at once, as a warning naming the callbacks and the way out.
+-spec warn_leftover_store(module()) -> ok | {warned, [atom()]}.
+warn_leftover_store(ServiceMod) ->
+    warned(leftover_store_callbacks(ServiceMod), ServiceMod).
+
+warned([], _ServiceMod) ->
     ok;
-wire_store(true, ServiceMod) ->
-    StoreId = ServiceMod:store_id(),
-    DataDir = ServiceMod:data_dir(),
-    Indexes = store_indexes(ServiceMod),
-    Mode    = store_mode(ServiceMod),
-    Integ   = store_integrity(ServiceMod),
-    ensured(mcl_om_store:ensure(StoreId, DataDir, Indexes, Mode, Integ), ServiceMod).
-
-ensured(ok, _ServiceMod) ->
-    ok;
-ensured({error, Why}, ServiceMod) ->
-    error({mcl_om_store_failed, ServiceMod, Why}).
-
-%% Optional store_indexes/0 callback: the service's declared secondary
-%% index list. Defaults to [] (no indexes) when the service doesn't
-%% export it.
-store_indexes(ServiceMod) ->
-    case erlang:function_exported(ServiceMod, store_indexes, 0) of
-        true  -> ServiceMod:store_indexes();
-        false -> []
-    end.
-
-%% Optional store_mode/0 callback: `single' (default) or `cluster'.
-%% `cluster' makes reckon-db form a Ra cluster across every node that
-%% starts the same store_id. Defaults to `single' for services that
-%% don't export it (backward compatible).
-store_mode(ServiceMod) ->
-    case erlang:function_exported(ServiceMod, store_mode, 0) of
-        true  -> ServiceMod:store_mode();
-        false -> single
-    end.
-
-%% Optional store_integrity/0 callback: the reckon-db integrity config
-%% (`disabled', or `#{enabled => true, key_source => {env_var, Name}}').
-%% Enables per-store HMAC event tamper-resistance. Defaults to `disabled'
-%% for services that don't export it (backward compatible).
-store_integrity(ServiceMod) ->
-    case erlang:function_exported(ServiceMod, store_integrity, 0) of
-        true  -> ServiceMod:store_integrity();
-        false -> disabled
-    end.
+warned(Callbacks, ServiceMod) ->
+    logger:warning(#{what => mcl_om_no_longer_opens_a_store,
+                     service => ServiceMod,
+                     callbacks => Callbacks,
+                     instead => <<"mcl_om 0.35.0 opens no store and starts no reckon_db, evoq or "
+                                  "reckon_evoq. Declare those three in the service's own deps and "
+                                  "applications, and open the store in its own start/2 before "
+                                  "mcl_om:boot/1: `rebar3 new mcl_service store=1' generates the "
+                                  "wiring (<name>_store.erl). See mcl_om's CHANGELOG, 0.35.0.">>}),
+    {warned, Callbacks}.
 
 -spec service_module() -> module() | undefined.
 service_module() ->

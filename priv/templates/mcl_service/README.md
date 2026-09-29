@@ -84,9 +84,13 @@ a capability named `info`.
 <%#store%>### The store
 
 This service was scaffolded with `store=1`, so it owns a `reckon-db` store called
-`<%name%>_store`. `store_id/0` and `data_dir/0` are exported, `mcl_om:boot/1`
-opens the store and its evoq subscription before `start/1` fires, and
-`config/sys.config.src` carries the `evoq` adapter block that boot requires.
+`<%name%>_store`. Persistence is the service's own: `mcl_om` opens no store and
+starts no reckon-db or evoq application. This service declares `reckon_db`, `evoq`
+and `reckon_evoq` in `rebar.config` and its app.src, and `<%name%>_app` opens the
+store and its evoq subscription in `start/2`, before `mcl_om:boot/1`, from what
+`<%name%>_service` says (`store_id/0`, `data_dir/0`, `store_indexes/0`,
+`store_mode/0`, `store_integrity/0`). `config/sys.config.src` carries the `evoq`
+adapter block the subscription requires.
 
 ⚠ **The store id is written in two places**, `store_id/0` and the `evoq` block,
 and nothing makes them agree by itself. A generated test compares them, along
@@ -97,24 +101,19 @@ it the record lives inside the container and every recreate destroys it, which i
 the same as not keeping one.
 
 The store is node-local. To make it span every node running the same `store_id`,
-export the optional `store_mode/0` callback returning `cluster`, and `mcl_om`
-starts it with reckon-db discovery and Ra clustering. It is not generated,
-because `single` is the default and a scaffold should not decide that for you.
+return `cluster` from `store_mode/0`, and reckon-db forms a Ra cluster across them.
 <%/store%><%^store%>### Adding a store later
 
-This service has no `reckon-db` store, which is the right answer for most. The
-reckon-db applications run either way; what a store adds is a data directory, an
-open handle, and something written.
+This service has no `reckon-db` store, which is the right answer for most, and
+runs no reckon-db or evoq application: `mcl_om` brings none.
 
-The cheapest way to get one is to scaffold again with `store=1`, which generates
-the callbacks, the config and the guards together.
-
-⚠ **By hand it is three things and not one, and the missing third crash-loops the
-node.** Export `store_id/0` and `data_dir/0`; add the `evoq` adapter block to
-`config/sys.config.src`, without which boot raises
-`{not_configured, event_store_adapter}` before any service code runs; and mount a
-volume in the compose file. A sibling service put two of three fleet nodes into a
-boot loop by doing the first and not the second.
+The cheapest way to get one is to scaffold again with `store=1` and compare. It is
+four things, not one, and a missing one crash-loops the node or loses the record:
+declare `reckon_db`, `evoq` and `reckon_evoq` in `rebar.config` and the app.src;
+open the store in the application's `start/2` before `mcl_om:boot/1` (the
+generated `<name>_app` shows how); add the `evoq` adapter block to
+`config/sys.config.src`, without which the subscription raises
+`{not_configured, event_store_adapter}`; and mount a volume in the compose file.
 <%/store%>
 
 ## Licence

@@ -59,7 +59,9 @@
          image_build_runs_on_docker_and_podman_alike/1,
          only_main_and_release_tags_publish/1,
          house_images_are_signed_by_digest/1,
-         generated_tests_guard_the_behaviour_attribute/1]).
+         generated_tests_guard_the_behaviour_attribute/1,
+         storeless_scaffold_names_no_store/1,
+         store_scaffold_owns_its_store/1]).
 
 -define(REPO, "mcl-probe-svc").
 -define(APP,  "mcl_probe_svc").
@@ -83,6 +85,8 @@
 %% What scaffold-service.sh generates when nobody overrides anything.
 -define(HOUSE_REPO, "mcl-house-probe").
 -define(HOUSE_APP,  "mcl_house_probe").
+-define(STORE_REPO, "mcl-store-probe").
+-define(STORE_APP,  "mcl_store_probe").
 
 all() ->
     [generates_every_expected_file,
@@ -120,7 +124,9 @@ all() ->
      image_build_runs_on_docker_and_podman_alike,
      only_main_and_release_tags_publish,
      house_images_are_signed_by_digest,
-     generated_tests_guard_the_behaviour_attribute].
+     generated_tests_guard_the_behaviour_attribute,
+     storeless_scaffold_names_no_store,
+     store_scaffold_owns_its_store].
 
 %%%---------------------------------------------------------------------------
 %%% Generate once, compile once, then assert
@@ -151,8 +157,36 @@ init_per_suite(Config) ->
     filelib:is_dir(Root) orelse ct:fail({no_output_dir, Root, Out}),
     Compiled = compile_generated(Root, Ebin),
     {HouseRoot, HouseOut} = scaffold_as_the_house(filename:join(Priv, "house")),
-    [{root, Root}, {house_root, HouseRoot}, {house_out, HouseOut},
+    StoreRoot = scaffold_with_a_store(Rebar3, filename:join(Priv, "store")),
+    [{root, Root}, {house_root, HouseRoot}, {house_out, HouseOut}, {store_root, StoreRoot},
      {ebin, Ebin}, {compiled, Compiled}, {added, Added} | Config].
+
+%% THE STORE VARIANT (store=1) is generated AND compiled too: since 0.35.0 the
+%% service carries its own copy of the store wiring (in <name>_app, since a
+%% rebar3 template cannot generate a file conditionally), so a template that
+%% renders it wrong fails here, not in the next service's first build. It
+%% compiles into its own ebin, under names nothing above uses.
+scaffold_with_a_store(Rebar3, Dir) ->
+    ok = filelib:ensure_path(Dir),
+    Out = run(Rebar3, ["new", "mcl_service",
+                       "repo=" ?STORE_REPO, "name=" ?STORE_APP,
+                       "desc=A store probe", "health_port=8497",
+                       "org=" ?ORG, "registry=" ?REGISTRY, "holder=" ?HOLDER,
+                       "builder_image=" ?BUILDER_IMAGE, "runtime_image=" ?RUNTIME_IMAGE,
+                       "store=1"],
+              Dir),
+    ct:pal("rebar3 new (store=1) said:~n~s", [Out]),
+    Root = filename:join(Dir, ?STORE_REPO),
+    filelib:is_dir(Root) orelse ct:fail({no_store_output_dir, Root, Out}),
+    Ebin = filename:join(Dir, "ebin"),
+    ok = filelib:ensure_path(Ebin),
+    Srcs = [filename:join([Root, "apps", ?STORE_APP, "src", ?STORE_APP ++ Suffix])
+            || Suffix <- ["_app.erl", "_sup.erl", "_service.erl"]],
+    Bad = [{S, R} || S <- Srcs,
+                     R <- [compile:file(S, [{outdir, Ebin}, return, warnings_as_errors, debug_info])],
+                     element(1, R) =/= ok],
+    [] =:= Bad orelse ct:fail({store_scaffold_does_not_compile, Bad}),
+    Root.
 
 %% THE HOUSE GENERATION GOES THROUGH scripts/scaffold-service.sh, the way we
 %% scaffold, with every override cleared, so what it produces is the defaults
@@ -1019,3 +1053,48 @@ commit(Repo, Rel, Content) ->
 
 gate(Script, Repo, Before, After) ->
     run(Script, [Before, After], Repo).
+
+%%%---------------------------------------------------------------------------
+%%% Persistence is the service's own (mcl-om#10)
+%%%---------------------------------------------------------------------------
+
+%% A storeless service names no store at all: not in its deps, not in its
+%% applications, and not in the text that tells a reader how to add one by
+%% exporting callbacks to mcl_om, which no longer opens a store.
+storeless_scaffold_names_no_store(Config) ->
+    Root = ?config(root, Config),
+    lists:foreach(
+      fun(F) ->
+              Text = read(Root, F),
+              [ct:fail({storeless_scaffold_names, D, F})
+               || D <- [<<"reckon_db">>, <<"reckon_evoq">>, <<"{evoq">>, <<"mcl_om_store">>],
+                  nomatch =/= binary:match(Text, D)]
+      end,
+      ["rebar.config", "apps/" ?APP "/src/" ?APP ".app.src",
+       "apps/" ?APP "/src/" ?APP "_app.erl"]).
+
+%% A service scaffolded with store=1 owns its store: its own copy of the wiring,
+%% the three applications declared with the floors mcl_om used to carry, and the
+%% store opened in its own start/2 before mcl_om:boot/1.
+store_scaffold_owns_its_store(Config) ->
+    Root = ?config(store_root, Config),
+    Src = "apps/" ?STORE_APP "/src/",
+    Rebar = read(Root, "rebar.config"),
+    [nomatch =/= binary:match(Rebar, Dep) orelse ct:fail({store_dep_missing, Dep})
+     || Dep <- [<<"{reckon_db,">>, <<"{evoq,        \">= 1.26.1">>,
+                <<"{reckon_evoq, \">= 2.7.2">>]],
+    {ok, [{application, _, Props}]} = file:consult(filename:join(Root, Src ++ ?STORE_APP ".app.src")),
+    Apps = proplists:get_value(applications, Props),
+    [lists:member(A, Apps) orelse ct:fail({store_application_missing, A})
+     || A <- [reckon_db, evoq, reckon_evoq]],
+    App = read(Root, Src ++ ?STORE_APP "_app.erl"),
+    [nomatch =/= binary:match(App, W) orelse ct:fail({store_wiring_missing, W})
+     || W <- [<<"reckon_db_sup:start_store(">>, <<"reckon_db_sup:which_stores()">>,
+              <<"evoq_store_subscription:start_link(">>]],
+    {Open, _} = binary:match(App, <<"ok = open_store(),">>),
+    {Boot, _} = binary:match(App, <<"mcl_om:boot(">>),
+    Open < Boot orelse ct:fail(store_opened_after_boot).
+
+read(Root, Rel) ->
+    {ok, Bin} = file:read_file(filename:join(Root, Rel)),
+    Bin.

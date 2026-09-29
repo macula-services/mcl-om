@@ -75,8 +75,8 @@ services:
       - MCL_SERVICE_NAME=<%repo%>
       - MCL_BOX=${MCL_BOX:-}
 <%#store%>
-      # Where the store lands, matching the volume above. `store_id/0' is
-      # appended by mcl_om, so the store itself is at /data/<%name%>_store.
+      # Where the store lands, matching the volume above. <%name%>_app appends
+      # `store_id/0', so the store itself is at /data/<%name%>_store.
       - MCL_DATA_DIR=/data
 <%/store%>
 

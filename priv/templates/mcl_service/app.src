@@ -8,7 +8,11 @@
         stdlib,
         crypto,
         %% Mesh SDK, realm identity, capabilities, health.
-        mcl_om
+        mcl_om<%#store%>,
+        %% This service's own event store (<%name%>_app opens it).
+        reckon_db,
+        evoq,
+        reckon_evoq<%/store%>
     ]},
     {env, []},
     {modules, []},

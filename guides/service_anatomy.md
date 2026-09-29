@@ -57,8 +57,6 @@ mcl_om:
    │   realm key, seed list or node id list refuses the boot, by name)
    ├── registers capabilities() into mcl_om_capabilities
    ├── registers the service module into mcl_om_health
-   ├── wires a reckon-db store IF the service exports store_id/0
-   │   and data_dir/0; producer-only services pay nothing
    └── calls mcl_x_service:start(Opts) → mcl_x_sup:start_link()
    ↓
 mcl_om_capabilities:publish/0 announces capabilities on the mesh
@@ -82,46 +80,31 @@ That's the whole user-side surface. Health endpoint, mesh
 advertisement, identity loading, container packaging — all handled
 by `mcl_om` + the templates.
 
-## Store-backed services (optional)
+## Event-store-backed services
 
-A CMD/PRJ service that owns a `reckon-db` event store exports three more
-**optional** callbacks. When both `store_id/0` and `data_dir/0` are present,
-`mcl_om:boot/1` auto-wires the store and its evoq subscription during
-`maybe_wire_store`, *before* `start/1` runs — so the store is already up
-when your supervisor boots. You never call `reckon_db_sup:start_store/1`
-directly.
+The event store is the service's own business, as the read model is (below).
+mcl_om opened a `reckon-db` store for a service exporting `store_id/0` and
+`data_dir/0` until 0.34; since 0.35.0 it depends on no reckon-db or evoq
+application and opens nothing (mcl-om#10). An event-sourced service:
 
-```erlang
--export([store_id/0, data_dir/0, store_indexes/0]).
+- declares `reckon_db`, `evoq` and `reckon_evoq` in its own `rebar.config` and
+  app.src;
+- opens its store in its application's `start/2`, BEFORE `mcl_om:boot/1`, so the
+  store and its evoq subscription are up when `start/1` starts the projections;
+- declares its secondary indexes when it opens the store (the `#store_config{}`
+  indexes), since a store already running ignores a second declaration;
+- carries the `evoq` adapter block in `config/sys.config.src`.
 
-store_id()   -> my_service_store.            %% atom; data at <data_dir>/<store_id>/
-data_dir()   -> "/var/lib/hecate-my-service".
-
-%% reckon-db secondary indexes installed on the auto-started store. This is
-%% the ONLY place CCC payload indexes get declared for an auto-wired store —
-%% declaring them in your own start/1 is too late (the store is already up,
-%% so start_store returns {already_started} and your indexes are dropped).
-store_indexes() ->
-    [tags, event_type,
-     {payload, <<"plate">>},
-     {payload_hash, [<<"lot_id">>, <<"plate">>]}].
-```
-
-`store_indexes/0` is itself optional — omit it (or return `[]`) for a store
-with no secondary indexes. Boot threads its result into the `#store_config{}`
-so `reckon_db_index_config` registers the declarations; the gateway's CCC
-payload/hash queries then resolve against them. Requires `mcl_om >= 0.3.4`.
-
-Boot order with a store:
+`rebar3 new mcl_service store=1` generates all four. Boot order with a store:
 
 ```
-hecate_X_app:start/2 → mcl_om:boot(hecate_X_service)
-   ↓
-mcl_om:maybe_wire_store/1   (store_id/0 + data_dir/0 present?)
-   ├── reckon_db_sup:start_store(#store_config{indexes = store_indexes()})
-   └── evoq_store_subscription:start_link(store_id())
-   ↓
-hecate_X_service:start/1 → hecate_X_sup:start_link()   (store already up)
+hecate_X_app:start/2
+   ├── open_store(): reckon_db_sup:start_store(#store_config{indexes = ...}),
+   │   wait until reckon_db_sup:which_stores/0 lists it,
+   │   evoq_store_subscription:start_link(StoreId)
+   └── mcl_om:boot(hecate_X_service)
+          ↓
+       hecate_X_service:start/1 → hecate_X_sup:start_link()   (store already up)
 ```
 
 ## Read-model-backed services

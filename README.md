@@ -178,34 +178,22 @@ gets without writing it:
   resolving. `mcl_om_pubsub` runs each publisher under a watcher, so such an
   exit is counted and logged instead of killing the process that published.
 
-## Optional: store-backed services
+## Persistence is the service's own
 
-CMD/PRJ services that own a `reckon-db` event store export three more
-**optional** callbacks. When a service exports `store_id/0` + `data_dir/0`,
-`mcl_om:boot/1` auto-starts the store and its evoq subscription *before*
-`start/1` runs — you never call `reckon_db_sup:start_store/1` yourself.
-Producer-only services (no store) omit these and pay nothing.
+`mcl_om` opens no store and starts no `reckon_db`, `evoq` or `reckon_evoq`
+application (0.35.0, mcl-om#10): it is the basis for on-mesh services, and each
+service chooses its own persistence. An event-sourced service declares those
+three in its own `rebar.config` and app.src and opens its store in its
+application's `start/2`, before `mcl_om:boot/1`, so projections and process
+managers find it up when `start/1` runs. `rebar3 new mcl_service store=1`
+generates exactly that: the deps, the wiring in `<name>_app` (start the store,
+wait until reckon-db lists it, start the per-store evoq subscription), the
+store's name, directory, indexes, mode and integrity in `<name>_service`, and the
+`evoq` adapter block in `config/sys.config.src`.
 
-```erlang
-%% Optional store-wiring callbacks (only if the service owns a store)
--export([store_id/0, data_dir/0, store_indexes/0]).
-
-%% Atom store id. Data lands at <data_dir>/<store_id>/.
-store_id() -> my_service_store.
-
-data_dir() -> "/var/lib/mcl-my-service".
-
-%% reckon-db secondary index declarations installed on the store. This is
-%% how CCC payload indexes get declared — without it the store starts with
-%% no secondary indexes and payload/hash queries find nothing.
-store_indexes() ->
-    [tags, event_type,
-     {payload, <<"plate">>},                            %% single-field index
-     {payload_hash, [<<"lot_id">>, <<"plate">>]}].      %% composite hash index
-```
-
-`store_indexes/0` is itself optional: export it only when the store needs
-secondary indexes. Omit it (or return `[]`) for a store with none.
+A service module that still exports the old `store_id/0` and `data_dir/0`
+callbacks boots WITHOUT a store, and `mcl_om:boot/1` logs a warning
+(`mcl_om_no_longer_opens_a_store`) naming them and the way out.
 
 ## Scaffold a new service
 
@@ -361,8 +349,8 @@ networking turns a collision into a silent bind failure.
 ## Status
 
 **Working library — 0.31.x, on macula 12.7.** The behaviour and all helpers are implemented
-(`mcl_om_identity`, `mcl_om_capabilities`, `mcl_om_store`,
-`mcl_om_health`), the boot path (`mcl_om:boot/1` with auto store-wiring)
+(`mcl_om_identity`, `mcl_om_capabilities`, `mcl_om_health`), the boot path
+(`mcl_om:boot/1`)
 is exercised by a Common Test suite (`mcl_om_SUITE`), and `rebar3 new
 mcl_service` generates a service that compiles, tests and deploys, guarded
 by a suite that generates one for real. `mcl_om:mesh_handles/0` gives every
@@ -371,14 +359,8 @@ alongside `realm/0` and `identity_key/0` on the same public facade.
 Lint, EUnit and the Common Test suites run on every pull request and every
 push to main.
 
-The behaviour surface has grown since the first cut: the store-wiring
-callbacks are `store_id/0` + `data_dir/0` (required together) plus optional
-`store_indexes/0` (CCC secondary indexes), `store_mode/0` (`single` | `cluster`),
-and `store_integrity/0` (per-store HMAC event tamper-resistance). See the
-[CHANGELOG](CHANGELOG.md) for the evolution.
-
-Known gap: the store-wiring callbacks are the part of the contract with no test
-of their own. `mcl_om_SUITE` boots a producer-only dummy service.
+Persistence left mcl_om in two steps: the read model in 0.27.0, the event store
+in 0.35.0. See the [CHANGELOG](CHANGELOG.md).
 
 Consumers: the `macula-services/mcl-*` services, `mcl-echo` deployed on the
 fleet. Not yet burned in under sustained load.
