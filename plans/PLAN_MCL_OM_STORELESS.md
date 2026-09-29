@@ -3,7 +3,7 @@
 This exists so an mcl-* service starts only the persistence it chose, and so mcl_om is the basis
 for on-mesh services and nothing more.
 
-**Kind:** BUILD. **Status:** step 1 (mcl_om 0.35.0) built 2026-09-29; steps 2-3 to follow.
+**Kind:** BUILD. **Status:** step 1 (mcl_om 0.35.0) built 2026-09-29, untagged until step 5.
 **Decision (Raf, mcl-om#10):** mcl_om neither depends on nor starts reckon_db, evoq or
 reckon_evoq; the `store_id/0`-gated store start goes; event-sourced services declare those deps
 themselves. mcl_om ships it as a minor, with a CHANGELOG entry naming the move.
@@ -54,16 +54,21 @@ wiring out of reckon_evoq and reckon_db either way.)
 
 ## Order (each step its own range, Mercurius reads, Raf's yes)
 
-1. mcl_om minor (0.35.0): drop the three applications and deps, `mcl_om_store`, the store
-   callbacks and the boot dispatch; the template's STORE option generates the service's own copy
-   of the wiring and its tests and declares the three deps; CHANGELOG names the move and what a store-owning service must add.
-   A service still exporting `store_id/0` gets a boot warning naming the change, not a silent
-   storeless start.
-2. The 8 consumers, one range each, floor `~> 0.35`: declare the undeclared deps, add the
-   service's own copy of the wiring and its tests, start the store in `start/2`, gate green, release, then a fleet pin for the deployed ones (the
-   bookclubs, mcl-mail and mcl-tube). The storeless deployed services (echo, stations, citizens)
-   are untouched until their next floor move.
-3. The three "verify" services, each settled by what its code starts.
+Revised 2026-09-29 (Supervisor, approved): consumers FIRST, the tag last, so no consumer is ever
+exposed. `~> 0.N` in hex means `< 1.0.0`, so 9 of the 11 store-using consumers would float onto
+0.35.0 at their next build (only mcl-mail and mcl-rag, `~> 0.33.1`, are held).
+
+1. mcl_om 0.35.0 lands on main (e72fbb5), NOT tagged: nothing is published, no consumer sees it.
+2. mcl-bookclub-observer and mcl-graph first: they use evoq/reckon_evoq without a store, so they
+   declare what they use and nothing more.
+3. The 8 store owners, one range each: declare reckon_db, evoq and reckon_evoq; open the store in
+   their own start/2 before `mcl_om:boot/1` (their own copy of the wiring, with its tests); set the
+   constraint to `">= 0.34.0 and < 0.36.0"`, gated green on 0.34, where boot's own store ensure
+   then finds the store up (both are idempotent), so they are ready for 0.35 by construction. The
+   deployed ones (the bookclubs, mcl-mail, mcl-tube) get their fleet repin as its own step.
+4. mcl-rag settled by what its code starts.
+5. Tag mcl_om v0.35.0 only when no consumer floats onto it unmigrated (checked on fetched
+   origin/main of each, in the tag ask).
 
 ## Done when
 
