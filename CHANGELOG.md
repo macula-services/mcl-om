@@ -3,6 +3,24 @@
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [SemVer](https://semver.org/).
 
+## [0.36.0]
+
+### Changed (breaking)
+
+- **Requires macula 13.3** (`~> 13.3`), up from `~> 13.0.1`, so a service on mcl_om
+  gets handshake v5 (one authentication per connection, bound to its TLS session; a client
+  dials 5 and falls back to 4 once on `unsupported_version`) and the `station_version` field
+  of the station endpoint record. No mcl_om call changes: every macula function it uses keeps
+  its arity and result in 13.3.0 (`call_station` returns a report only when asked for one).
+  Breaking for a service pinned `~> 0.35.0`: it stays on 0.35 until it moves. A service that
+  pins macula itself keeps that pin, since rebar3 lets the top-level pin win.
+- The `mcl_service` template pins `{mcl_om, "~> 0.36"}`.
+- **Constraints on our own libraries float at `~> MAJOR.MINOR`** (Raf's dev rule, 2026-09-30):
+  released versions only, and a build takes the newest one, so a service rebuilds onto a
+  moved SDK without a constraint edit. macula `~> 13.3` here; in the template's store
+  variant evoq `~> 1.26` and reckon_evoq `~> 2.7` replace the `>= X.Y.Z and < N.0.0` floors
+  (the same in mcl_om's test profile).
+
 ## [0.35.0]
 
 ### Fixed

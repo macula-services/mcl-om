@@ -1074,15 +1074,15 @@ storeless_scaffold_names_no_store(Config) ->
        "apps/" ?APP "/src/" ?APP "_app.erl"]).
 
 %% A service scaffolded with store=1 owns its store: its own copy of the wiring,
-%% the three applications declared with the floors mcl_om used to carry, and the
+%% the three applications declared at ~> MAJOR.MINOR, and the
 %% store opened in its own start/2 before mcl_om:boot/1.
 store_scaffold_owns_its_store(Config) ->
     Root = ?config(store_root, Config),
     Src = "apps/" ?STORE_APP "/src/",
     Rebar = read(Root, "rebar.config"),
     [nomatch =/= binary:match(Rebar, Dep) orelse ct:fail({store_dep_missing, Dep})
-     || Dep <- [<<"{reckon_db,">>, <<"{evoq,        \">= 1.26.1">>,
-                <<"{reckon_evoq, \">= 2.7.2">>]],
+     || Dep <- [<<"{reckon_db,">>, <<"{evoq,        \"~> 1.26\"}">>,
+                <<"{reckon_evoq, \"~> 2.7\"}">>]],
     {ok, [{application, _, Props}]} = file:consult(filename:join(Root, Src ++ ?STORE_APP ".app.src")),
     Apps = proplists:get_value(applications, Props),
     [lists:member(A, Apps) orelse ct:fail({store_application_missing, A})
