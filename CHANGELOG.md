@@ -3,6 +3,14 @@
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [SemVer](https://semver.org/).
 
+## [0.37.2] - 2026-10-04
+
+### Fixed
+
+- **`top_callers` is a list of maps, not tuples.** The wire codec refuses tuples in payloads,
+  so every `get_limits` reply carrying an over-limit caller was unsendable (`unknown_error` on
+  the caller side). Stats now ride the wire cleanly.
+
 ## [0.37.1] - 2026-10-04
 
 ### Changed

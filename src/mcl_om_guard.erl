@@ -128,11 +128,17 @@ counters(Proc, Limits) ->
     {GlobalCount, Callers} = current_window_counts(Proc, Start),
     PerCallerMax = maps:get(per_caller_max, Limits),
     OverLimit = [Caller || {Caller, Count} <- Callers, Count > PerCallerMax],
+    %% `top_callers' is a LIST OF MAPS, not a list of tuples: the wire
+    %% codec refuses tuples in payloads (unknown_error on the caller),
+    %% and this map rides get_limits' reply.
+    Sorted = lists:reverse(lists:keysort(2, Callers)),
+    TopCallers = [#{caller => Caller, count => Count}
+                  || {Caller, Count} <- lists:sublist(Sorted, 10)],
     #{current_window => Start,
       global_count => GlobalCount,
       distinct_callers => length(Callers),
       callers_over_limit => length(OverLimit),
-      top_callers => lists:sublist(lists:reverse(lists:keysort(2, Callers)), 10),
+      top_callers => TopCallers,
       denied_rate => denied(Proc, rate),
       denied_size => denied(Proc, size)}.
 

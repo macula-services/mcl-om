@@ -72,7 +72,9 @@ stats_report_the_window_and_denial_counters() ->
     ?assertEqual(1, maps:get(denied_rate, Stats)),
     ?assertEqual(1, maps:get(denied_size, Stats)),
     ?assert(maps:get(callers_over_limit, Stats) >= 1),
-    ?assertEqual(3, maps:get(per_caller_max, maps:get(limits, Stats))).
+    ?assertEqual(3, maps:get(per_caller_max, maps:get(limits, Stats))),
+    Top = maps:get(top_callers, Stats),
+    ?assert(lists:any(fun(#{caller := C, count := N}) -> C =:= <<"c1">> andalso N >= 4 end, Top)).
 
 the_audit_ring_records_changes() ->
     Proc = declare_proc(),
