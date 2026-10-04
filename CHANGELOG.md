@@ -3,6 +3,22 @@
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [SemVer](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **The inbound guard (mcl-om#13).** Every response-kind capability advertised through
+  `mcl_om_capabilities` now flows through an inbound guard pipeline
+  (`mcl_om_guard_pipeline`, a `macula_response`): a payload-size stage, then a fixed-window
+  rate stage, then the handler. Framework defaults are roomy (64 KiB payload cap, 10 s
+  window, 600 per caller, 6000 global); a capability overrides them with a `limits` key
+  (plus a per-key `envelope` of min/max clamps, changed only by the operator tier) or opts
+  out deliberately with `guard => none`. Streamers are unaffected. Denials are counted, and
+  once per window per procedure the service publishes a `denials_observed` alert fact
+  (topic configurable, default `denials_observed`) for a mcl-sec-guard to subscribe to.
+  `mcl_om_guard:stats/1` reports limits, window fill, denial counters and recent audit
+  entries; every applied limits change lands on the audit ring and in the log.
+
 ## [0.36.0]
 
 ### Changed (breaking)

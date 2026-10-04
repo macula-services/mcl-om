@@ -1,14 +1,18 @@
 %%% @doc Top-level supervisor for hecate-om.
 %%%
-%%% Owns four workers and one nested supervisor, all shared by the
+%%% Owns five workers and one nested supervisor, all shared by the
 %%% hosting service:
 %%%   1. mcl_om_identity  — keeps the realm cert + UCAN cached
 %%%   2. mcl_om_capabilities — fans capability advertisements out
-%%%   3. mcl_om_pubsub_sup — dynamic supervisor of this service's
+%%%   3. mcl_om_guard        — the inbound guard's counters, audit ring
+%%%                            and alert facts (mcl-om#13), up before
+%%%                            capabilities so no inbound call can outrun
+%%%                            its table
+%%%   4. mcl_om_pubsub_sup — dynamic supervisor of this service's
 %%%      macula_subscriber children (piece D)
-%%%   4. mcl_om_pubsub_subscriptions — reconciles the desired
-%%%      subscription set against (3)'s actual running children
-%%%   5. mcl_om_health    — bookkeeping for /health responses
+%%%   5. mcl_om_pubsub_subscriptions — reconciles the desired
+%%%      subscription set against (4)'s actual running children
+%%%   6. mcl_om_health    — bookkeeping for /health responses
 %%%
 %%% and, when `health_port' is configured, the Cowboy listener that actually
 %%% serves `GET /health' on it (so Podman's HEALTHCHECK and k8s liveness probes
@@ -51,6 +55,9 @@ init([]) ->
         %% so an identical proof is accepted once.
         worker(mcl_om_ownership_proof_replay)
     ] ++ mesh_pool_children() ++ [
+        %% The inbound guard (mcl-om#13): its ETS must exist before any
+        %% handler can answer a call, so it starts ahead of capabilities.
+        worker(mcl_om_guard),
         worker(mcl_om_capabilities),
         worker(mcl_om_claim),
         supervisor_child(mcl_om_pubsub_sup),

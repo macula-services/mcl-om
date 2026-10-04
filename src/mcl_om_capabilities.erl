@@ -682,6 +682,12 @@ advertise_one_safely(Pool, Key, Realm, Org, Cap, Acc) ->
             Acc
     end.
 
+%% EVERY response-kind capability flows through the inbound guard
+%% pipeline (mcl-om#13) unless `guard => none' opts it out: the wrap
+%% happens here, once, before the handler tuple reaches advertise_direct.
+%% Streamers are left alone (macula_streamer has no macula_response
+%% contract to wrap) -- the pipeline's wrapper/3 decides from the
+%% capability's `kind'.
 advertise_one(Pool, Key, Realm, Org,
              #{name := Name, handler := {Mod, Args}} = Cap, Sups) ->
     Provider = provider_module(Cap),
@@ -715,7 +721,7 @@ advertise_one(Pool, Key, Realm, Org,
                       maps:merge(Authorization,
                                  reuse_sup_opts(maps:get(OrgProcedure, Sups, undefined)))),
     advertised_on(serving_station(Pool, Key), Provider, Pool, Key, Realm, OrgProcedure,
-                  {Mod, Args}, Opts, Sups);
+                  mcl_om_guard_pipeline:wrapper(OrgProcedure, Cap, {Mod, Args}), Opts, Sups);
 advertise_one(Pool, Key, Realm, Org, Cap, Sups) ->
     %% No handler declared — discoverable-but-not-callable path,
     %% kept for a capability another mechanism serves.
