@@ -21,7 +21,8 @@ guard_test_() ->
             fun the_stats_reply_passes_the_wire_codec_test/0,
             fun the_audit_ring_records_changes/0,
             fun should_report_only_flags_new_windows_with_activity/0,
-            fun alert_payload_is_numbers_and_binaries_only/0
+            fun alert_payload_is_numbers_and_binaries_only/0,
+            fun the_alert_payload_names_the_offenders/0
         ]
     end}.
 
@@ -148,9 +149,27 @@ should_report_only_flags_new_windows_with_activity() ->
 alert_payload_is_numbers_and_binaries_only() ->
     L = mcl_om_guard_limits:defaults(),
     Stats = #{current_window => 2000, denied_rate => 1, denied_size => 0,
-              callers_over_limit => 1, global_count => 4},
+              callers_over_limit => 1, global_count => 4,
+              distinct_callers => 1, top_callers => []},
     Payload = mcl_om_guard:alert_payload(<<"t/proc">>, L, Stats),
     ?assertEqual(<<"t/proc">>, maps:get(procedure, Payload)),
     ?assertEqual(2000, maps:get(window_start_ms, Payload)),
     ?assertEqual(maps:get(per_caller_max, L), maps:get(per_caller_max, Payload)),
     ?assertEqual(maps:get(global_max, L), maps:get(global_max, Payload)).
+
+%% The guardian's rule can only counter what the fact tells it: without
+%% the offenders in the payload, a proposal is a blind floor. The stats
+%% already compute top_callers in a wire-safe shape (list of maps,
+%% hex-encoded caller ids) — the alert fact must carry them, and the
+%% payload must pass the wire codec outright.
+the_alert_payload_names_the_offenders() ->
+    L = mcl_om_guard_limits:defaults(),
+    Stats = #{current_window => 2000, denied_rate => 1, denied_size => 2,
+              callers_over_limit => 1, global_count => 4,
+              distinct_callers => 2,
+              top_callers => [#{caller => <<"00ff">>, count => 5}]},
+    Payload = mcl_om_guard:alert_payload(<<"t/proc">>, L, Stats),
+    ?assertEqual(2, maps:get(distinct_callers, Payload)),
+    ?assertEqual([#{caller => <<"00ff">>, count => 5}],
+                 maps:get(top_callers, Payload)),
+    ?assertEqual(ok, macula_frame:check_payload(Payload)).

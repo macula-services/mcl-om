@@ -103,6 +103,11 @@ should_report(Start, LastReported, Stats) ->
 
 %% @doc Pure: the `denials_observed' fact payload -- binaries and
 %% numbers only, the procedure in the payload, never in the topic.
+%% `top_callers' rides along (the stats already hold it in a wire-safe
+%% shape: a list of maps with hex-encoded caller ids) so the guardian's
+%% rule can name the actual offenders instead of proposing a blind
+%% floor; `distinct_callers' tells it how wide the window's activity
+%% was.
 -spec alert_payload(binary(), map(), map()) -> map().
 alert_payload(Proc, Limits, Stats) ->
     #{procedure => Proc,
@@ -112,7 +117,9 @@ alert_payload(Proc, Limits, Stats) ->
       callers_over_limit => maps:get(callers_over_limit, Stats),
       global_count => maps:get(global_count, Stats),
       global_max => maps:get(global_max, Limits),
-      per_caller_max => maps:get(per_caller_max, Limits)}.
+      per_caller_max => maps:get(per_caller_max, Limits),
+      distinct_callers => maps:get(distinct_callers, Stats),
+      top_callers => maps:get(top_callers, Stats)}.
 
 max_for(?GLOBAL_KEY, Limits) -> maps:get(global_max, Limits);
 max_for(_Caller, Limits) -> maps:get(per_caller_max, Limits).

@@ -3,6 +3,16 @@
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [SemVer](https://semver.org/).
 
+## [0.37.4] - 2026-10-05
+
+### Added
+
+- **The alert fact names the offenders.** `alert_payload/3` now carries
+  `distinct_callers` and `top_callers` (the wire-safe list of maps with
+  hex-encoded caller ids the stats already computed) so the guardian's
+  rule can propose against the actual offenders instead of a blind
+  floor, and the payload still passes `check_payload/1` outright.
+
 ## [0.37.3] - 2026-10-04
 
 ### Fixed
