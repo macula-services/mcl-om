@@ -138,7 +138,11 @@ counters(Proc, Limits) ->
 
 window_start(Limits) ->
     WindowMs = maps:get(window_ms, Limits),
-    (erlang:monotonic_time(millisecond) div WindowMs) * WindowMs.
+    %% WALL CLOCK, deliberately: window starts ride the wire (stats and
+    %% alert facts) and OTP 28's `monotonic_time' is signed — negative —
+    %% which the wire codec refuses. Wall-clock windows also let the
+    %% guardian correlate across services.
+    (erlang:system_time(millisecond) div WindowMs) * WindowMs.
 
 current_window_counts(Proc, Start) ->
     Fold = fun({{P, ?GLOBAL_KEY, W}, Count}, {Global, Callers})
@@ -219,7 +223,8 @@ terminate(_Reason, _State) ->
     ok.
 
 sweep_old_windows() ->
-    Now = erlang:monotonic_time(millisecond),
+    %% The same wall clock the window keys use (see window_start/1).
+    Now = erlang:system_time(millisecond),
     Cutoff = Now - ?RETAIN_WINDOWS * mcl_om_guard_limits:max_window_ms(),
     %% Only windowed entries carry an integer start time; the cumulative
     %% denial counters ({Proc, '$denied', Kind}) never match.

@@ -3,6 +3,22 @@
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [SemVer](https://semver.org/).
 
+## [0.37.1] - 2026-10-04
+
+### Changed
+
+- **The control surface is named per the house rule, and the operator capability is gone.**
+  `limits.get` / `limits.set` / `limits.set_operator` become `get_limits` (open) and
+  `set_limits` (guardian tier, envelope-bound). The operator-tier mesh procedure is dropped:
+  humans set limits and the envelope through deploy config and the service's own admin
+  surface, never over the mesh. `inbound_guard.guardian` config names `realm_did` and
+  `guardian_tier` only.
+- **Window starts use the wall clock.** OTP 28's `monotonic_time` is signed (negative), and
+  the wire codec refuses negative integers — every `limits.get` reply was unsendable
+  (`unknown_error` on the caller side). Guard window keys, stats and the
+  `denials_observed` facts now carry `system_time`-based windows, which also lets the
+  guardian correlate across services.
+
 ## [0.37.0] - 2026-10-04
 
 ### Added
