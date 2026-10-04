@@ -17,7 +17,7 @@
 set -euo pipefail
 
 ERL=(erl)
-command -v erl >/dev/null 2>&1 || ERL=(mise exec -- erl)
+command -v erl >/dev/null 2>&1 || ERL=(asdf exec erlang -- erl)
 
 VERSION="${1:?usage: $0 <version> [tag]}"
 TAG="${2:-v${VERSION}}"
