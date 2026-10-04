@@ -41,13 +41,15 @@
 -endif.
 
 -define(PT_KEY, {?MODULE, entries}).
--define(KEYS, [max_payload_external_size, window_ms, per_caller_max, global_max]).
+-define(KEYS, [max_payload_external_size, window_ms, per_caller_max, global_max,
+               max_distinct_callers]).
 -define(ENVELOPE_KEY, envelope).
 
 -type limits() :: #{max_payload_external_size := pos_integer(),
                     window_ms := pos_integer(),
                     per_caller_max := pos_integer(),
-                    global_max := pos_integer()}.
+                    global_max := pos_integer(),
+                    max_distinct_callers := pos_integer()}.
 -type envelope() :: #{atom() => #{min := pos_integer(), max := pos_integer()}}.
 
 -export_type([limits/0, envelope/0]).
@@ -60,7 +62,8 @@ defaults() ->
     #{max_payload_external_size => 65536,
       window_ms                 => 10000,
       per_caller_max            => 600,
-      global_max                => 6000}.
+      global_max                => 6000,
+      max_distinct_callers      => 1024}.
 
 %% @doc The framework defaults with the app env''s
 %% `{mcl_om, [{inbound_guard, #{default_limits => ...}}]}' merged over

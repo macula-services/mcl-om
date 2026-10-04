@@ -56,16 +56,55 @@ init([]) ->
 %% @doc One fixed-window count for (Procedure, Caller); the denial
 %% counter is bumped inside here so a denied call is observable
 %% immediately in stats/1.
+%%
+%% A caller is a distinct node id, and the bucket is allocated BEFORE
+%% the rate check — a Sybil flood (fresh identities, a few calls each)
+%% would grow the table regardless of global_max: memory would scale
+%% with attacker-chosen distinct callers within the retention window.
+%% Once the window has seen `max_distinct_callers', a NEW caller is
+%% denied before its bucket exists; callers the window already knows
+%% keep their normal per-caller budget. The `'$distinct' counter rides
+%% the same windowed sweep as the buckets.
 -spec allow(binary(), binary() | '$global', map()) -> allow | deny.
+allow(Proc, '$global' = Caller, Limits) ->
+    %% The global bucket is not a caller; it takes no part in the
+    %% distinct-caller bound.
+    bucket_check(Proc, Caller, Limits);
 allow(Proc, Caller, Limits) ->
+    Start = window_start(Limits),
+    case ets:member(?TABLE, {Proc, Caller, Start})
+         orelse distinct_under_bound(Proc, Start, Limits) of
+        true ->
+            bucket_check(Proc, Caller, Limits);
+        false ->
+            count_denial(Proc, rate),
+            deny
+    end.
+
+bucket_check(Proc, Caller, Limits) ->
     Start = window_start(Limits),
     Max = max_for(Caller, Limits),
     Count = ets:update_counter(?TABLE, {Proc, Caller, Start},
                                {2, 1}, {{Proc, Caller, Start}, 0}),
+    maybe_count_distinct(Count, Proc, Start),
     case Count =< Max of
         true -> allow;
         false -> count_denial(Proc, rate), deny
     end.
+
+distinct_under_bound(Proc, Start, Limits) ->
+    Bound = maps:get(max_distinct_callers, Limits),
+    case ets:lookup(?TABLE, {Proc, '$distinct', Start}) of
+        [{_, Distinct}] -> Distinct < Bound;
+        [] -> true
+    end.
+
+maybe_count_distinct(1, Proc, Start) ->
+    _ = ets:update_counter(?TABLE, {Proc, '$distinct', Start}, {2, 1},
+                           {{Proc, '$distinct', Start}, 0}),
+    ok;
+maybe_count_distinct(_, _Proc, _Start) ->
+    ok.
 
 %% @doc One fixed-window denial counter, `rate' or 'size', keyed by the
 %% window start exactly like the caller buckets: a quiet window reads
@@ -180,7 +219,7 @@ current_window_counts(Proc, Start) ->
                  when P =:= Proc, W =:= Start ->
                    {Global + Count, Callers};
               ({{P, Caller, W}, Count}, {Global, Callers})
-                 when P =:= Proc, W =:= Start ->
+                 when P =:= Proc, W =:= Start, Caller =/= '$distinct' ->
                    {Global, [{Caller, Count} | Callers]};
               (_Entry, Acc) ->
                    Acc

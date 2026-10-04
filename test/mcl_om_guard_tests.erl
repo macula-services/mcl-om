@@ -23,7 +23,8 @@ guard_test_() ->
             fun should_report_only_flags_new_windows_with_activity/0,
             fun alert_payload_is_numbers_and_binaries_only/0,
             fun the_alert_payload_names_the_offenders/0,
-            fun the_denial_counters_are_windowed/0
+            fun the_denial_counters_are_windowed/0,
+            fun a_distinct_caller_flood_stops_allocating_buckets/0
         ]
     end}.
 
@@ -162,6 +163,27 @@ the_denial_counters_are_windowed() ->
     %% window must not leak into the current window's stats.
     ets:insert(mcl_om_guard_table, {{Proc, '$denied', rate}, 99}),
     ?assertEqual(2, maps:get(denied_rate, mcl_om_guard:stats(Proc))).
+
+%% allow/3 allocates the caller's bucket BEFORE the rate check, and a
+%% caller is a distinct node id — a Sybil flood (fresh identities, a
+%% few calls each) grows the table regardless of global_max: memory ∝
+%% distinct callers within the retention window, attacker-chosen.
+%% Once the window has seen max_distinct_callers, a NEW caller is
+%% denied BEFORE its bucket exists; known callers keep their budget.
+a_distinct_caller_flood_stops_allocating_buckets() ->
+    Proc = <<"flood/proc">>,
+    ok = mcl_om_guard_limits:declare(Proc, #{max_distinct_callers => 2}),
+    #{limits := L} = mcl_om_guard_limits:get(Proc),
+    ?assertEqual(allow, mcl_om_guard:allow(Proc, <<"a">>, L)),
+    ?assertEqual(allow, mcl_om_guard:allow(Proc, <<"b">>, L)),
+    %% The window is full of distinct callers: a NEW caller is denied…
+    ?assertEqual(deny, mcl_om_guard:allow(Proc, <<"c">>, L)),
+    %% …and no bucket was created for it (the memory goal).
+    Start = (erlang:system_time(millisecond) div 10000) * 10000,
+    ?assertEqual([], ets:lookup(mcl_om_guard_table, {Proc, <<"c">>, Start})),
+    %% Known callers keep their normal per-caller budget.
+    ?assertEqual(allow, mcl_om_guard:allow(Proc, <<"a">>, L)),
+    ?assertEqual(deny, mcl_om_guard:allow(Proc, <<"d">>, L)).
 
 alert_payload_is_numbers_and_binaries_only() ->
     L = mcl_om_guard_limits:defaults(),

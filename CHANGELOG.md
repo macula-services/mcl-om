@@ -3,6 +3,20 @@
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [SemVer](https://semver.org/).
 
+## [0.37.6] - 2026-10-05
+
+### Added
+
+- **`max_distinct_callers` bounds the guard's table.** A caller is a
+  distinct node id, and the bucket was allocated BEFORE the rate check:
+  a Sybil flood (fresh identities, a few calls each) grew the ETS table
+  regardless of `global_max` — memory scaled with attacker-chosen
+  distinct callers within the retention window. Once a window has seen
+  `max_distinct_callers` (default 1024, a validated limit key like the
+  others), a NEW caller is denied before its bucket exists; known
+  callers keep their per-caller budget. The `'$distinct'` counter rides
+  the same windowed sweep. (macula-services/mcl-om#15)
+
 ## [0.37.5] - 2026-10-05
 
 ### Fixed
