@@ -24,17 +24,46 @@ setup() ->
     application:unset_env(mcl_om, inbound_guard),
     persistent_term:erase({mcl_om_guard_control, warned}),
     mcl_om_guard_limits:clear(),
-    {ok, Pid} = mcl_om_guard:start_link(),
-    Pid.
+    start_guard().
 
-teardown(Pid) ->
+teardown({Pid, Keeper}) ->
+    Keeper ! stop,
     Ref = erlang:monitor(process, Pid),
-    unlink(Pid),
     exit(Pid, shutdown),
     receive {'DOWN', Ref, process, Pid, _Reason} -> ok end,
     application:unset_env(mcl_om, inbound_guard),
     persistent_term:erase({mcl_om_guard_control, warned}),
     mcl_om_guard_limits:clear().
+
+%% The guard starts under a keeper, not the eunit setup process: eunit
+%% exits its setup process once the fixture is built, and a start_link'd
+%% child dies with it (see mcl_om_guard_tests).
+start_guard() ->
+    Parent = self(),
+    Keeper = spawn(fun() ->
+                           Pid = start_tolerating_stray(),
+                           Parent ! {guard_started, self(), Pid},
+                           receive stop -> ok end
+                   end),
+    receive {guard_started, Keeper, Pid} -> {Pid, Keeper} end.
+
+%% A previous module's in-test guard can still hold the name when this
+%% module's setup runs (its test process ended; the termination is
+%% async). Wait for it, then start.
+start_tolerating_stray() ->
+    case mcl_om_guard:start_link() of
+        {ok, Pid} ->
+            Pid;
+        {error, {already_started, Stray}} ->
+            Ref = erlang:monitor(process, Stray),
+            receive {'DOWN', Ref, _, _, _Reason} -> ok
+            after 5000 ->
+                exit(Stray, kill),
+                receive {'DOWN', Ref, _, _, _Reason} -> ok end
+            end,
+            {ok, Pid} = mcl_om_guard:start_link(),
+            Pid
+    end.
 
 declare_proc() ->
     Proc = proc_name(),
@@ -101,7 +130,7 @@ the_guardian_set_is_envelope_bound_and_audited() ->
     Audit = audit_of(Proc),
     ?assertEqual(1, length(Audit)),
     ?assertEqual(guardian, maps:get(tier, hd(Audit))),
-    ?assertEqual(<<"g1">>, maps:get(caller, hd(Audit))).
+    ?assertEqual(<<"6731">>, maps:get(caller, hd(Audit))).
 
 the_guardian_cannot_change_the_envelope() ->
     Proc = declare_proc(),

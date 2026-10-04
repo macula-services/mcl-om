@@ -3,6 +3,16 @@
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [SemVer](https://semver.org/).
 
+## [0.37.3] - 2026-10-04
+
+### Fixed
+
+- **Caller ids on the wire are hex-encoded.** `to_wire` turns binaries into text, which must
+  be valid UTF-8, and node ids are arbitrary bytes: a stats reply or audit entry carrying a
+  real caller was unsendable (`unknown_error`). `top_callers` and audit entries now carry
+  lowercase hex, and a regression test asserts the stats reply passes
+  `macula_frame:check_payload/1` outright.
+
 ## [0.37.2] - 2026-10-04
 
 ### Fixed

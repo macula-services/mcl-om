@@ -36,15 +36,43 @@ setup() ->
     mcl_om_guard_limits:clear(),
     ok = mcl_om_guard_limits:declare(<<"t/proc">>,
         #{max_payload_external_size => 4096, per_caller_max => 2, global_max => 100}),
-    {ok, Pid} = mcl_om_guard:start_link(),
-    Pid.
+    start_guard().
 
-teardown(Pid) ->
+teardown({Pid, Keeper}) ->
+    Keeper ! stop,
     Ref = erlang:monitor(process, Pid),
-    unlink(Pid),
     exit(Pid, shutdown),
     receive {'DOWN', Ref, process, Pid, _Reason} -> ok end,
     mcl_om_guard_limits:clear().
+
+%% The guard starts under a keeper, not the eunit setup process: eunit
+%% exits its setup process once the fixture is built, and a start_link'd
+%% child dies with it (see mcl_om_guard_tests).
+start_guard() ->
+    Parent = self(),
+    Keeper = spawn(fun() ->
+                           Pid = start_tolerating_stray(),
+                           Parent ! {guard_started, self(), Pid},
+                           receive stop -> ok end
+                   end),
+    receive {guard_started, Keeper, Pid} -> {Pid, Keeper} end.
+
+%% A previous module's in-test guard can still hold the name when this
+%% module's setup runs; wait for it, then start.
+start_tolerating_stray() ->
+    case mcl_om_guard:start_link() of
+        {ok, Pid} ->
+            Pid;
+        {error, {already_started, Stray}} ->
+            Ref = erlang:monitor(process, Stray),
+            receive {'DOWN', Ref, _, _, _Reason} -> ok
+            after 5000 ->
+                exit(Stray, kill),
+                receive {'DOWN', Ref, _, _, _Reason} -> ok end
+            end,
+            {ok, Pid} = mcl_om_guard:start_link(),
+            Pid
+    end.
 
 init_pipeline(ModArgs) ->
     mcl_om_guard_pipeline:init({<<"t/proc">>, [mcl_om_guard_size, mcl_om_guard_rate],

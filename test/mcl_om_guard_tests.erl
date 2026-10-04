@@ -3,16 +3,22 @@
 %%% Every test declares its own procedure: the counters and the limits
 %%% are per procedure and persist for the module's lifetime, so sharing
 %%% one name would make the tests order-dependent.
+%%%
+%%% The guard starts under a KEEPER process, not the eunit setup
+%%% process: start_link makes the caller the gen_server's parent, and
+%%% eunit exits its setup process once the fixture is built — which
+%%% takes the guard (and its table) down with it, mid-fixture.
 -module(mcl_om_guard_tests).
 
 -include_lib("eunit/include/eunit.hrl").
 
 guard_test_() ->
-    {setup, fun setup/0, fun teardown/1, fun(_Pid) ->
+    {setup, fun setup/0, fun teardown/1, fun(_Ctx) ->
         [
             fun a_callers_bucket_is_per_procedure_and_per_caller/0,
             fun the_global_key_has_its_own_bucket/0,
             fun stats_report_the_window_and_denial_counters/0,
+            fun the_stats_reply_passes_the_wire_codec_test/0,
             fun the_audit_ring_records_changes/0,
             fun should_report_only_flags_new_windows_with_activity/0,
             fun alert_payload_is_numbers_and_binaries_only/0
@@ -21,15 +27,42 @@ guard_test_() ->
 
 setup() ->
     mcl_om_guard_limits:clear(),
-    {ok, Pid} = mcl_om_guard:start_link(),
-    Pid.
+    start_guard().
 
-teardown(Pid) ->
+teardown({Pid, Keeper}) ->
+    Keeper ! stop,
     Ref = erlang:monitor(process, Pid),
-    unlink(Pid),
     exit(Pid, shutdown),
     receive {'DOWN', Ref, process, Pid, _Reason} -> ok end,
     mcl_om_guard_limits:clear().
+
+%% The keeper holds the parent link instead of the (short-lived) eunit
+%% setup process, so the guard survives the fixture build.
+start_guard() ->
+    Parent = self(),
+    Keeper = spawn(fun() ->
+                           Pid = start_tolerating_stray(),
+                           Parent ! {guard_started, self(), Pid},
+                           receive stop -> ok end
+                   end),
+    receive {guard_started, Keeper, Pid} -> {Pid, Keeper} end.
+
+%% A previous module's in-test guard can still hold the name when this
+%% module's setup runs; wait for it, then start.
+start_tolerating_stray() ->
+    case mcl_om_guard:start_link() of
+        {ok, Pid} ->
+            Pid;
+        {error, {already_started, Stray}} ->
+            Ref = erlang:monitor(process, Stray),
+            receive {'DOWN', Ref, _, _, _Reason} -> ok
+            after 5000 ->
+                exit(Stray, kill),
+                receive {'DOWN', Ref, _, _, _Reason} -> ok end
+            end,
+            {ok, Pid} = mcl_om_guard:start_link(),
+            Pid
+    end.
 
 declare_proc() ->
     Proc = proc_name(),
@@ -74,7 +107,27 @@ stats_report_the_window_and_denial_counters() ->
     ?assert(maps:get(callers_over_limit, Stats) >= 1),
     ?assertEqual(3, maps:get(per_caller_max, maps:get(limits, Stats))),
     Top = maps:get(top_callers, Stats),
-    ?assert(lists:any(fun(#{caller := C, count := N}) -> C =:= <<"c1">> andalso N >= 4 end, Top)).
+    ?assert(lists:any(fun(#{caller := C, count := N}) ->
+                              C =:= <<"6331">> andalso N >= 4
+                      end, Top)).
+
+%% The wire codec refuses tuples and non-UTF-8 binaries-as-text; a stats
+%% reply carrying a real node id must pass check_payload/1 outright.
+%% The guard is ensured here rather than assumed: eunit fixture timing
+%% can take the fixture's instance down before the last test, so this
+%% test starts its own (linked to this test process, dying with it).
+the_stats_reply_passes_the_wire_codec_test() ->
+    case mcl_om_guard:start_link() of
+        {ok, _OwnPid} -> ok;
+        {error, {already_started, _Pid}} -> ok
+    end,
+    Proc = declare_proc(),
+    L = limits_for(Proc),
+    BadCaller = <<0, 255, 1, 2>>,
+    [mcl_om_guard:allow(Proc, BadCaller, L) || _ <- lists:seq(1, 3)],
+    _ = mcl_om_guard:allow(Proc, BadCaller, L),
+    {ok, Reply} = mcl_om_guard_control:get_limits(#{procedure => Proc}),
+    ?assertEqual(ok, macula_frame:check_payload(Reply)).
 
 the_audit_ring_records_changes() ->
     Proc = declare_proc(),

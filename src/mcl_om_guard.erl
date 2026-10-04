@@ -117,6 +117,12 @@ alert_payload(Proc, Limits, Stats) ->
 max_for(?GLOBAL_KEY, Limits) -> maps:get(global_max, Limits);
 max_for(_Caller, Limits) -> maps:get(per_caller_max, Limits).
 
+%% Caller ids ride the wire as text, which must be valid UTF-8: hex.
+wire_caller(Caller) when is_binary(Caller) ->
+    binary:encode_hex(Caller, lowercase);
+wire_caller(Other) ->
+    Other.
+
 denied(Proc, Kind) ->
     case ets:lookup(?TABLE, {Proc, '$denied', Kind}) of
         [{_Key, Count}] -> Count;
@@ -132,7 +138,11 @@ counters(Proc, Limits) ->
     %% codec refuses tuples in payloads (unknown_error on the caller),
     %% and this map rides get_limits' reply.
     Sorted = lists:reverse(lists:keysort(2, Callers)),
-    TopCallers = [#{caller => Caller, count => Count}
+    %% `top_callers' is a LIST OF MAPS, and each caller is HEX-ENCODED:
+    %% the wire turns binaries into text, which must be valid UTF-8, and
+    %% node ids are arbitrary bytes. (Tuples would be refused outright —
+    %% both failure modes surface as unknown_error on the caller.)
+    TopCallers = [#{caller => binary:encode_hex(Caller, lowercase), count => Count}
                   || {Caller, Count} <- lists:sublist(Sorted, 10)],
     #{current_window => Start,
       global_count => GlobalCount,
@@ -198,13 +208,14 @@ alert_tick_ms() ->
     end.
 
 handle_call({record, Proc, Change}, _From, #{audit := Audit} = State) ->
+    Change1 = Change#{caller => wire_caller(maps:get(caller, Change, unknown))},
     Ring = maps:get(Proc, Audit, []),
-    NewRing = lists:sublist([Change | Ring], ?AUDIT_RING),
+    NewRing = lists:sublist([Change1 | Ring], ?AUDIT_RING),
     ok = logger:notice(
            "mcl_om_guard: limits changed proc=~s tier=~p caller=~p "
            "before=~p after=~p",
-           [Proc, maps:get(tier, Change, unknown), maps:get(caller, Change, unknown),
-            maps:get(before, Change), maps:get('after', Change)]),
+           [Proc, maps:get(tier, Change1, unknown), maps:get(caller, Change1, unknown),
+            maps:get(before, Change1), maps:get('after', Change1)]),
     {reply, ok, State#{audit := Audit#{Proc => NewRing}}};
 handle_call({audit, Proc}, _From, #{audit := Audit} = State) ->
     {reply, maps:get(Proc, Audit, []), State};
