@@ -18,6 +18,13 @@ Versioning: [SemVer](https://semver.org/).
   (topic configurable, default `denials_observed`) for a mcl-sec-guard to subscribe to.
   `mcl_om_guard:stats/1` reports limits, window fill, denial counters and recent audit
   entries; every applied limits change lands on the audit ring and in the log.
+- **The guardian control surface (mcl-om#13).** Every service exposes `limits.get`
+  (`open`: limits + stats for one procedure, or every declared one) and — when
+  `inbound_guard.guardian` config names the realm DID and the two tiers — the gated
+  `limits.set` (guardian tier, envelope-bound) and `limits.set_operator` (operator tier, may
+  exceed and set the envelope). Every applied change lands on the audit ring with caller and
+  tier; an unchanged set is a no-op. The `mcl_service` template's sys.config.src documents
+  the block.
 
 ## [0.36.0]
 

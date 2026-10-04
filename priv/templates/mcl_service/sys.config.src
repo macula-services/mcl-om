@@ -33,6 +33,22 @@
         %% is a property of the service, not of where it runs. Without it
         %% mcl_om answers `_' and advertises nothing.
         {org,               <<"<%repo%>">>},
+        %% INBOUND GUARD (mcl-om#13), OPTIONAL: framework defaults apply when
+        %% absent. Uncomment to override the defaults, rename the alert fact
+        %% topic, or name the guardian/operator tiers that gate `limits.set' /
+        %% `limits.set_operator' (both are advertised only when this block
+        %% names them; realm_did is the realm's Ed25519 DID, 32 bytes — NOT the
+        %% 64-hex RealmId identifier above).
+        %% {inbound_guard, #{
+        %%     default_limits => #{max_payload_external_size => 65536,
+        %%                         window_ms                 => 10000,
+        %%                         per_caller_max            => 600,
+        %%                         global_max                => 6000},
+        %%     alert_topic    => <<"denials_observed">>,
+        %%     guardian       => #{realm_did     => <<"32 bytes">>,
+        %%                         guardian_tier => <<"guardian">>,
+        %%                         operator_tier => <<"operator">>}
+        %% }},
         %% ⚠ THE TRUST ANCHOR, AND IT IS NOT OPTIONAL. MCL_REALM above is an
         %% IDENTIFIER (sha256 of the realm name); this is the realm's public
         %% SIGNING KEY, 64-hex-per-32-bytes, as carried. mcl_om decodes it and
