@@ -44,6 +44,16 @@ in the service's own `<name>_app`, reading the store's settings from
                             %% A response capability's handler budget, 1 to
                             %% 600000 ms (macula 12.2; default 30000).
                             handler_timeout_ms => 1..600000,
+                            %% Per-capability inbound guard (mcl-om#13):
+                            %% `limits' overrides the framework defaults for
+                            %% this capability's pipeline stages, and may
+                            %% carry an `envelope' of per-key min/max clamps
+                            %% (changed only by the operator tier). `guard =>
+                            %% none' opts this capability out of the pipeline
+                            %% deliberately -- the reason lives in the
+                            %% service's own code.
+                            limits => map(),
+                            guard => none,
                             %% How calls must be protected on the wire (0.34.0,
                             %% macula 13's provider modes): `off' names no KEM key,
                             %% `preferred' names one when macula's kem_advertise is
