@@ -4,30 +4,30 @@
 %%% hosting service:
 %%%   1. mcl_om_identity  — keeps the realm cert + UCAN cached
 %%%   2. mcl_om_capabilities — fans capability advertisements out
-%%%   3. mcl_om_guard        — the inbound guard's counters, audit ring
+%%%   3. mcl_om_guard        — the inbound guard''s counters, audit ring
 %%%                            and alert facts (mcl-om#13), up before
 %%%                            capabilities so no inbound call can outrun
 %%%                            its table
-%%%   4. mcl_om_pubsub_sup — dynamic supervisor of this service's
+%%%   4. mcl_om_pubsub_sup — dynamic supervisor of this service''s
 %%%      macula_subscriber children (piece D)
 %%%   5. mcl_om_pubsub_subscriptions — reconciles the desired
 %%%      subscription set against (4)'s actual running children
 %%%   6. mcl_om_health    — bookkeeping for /health responses
 %%%
 %%% and, when `health_port' is configured, the Cowboy listener that actually
-%%% serves `GET /health' on it (so Podman's HEALTHCHECK and k8s liveness probes
+%%% serves `GET /health' on it (so Podman''s HEALTHCHECK and k8s liveness probes
 %%% have something to hit).
 %%%
 %%% When station seeds are configured, also the mesh pool itself
 %%% (piece A, `PLAN_MCL_OM_MESH_WRAPPERS.md'): an ordinary
-%%% `restart => permanent' child wrapping `macula_client:connect/2'
+%%% `restart => permanent' child wrapping 'macula_client:connect/2'
 %%% (via `mcl_om_identity:start_mesh_pool/0', which needs this
-%%% gen_server's already-loaded keypair — hence positioned right after
-%%% it). A pool crash is no longer this app's problem to notice and
+%%% gen_server''s already-loaded keypair — hence positioned right after
+%%% it). A pool crash is no longer this app''s problem to notice and
 %%% react to; OTP just restarts the child, same as any other. With no
 %%% seeds configured the child is omitted entirely — same `health_
 %%% listener/0' pattern as the HTTP listener below — so
-%%% `mcl_om_identity:macula_client/0' degrades to `{error,
+%%% `mcl_om_identity:macula_client/0' degrades to '{error,
 %%% no_client}' exactly as it did before this piece, not a
 %%% harmlessly-idle pool masking "nothing configured" as "connected".
 -module(mcl_om_sup).
@@ -67,13 +67,13 @@ init([]) ->
     {ok, {SupFlags, Children}}.
 
 %% The mesh pool (piece A): present only when seeds are configured, so
-%% a service with none keeps today's exact degrade contract
-%% (`mcl_om_identity:macula_client/0' -> `{error, no_client}')
+%% a service with none keeps today''s exact degrade contract
+%% (`mcl_om_identity:macula_client/0' -> '{error, no_client}')
 %% rather than holding a real-but-permanently-idle pool that would
 %% make "nothing configured" indistinguishable from "connected" to any
 %% caller checking `mesh_handles/0' alone. Positioned right after
 %% `mcl_om_identity' in the list above -- its start function reads
-%% that gen_server's already-loaded keypair.
+%% that gen_server''s already-loaded keypair.
 mesh_pool_children() ->
     case mcl_om_identity:configured_seeds() of
         []    -> [];

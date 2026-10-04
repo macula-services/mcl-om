@@ -2,9 +2,9 @@
 %%%
 %%% Runs first because it is the cheapest and most common refusal -- a
 %%% call too large never reaches the rate counter. The cap is the
-%%% procedure's effective `max_payload_external_size', measured with
+%%% procedure''s effective `max_payload_external_size', measured with
 %%% `erlang:external_size/1' so it bounds every payload shape a caller
-%%% can send, not only binaries. The pipeline counts this stage's
+%%% can send, not only binaries. The pipeline counts this stage''s
 %%% refusals in the `denied_size' counter.
 -module(mcl_om_guard_size).
 

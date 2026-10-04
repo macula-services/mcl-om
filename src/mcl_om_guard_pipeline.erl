@@ -1,12 +1,12 @@
 %%% @doc The inbound guard pipeline (mcl-om#13): a `macula_response'
 %%% handler that runs every inbound call through the guard stages, in
-%%% order, before delegating to the capability's own handler.
+%%% order, before delegating to the capability''s own handler.
 %%%
 %%% EVERY response-kind capability advertised through mcl_om_capabilities
-%%% flows through this pipeline by default -- including the framework's
-%%% own `info' and `describe' -- because advertise_one/6 wraps its
-%%% `handler' with `wrapper/3'. A capability opts out deliberately with
-%%% `guard => none' (the reason lives in the service's own code), and
+%%% flows through this pipeline by default -- including the framework''s
+%%% own `info' and 'describe' -- because advertise_one/6 wraps its
+%%% `handler' with 'wrapper/3'. A capability opts out deliberately with
+%%% `guard => none' (the reason lives in the service''s own code), and
 %%% streamer-kind capabilities keep their own path (macula_streamer has
 %%% no macula_response contract to wrap). The stage order is fixed:
 %%% size first (cheapest refusal), then rate, then the handler -- see
@@ -25,7 +25,7 @@
 default_stages() ->
     [mcl_om_guard_size, mcl_om_guard_rate].
 
-%% @doc The advertise-time wrap: declare the capability's limits, then
+%% @doc The advertise-time wrap: declare the capability''s limits, then
 %% either hand back the handler untouched (`guard => none', or a
 %% streamer), or hand back this pipeline carrying the handler.
 -spec wrapper(binary(), mcl_om_service:capability(), {module(), term()}) ->
@@ -46,7 +46,7 @@ guard_wrapper(OrgProcedure, Cap, Handler) ->
         Other -> error({mcl_om_guard_bad_spec, OrgProcedure, Other})
     end.
 
-%% The wrapped handler's own init runs once per pipeline instance, the
+%% The wrapped handler''s own init runs once per pipeline instance, the
 %% same way macula_response would have run it without the wrap.
 init({OrgProcedure, Stages, {Mod, ModArgs}}) ->
     {ok, HandlerState} = Mod:init(ModArgs),

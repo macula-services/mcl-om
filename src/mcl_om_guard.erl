@@ -1,9 +1,9 @@
-%%% @doc The guard's counters, audit ring, and alert facts (mcl-om#13).
+%%% @doc The guard''s counters, audit ring, and alert facts (mcl-om#13).
 %%%
 %%% Owns the named ETS table the rate stage hits on EVERY inbound call:
 %%% a fixed-window counter per (procedure, caller), plus cumulative
 %%% denial counters per (procedure, kind). allow/3 is atomic ETS work in
-%%% the caller's process -- no gen_server hop on the hot path. The rare
+%%% the caller''s process -- no gen_server hop on the hot path. The rare
 %%% paths do go through this process: record_change/2 (audit), the audit
 %%% reads inside stats/1, and the periodic alert report.
 %%%
@@ -24,8 +24,8 @@
 %%%
 %%% The audit ring is in-memory, bounded (32 entries per procedure), and
 %%% additionally logger-logged per change -- a readable trail, NOT the
-%%% tamper-evident event stream the register's `Security audit log' row
-%%% still owes. The guardian's own store is where that stream will live.
+%%% tamper-evident event stream the register''s `Security audit log' row
+%%% still owes. The guardian''s own store is where that stream will live.
 -module(mcl_om_guard).
 -behaviour(gen_server).
 
@@ -67,14 +67,14 @@ allow(Proc, Caller, Limits) ->
         false -> count_denial(Proc, rate), deny
     end.
 
-%% @doc A cumulative denial counter, `rate' or `size'.
+%% @doc A cumulative denial counter, `rate' or 'size'.
 -spec count_denial(binary(), rate | size) -> ok.
 count_denial(Proc, Kind) ->
     _ = ets:update_counter(?TABLE, {Proc, '$denied', Kind}, {2, 1},
                            {{Proc, '$denied', Kind}, 0}),
     ok.
 
-%% @doc A guardian-facing view of one procedure's CURRENT window: limits
+%% @doc A guardian-facing view of one procedure''s CURRENT window: limits
 %% and envelope in effect, global fill, callers over their budget, the
 %% heaviest callers, both denial counters, and the recent audit entries.
 -spec stats(binary()) -> map().
@@ -91,7 +91,7 @@ stats(Proc) ->
 record_change(Proc, Change) ->
     gen_server:call(?MODULE, {record, Proc, Change}).
 
-%% @doc Pure: does a procedure's current window deserve an alert fact?
+%% @doc Pure: does a procedure''s current window deserve an alert fact?
 %% Yes when it is a NEW window (Start differs from the last reported
 %% one) AND it saw a denial or an over-limit caller.
 -spec should_report(integer(), integer() | undefined, map()) -> boolean().

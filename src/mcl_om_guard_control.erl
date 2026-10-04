@@ -1,19 +1,19 @@
 %%% @doc The guardian control surface (mcl-om#13): the `limits.get' /
-%%% `limits.set' / `limits.set_operator' capabilities every mcl_om
+%%% `limits.set' / 'limits.set_operator' capabilities every mcl_om
 %%% service exposes for mcl-sec-guard.
 %%%
-%%% - `limits.get' is always advertised, `auth => open': limits +
+%%% - `limits.get' is always advertised, 'auth => open': limits +
 %%%   current-window stats for one procedure, or every declared one.
-%%% - `limits.set' is the guardian tier's actuator: within the
+%%% - `limits.set' is the guardian tier''s actuator: within the
 %%%   per-parameter envelope only (envelope_exceeded otherwise), and
 %%%   never the envelope itself. `limits.set_operator' is the human
 %%%   tier: anything valid, including a new envelope. Both are
-%%%   advertised only when this app's `inbound_guard.guardian' config
-%%%   names the realm DID (32 bytes, the realm's Ed25519 key) and both
+%%%   advertised only when this app''s `inbound_guard.guardian' config
+%%%   names the realm DID (32 bytes, the realm''s Ed25519 key) and both
 %%%   tier names; without it they do not exist on the wire, and the
 %%%   service logs that once.
 %%%
-%%% Every APPLIED change is recorded on the guard's audit ring with
+%%% Every APPLIED change is recorded on the guard''s audit ring with
 %%% caller, tier, before and after; an unchanged set is a no-op and gets
 %%% no audit entry. The handlers are plain functions dispatched through
 %%% mcl_om_simple_handler, so the pipeline wraps them like any other
@@ -27,10 +27,10 @@
 -define(OPERATOR_NAME, <<"limits.set_operator">>).
 -define(NAMES, [?GET_NAME, ?SET_NAME, ?OPERATOR_NAME]).
 
-%% @doc The control capabilities, prepended to a service's own list.
+%% @doc The control capabilities, prepended to a service''s own list.
 %% `limits.get' always; the two set capabilities only when the guardian
 %% config exists. A service that declared its own `limits.*' name is
-%% refused — these names are mcl_om's, on every node.
+%% refused — these names are mcl_om''s, on every node.
 -spec with_caps([mcl_om_service:capability()]) -> [mcl_om_service:capability()].
 with_caps(Caps) ->
     ok = not_declared([Name || #{name := Name} <- Caps]),
@@ -89,7 +89,7 @@ log_once_no_guardian() ->
 %% ---- handlers (mcl_om_simple_handler dispatch targets) ----
 
 %% @doc Payload: none, or `#{procedure => Proc}'. Reply: that
-%% procedure's stats, or every declared procedure's.
+%% procedure''s stats, or every declared procedure''s.
 -spec get_limits(term()) -> {ok, map()} | {error, term()}.
 get_limits(Payload) ->
     case procedure_of(Payload) of

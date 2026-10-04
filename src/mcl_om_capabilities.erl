@@ -1,16 +1,16 @@
-%%% @doc Advertises a service's capabilities on the mesh, and resolves
+%%% @doc Advertises a service''s capabilities on the mesh, and resolves
 %%% other services' capabilities from the DHT.
 %%%
 %%% A capability carrying `handler => {HandlerModule, Args}' is advertised
-%%% ONCE, by `advertise_one/6', via `advertise_direct/7' on its provider
-%%% module (see `provider_module/1') — `macula_response' (request/reply
-%%% RPC, the default) or `macula_streamer' (a `kind => streamer'
-%%% capability) — the SDK's own supervised wrapper, which registers a
+%%% ONCE, by `advertise_one/6', via 'advertise_direct/7' on its provider
+%%% module (see `provider_module/1') — 'macula_response' (request/reply
+%%% RPC, the default) or `macula_streamer' (a 'kind => streamer'
+%%% capability) — the SDK''s own supervised wrapper, which registers a
 %%% handler with the pool AND publishes the signed
 %%% `procedure_advertisement' DHT record, in one call. It is given
-%%% `stations => [Station]', this node's serving station
+%%% `stations => [Station]', this node''s serving station
 %%% (`choose_serving_station/2'), so the handler is registered on that
-%%% station's link only and the record names it: a station's registry
+%%% station''s link only and the record names it: a station''s registry
 %%% holds one advertiser per (realm, procedure), and two providers of one
 %%% procedure spread across stations instead of fighting over each one
 %%% (issue #5). The pool renews the chain behind the registration itself
@@ -22,7 +22,7 @@
 %%% REGISTRATION: 11.x refuses a procedure with no org namespace
 %%% (`no_org_namespace'), so a caller reaches a capability by its
 %%% org-qualified string and by nothing else. A service whose org is
-%%% `acme' and whose capability is `echo' is called as `acme/echo'.
+%%% `acme' and whose capability is 'echo' is called as `acme/echo'.
 %%%
 %%% `macula_remote_advertise_registry' (station-side) keys purely on the
 %%% opaque procedure string, so two orgs serving the same capability name
@@ -31,7 +31,7 @@
 %%% republish landed last won — the exact bug a live test
 %%% (`test_live/mcl_om_capabilities_live_station_tests.erl''s
 %%% `org_scoped_call_reaches_only_the_targeted_org_test_') caught: both an
-%%% acme- and a contoso-targeted call were answered by whichever org's
+%%% acme- and a contoso-targeted call were answered by whichever org''s
 %%% registration was most recent.
 %%%
 %%% ⚠ 10.x ADVERTISED TWICE, under the bare name as well, and callers
@@ -40,7 +40,7 @@
 %%% there is nothing to fall back to.
 %%%
 %%% The discovery URI macula_direct_dial builds internally
-%%% (`RealmHex/Procedure') and this module's `procedure_uri/3'
+%%% (`RealmHex/Procedure') and this module''s 'procedure_uri/3'
 %%% (`RealmHex/Org/Name') produce the IDENTICAL string when
 %%% `Procedure = org_procedure(Org, Name)' — so
 %%% `advertise_direct''s own internal DHT publish already lands the
@@ -49,17 +49,17 @@
 %%% handler-bearing case.
 %%%
 %%% A capability with no `handler' key gets the legacy record-only path
-%%% (`build_advertisement/5,6' + `put_record'): discoverable, never
+%%% (`build_advertisement/5,6' + 'put_record'): discoverable, never
 %%% callable via `call_capability', kept for a capability another
 %%% mechanism serves.
 %%%
 %%% A handler-bearing capability may also carry an `auth' policy —
-%%% `open' (default, and every existing caller's behavior before this
+%%% `open' (default, and every existing caller''s behavior before this
 %%% key existed), `{ucan_required, IssuerPubkey}', or
 %%% `{realm_member_required, RealmDid, RequiredCan}' — forwarded via
-%%% `auth_opts/1' into BOTH `advertise_direct' calls' `Opts', through to
+%%% `auth_opts/1' into BOTH 'advertise_direct' calls' `Opts', through to
 %%% `macula:advertise/5' and enforced on every inbound call by
-%%% `macula_station_link''s `authorize_policy/2'.
+%%% `macula_station_link''s 'authorize_policy/2'.
 %%%
 %%% `{ucan_required, IssuerPubkey}' is a direct-signature check against
 %%% ONE pre-known issuer, not a delegation-chain walk — it fits "only
@@ -68,7 +68,7 @@
 %%%
 %%% `{realm_member_required, RealmDid, RequiredCan}' is the
 %%% "anyone whose UCAN traces back to a trusted realm root" case
-%%% `ucan_required' does not cover: a valid token signed by the realm's
+%%% `ucan_required' does not cover: a valid token signed by the realm''s
 %%% own DID (RealmDid — an Ed25519 keypair the realm holds, NOT the
 %%% 32-byte `RealmId' routing/scoping hash used elsewhere) whose
 %%% audience is the wire-authenticated caller itself, at the specific
@@ -79,23 +79,23 @@
 %%% `macula-mcp/plans/PLAN_AGENT_IDENTITY_UCAN.md' for the caller side
 %%% of presenting a token shaped for either policy.
 %%%
-%%% `call_capability/5,7' resolves `CapName' under `Org' and only under
-%%% `Org' (`discovery_key_org/3'). There is no bare-key fallback on the
+%%% `call_capability/5,7' resolves 'CapName' under `Org' and only under
+%%% `Org' ('discovery_key_org/3'). There is no bare-key fallback on the
 %%% read side either: `resolve_at/4' looks up exactly one key, and an org
 %%% that has published nothing there resolves to nothing rather than to
-%%% somebody else's registration. `resolve_full/4' tags each resolved
+%%% somebody else''s registration. `resolve_full/4' tags each resolved
 %%% provider with the wire-level procedure string that matched, and the
 %%% CALL uses that string rather than the raw `CapName', so a targeted
-%%% call can only ever be answered by that org's own registration, all the
+%%% call can only ever be answered by that org''s own registration, all the
 %%% way to the wire.
 %%%
-%%% `reuse_sup/0''s pid is round-tripped through this worker's state — one
+%%% `reuse_sup/0''s pid is round-tripped through this worker''s state — one
 %%% slot per DISTINCT procedure string, which since 11.x means one slot
 %%% per org-qualified registration — and passed back in as
-%%% `advertise_direct's own `reuse_sup' option on every 30s republish tick
-%%% — a station's wire-level registration for a procedure is tied to the
+%%% `advertise_direct''s own 'reuse_sup' option on every 30s republish tick
+%%% — a station''s wire-level registration for a procedure is tied to the
 %%% connection that sent it and does not survive that connection being
-%%% replaced (see `macula_response:advertise_direct/7' and `hecate-tube''s
+%%% replaced (see `macula_response:advertise_direct/7' and 'hecate-tube''s
 %%% `tube_mesh_providers.erl', which hit this bug live before this option
 %%% existed); periodic re-advertise without `reuse_sup' would also leak
 %%% one factory supervisor per tick.
@@ -103,8 +103,8 @@
 %%% Every advertisement carries `ttl_ms => ?ADVERTISEMENT_TTL_MS' (4x the
 %%% republish interval, matching the buffer `macula_station_announcer''s
 %%% own 75%-of-TTL refresh leaves for stations) instead of the ~48h
-%%% envelope default — a dead service's advertisement should age out on
-%%% the order of minutes, not days. The handler-bearing path's `ttl_ms'
+%%% envelope default — a dead service''s advertisement should age out on
+%%% the order of minutes, not days. The handler-bearing path''s `ttl_ms'
 %%% needs macula 10.11.1 or later: earlier releases dropped `ttl_ms'
 %%% while macula_direct_dial forwarded the advertisement options; the
 %%% record-only (no-handler) path builds the record directly and is
@@ -115,14 +115,14 @@
 %%% return the `{advertiser, serving_station}' set.
 %%%
 %%% `list_org_capabilities/1' browses every capability an org has
-%%% advertised — genuinely new, unlike `lookup/1'/`call_capability': the
+%%% advertised — genuinely new, unlike `lookup/1'/'call_capability': the
 %%% bare key needs a capability NAME to look anything up, and so does the
-%%% org-qualified key (`discovery_key_org/3', `Realm/Org/Name' — Name is
+%%% org-qualified key (`discovery_key_org/3', 'Realm/Org/Name' — Name is
 %%% part of the key, not something a lookup can search past). There is no
 %%% NAME-less "everything Org has" key to resolve. A DHT-composite-key
 %%% design (publish the same record again under an org-prefix-only key) —
 %%% the original plan for this — turned out infeasible:
-%%% `macula_record:storage_key/1' DERIVES a `procedure_advertisement''s
+%%% `macula_record:storage_key/1' DERIVES a 'procedure_advertisement''s
 %%% storage key from its own `procedure_uri' payload, so a record cannot
 %%% be stored under an independently-chosen key without its `procedure_uri'
 %%% field lying about what it actually is. Building a second, genuinely
@@ -132,11 +132,11 @@
 %%% over `macula:find_records_by_type/2' (matched via
 %%% `macula_topic_pattern:matches/2') — the exact same local-relay-view,
 %%% warm-start-only mechanism `read_model_services.md' already documents
-%%% for bulk browsing, honestly inheriting its "one relay's local view,
+%%% for bulk browsing, honestly inheriting its "one relay''s local view,
 %%% not authoritative" limitation rather than pretending to a DHT-wide
 %%% index this record type cannot support.
 %%%
-%%% Signing needs the service's stable identity key
+%%% Signing needs the service''s stable identity key
 %%% (`mcl_om_identity:identity_key/0'); an ephemeral service cannot sign
 %%% and is correctly not advertised.
 -module(mcl_om_capabilities).
@@ -166,14 +166,14 @@
          org_capability_pattern/1, matches_org_pattern/2,
          resolve_org_capabilities/3, republish_delay_ms/0]).
 
-%% `macula_record.erl''s own `?TYPE_PROCEDURE_ADVERTISEMENT' — not
+%% `macula_record.erl''s own '?TYPE_PROCEDURE_ADVERTISEMENT' — not
 %% exported there (no shared header defines it either), so mirrored here.
 %% MUST match `macula_record.erl''s definition exactly; a mismatch would
 %% make `list_org_capabilities/1' silently see nothing.
 -define(TYPE_PROCEDURE_ADVERTISEMENT, 6).
 
 %% Process dictionary key for advertise_with/7's log-once throttle. Scoped
-%% to this gen_server's own process, not shared/global state.
+%% to this gen_server''s own process, not shared/global state.
 -define(ADVERTISE_GATE_LOG_KEY, mcl_om_capabilities_advertise_gate_reason).
 
 %% Re-assert advertisements this often. Records outlive one interval;
@@ -183,13 +183,13 @@
 
 %% +/- jitter applied to every scheduled republish tick (see arm_timer/1).
 %% A station-side cooldown this republish races against -- e.g.
-%% macula_remote_advertise_registry's tombstone, deliberately 30s
+%% macula_remote_advertise_registry''s tombstone, deliberately 30s
 %% (bumped from 10s in ea95857 for its own gossip-convergence reasons,
 %% unrelated to this timer) -- is opaque to this module and can equal
 %% or evenly divide ?REPUBLISH_INTERVAL_MS by coincidence. A perfectly
 %% fixed-period retry that loses that race once has no drift to ever
 %% land outside the cooldown window again: found live 2026-09-01,
-%% hecate-rag's `get_document_verbatim` capability stayed
+%% hecate-rag''s `get_document_verbatim' capability stayed
 %% `unknown_method' for 45+ minutes across ~90 identically-timed retries
 %% while sibling capabilities (registered moments earlier or later in
 %% the same advertise batch, landing just outside whatever tombstone
@@ -200,26 +200,26 @@
 
 %% 4x the republish interval — the same margin `macula_station_announcer'
 %% leaves by refreshing at 75% of TTL — so one or two missed ticks (a
-%% transient mesh gap) don't age the record out, but a genuinely dead
-%% service's advertisement is gone in minutes, not the ~48h envelope
+%% transient mesh gap) don''t age the record out, but a genuinely dead
+%% service''s advertisement is gone in minutes, not the ~48h envelope
 %% default.
 -define(ADVERTISEMENT_TTL_MS, ?REPUBLISH_INTERVAL_MS * 4).
 
 %% find/2's DHT-propagation-lag retry budget -- same values as
-%% macula_direct_dial's own private find_records_retry/3, see find/2.
+%% macula_direct_dial''s own private find_records_retry/3, see find/2.
 -define(RESOLVE_BUDGET_MS, 5_000).
 %% One row per org procedure: its last provider_authorization answer.
 -define(GRANTS, mcl_om_provider_grants).
-%% One row per org procedure: its advertise loop's last outcome.
+%% One row per org procedure: its advertise loop''s last outcome.
 -define(ADVERTISE, mcl_om_advertise_state).
 -define(RESOLVE_RETRY_MS, 100).
 
-%% How long a caller of the gen_server's mesh-reading calls (lookup/1,
+%% How long a caller of the gen_server''s mesh-reading calls (lookup/1,
 %% list_org_capabilities/1) waits before giving up. Deliberately longer
 %% than the gen_server call default (5s): the resolve inside is bounded
 %% at ?RESOLVE_BUDGET_MS (see find/2), and a slow DHT used to wedge the
 %% server for up to ~255s while every caller timed out at 5s (issue #5).
-%% This timeout is the CALLER's patience, not the server's work budget.
+%% This timeout is the CALLER''s patience, not the server''s work budget.
 -define(LOOKUP_CALL_TIMEOUT_MS, 15_000).
 
 -record(state, {
@@ -260,7 +260,7 @@ provider_grants() ->
 grants_in(undefined) -> #{};
 grants_in(_Tid)      -> maps:from_list(ets:tab2list(?GRANTS)).
 
-%% @doc Whether this service's advertise loop is alive, per
+%% @doc Whether this service''s advertise loop is alive, per
 %% org-namespaced procedure, as `mcl_om_advertise_liveness' entries —
 %% the last successful advertise and the last failure. Read from a
 %% table, not by a call, for the same reason as provider_grants/0.
@@ -287,11 +287,11 @@ publish() ->
 lookup(CapName) when is_binary(CapName) ->
     gen_server:call(?MODULE, {lookup, CapName}, ?LOOKUP_CALL_TIMEOUT_MS).
 
-%% @doc Every capability `Org' has advertised — `{ok,
+%% @doc Every capability `Org' has advertised — '{ok,
 %% [#{procedure_uri := binary(), advertiser := Pubkey, serving_station :=
 %% Pubkey}]}'. See moduledoc for why this is a client-side filter over
 %% `find_records_by_type', not a DHT-indexed query: a WARM-START view of
-%% whatever this pool's connected station(s) locally hold, not an
+%% whatever this pool''s connected station(s) locally hold, not an
 %% authoritative mesh-wide listing. Empty when nothing matches or the
 %% mesh is unreachable, same as `lookup/1'.
 -spec list_org_capabilities(binary()) -> {ok, [map()]}.
@@ -300,13 +300,13 @@ list_org_capabilities(Org) when is_binary(Org) ->
                     ?LOOKUP_CALL_TIMEOUT_MS).
 
 %% @doc Call a capability by name over the DIRECT-DIAL data path: resolve
-%% the providers of `CapName' UNDER `Org' specifically (their
-%% `procedure_advertisement' records, keyed `Realm/Org/CapName' —
-%% `discovery_key_org/3'), resolve one provider's serving station to a
+%% the providers of `CapName' UNDER 'Org' specifically (their
+%% `procedure_advertisement' records, keyed 'Realm/Org/CapName' —
+%% `discovery_key_org/3'), resolve one provider''s serving station to a
 %% dialable endpoint, dial it directly and issue the CALL there. On
 %% failure (unresolvable endpoint, dead station, error reply) fail over
 %% to the next provider *of the same org* — this never silently falls
-%% over to a different org's own implementation of the same capability
+%% over to a different org''s own implementation of the same capability
 %% name.
 %%
 %% Falls back to the bare, any-provider key (`discovery_key/2') only when
@@ -318,14 +318,14 @@ list_org_capabilities(Org) when is_binary(Org) ->
 %% widens it beyond what an org-blind lookup would already find.
 %%
 %% The CALL uses whichever wire-level procedure string actually resolved
-%% (`resolve_full/4' tags each provider with it) — `org_procedure(Org,
+%% (`resolve_full/4' tags each provider with it) — 'org_procedure(Org,
 %% CapName)' on an org-scoped hit, the bare `CapName' only on the
 %% any-provider fallback — matching whichever registration that specific
 %% provider made via `advertise_one/7'. Org-scoping therefore changes both
-%% WHICH station gets dialed AND what's sent once dialed; a targeted call
-%% can only ever be answered by that org's own registration, never a
-%% different org's provider sharing the same station. Runs in the
-%% caller's process (not the capabilities gen_server), so a slow mesh
+%% WHICH station gets dialed AND what''s sent once dialed; a targeted call
+%% can only ever be answered by that org''s own registration, never a
+%% different org''s provider sharing the same station. Runs in the
+%% caller''s process (not the capabilities gen_server), so a slow mesh
 %% never blocks capability registration.
 -spec call_capability(binary(), binary(), term(), pos_integer(), map()) ->
     {ok, term()} | {error, term()}.
@@ -356,10 +356,10 @@ handle_call({register, Caps}, _From, S) ->
     true = ets:delete_all_objects(?GRANTS),
     true = ets:delete_all_objects(?ADVERTISE),
     %% REPLY FIRST, ADVERTISE RIGHT AFTER. Advertising is network I/O for every
-    %% capability, and the caller (mcl_om:boot/1, from the service's start/2)
+    %% capability, and the caller (mcl_om:boot/1, from the service''s start/2)
     %% waits only the gen_server default 5 s: a service with many capabilities
-    %% or slow stations failed its boot on the timeout (mcl-rag's 17, 2026-09-29).
-    %% The message is this process's own, so it is handled before any later
+    %% or slow stations failed its boot on the timeout (mcl-rag''s 17, 2026-09-29).
+    %% The message is this process''s own, so it is handled before any later
     %% call: a caller that asks next finds the capabilities advertised.
     self() ! advertise_registered,
     {reply, ok, S#state{capabilities = Caps}};
@@ -401,8 +401,8 @@ terminate(_, _) -> ok.
 %% Logged once per `register/1' call (boot, or an explicit
 %% re-registration — never on a republish timer tick, `publish/0'/
 %% `handle_info(republish, ...)' both reuse the already-registered
-%% `Caps' without calling this again) — see `unguarded_capabilities/1'
-%% for exactly what this can and can't see.
+%% `Caps' without calling this again) — see 'unguarded_capabilities/1'
+%% for exactly what this can and can''t see.
 log_unguarded(Caps) ->
     case unguarded_capabilities(Caps) of
         []        -> ok;
@@ -410,7 +410,7 @@ log_unguarded(Caps) ->
             logger:warning(
               "mcl_om_capabilities: ~p capabilit~s registered with no "
               "explicit auth policy, defaulting to open: ~p -- set "
-              "auth => open to confirm that's intended, auth => "
+              "auth => open to confirm that''s intended, auth => "
               "{ucan_required, IssuerPubkey} to gate it to one exact "
               "identity, or auth => {realm_member_required, RealmDid, "
               "RequiredCan} to gate it to a realm membership tier",
@@ -439,11 +439,11 @@ advertise_with({ok, Pool}, {ok, Key}, {ok, Realm}, Org, Caps, Sups) ->
 %%
 %% This clause used to be silent, matching advertised/3's old bug: a
 %% genuinely stuck pool/identity (not a transient few-tick gap, the
-%% comment's original assumption) meant NO advertise attempt is EVER
+%% comment''s original assumption) meant NO advertise attempt is EVER
 %% actually made, forever, with no trace anywhere -- worse than
 %% advertised/3's bug, since that one at least implies advertise_direct
 %% got called. Logged now, throttled to once per distinct reason
-%% (see log_advertise_gate_once/1) so a genuinely stuck boot doesn't
+%% (see log_advertise_gate_once/1) so a genuinely stuck boot doesn''t
 %% spam a warning every 30s republish tick forever.
 advertise_with(PoolR, KeyR, RealmR, _Org, _Caps, Sups) ->
     log_advertise_gate_once({error_of(PoolR), error_of(KeyR), error_of(RealmR)}),
@@ -455,7 +455,7 @@ error_of({error, Reason}) -> Reason.
 %% NO ORG, NO ADVERTISEMENT. mcl_om_identity:org/0 answers `_' when nothing
 %% set it, and that used to go out as `_/Name': a procedure in no org, which
 %% no realm grants, from a service that looked healthy. An org must be a wire
-%% segment (`^[a-z0-9][a-z0-9._-]*$'), which `_' and an unsubstituted
+%% segment (`^[a-z0-9][a-z0-9._-]*$'), which '_' and an unsubstituted
 %% `${MCL_ORG}' are not. Without one, nothing is advertised, and each
 %% handler-bearing procedure is recorded as not granted for that reason, which
 %% /health reports as degraded at once (mcl_om_provider_grant).
@@ -483,7 +483,7 @@ valid_org(Org) ->
 %% every 30s forever, and an unthrottled warning there is exactly the
 %% kind of self-inflicted log spam that gets a real signal muted. A
 %% CHANGED triple (e.g. pool recovers, keypair still missing) logs again,
-%% since that's new information.
+%% since that''s new information.
 log_advertise_gate_once(Reasons) ->
     case get(?ADVERTISE_GATE_LOG_KEY) of
         Reasons -> ok;
@@ -495,7 +495,7 @@ log_advertise_gate_once(Reasons) ->
 log_advertise_gate({org_unset, Org}) ->
     logger:warning(
       "mcl_om_capabilities: advertise skipped, no org configured (got ~p): "
-      "set mcl_om's `org' to this service's org; /health reports it as "
+      "set mcl_om''s `org' to this service''s org; /health reports it as "
       "operator_must_set_org", [Org]);
 log_advertise_gate(Reasons) ->
     logger:warning(
@@ -511,14 +511,14 @@ log_advertise_gate(Reasons) ->
 has_handler(#{handler := _}) -> true;
 has_handler(_) -> false.
 
-%% @doc The `auth' entry to merge into `advertise_direct''s `Opts', from
-%% a capability's own optional `auth' key (`open' | `{ucan_required,
+%% @doc The `auth' entry to merge into 'advertise_direct''s `Opts', from
+%% a capability''s own optional `auth' key ('open' | `{ucan_required,
 %% Issuer}' | `{realm_member_required, RealmDid, RequiredCan}',
 %% forwarded all the way to `macula_station_link''s inbound call
-%% authorization — see moduledoc). Absent when the capability doesn't
+%% authorization — see moduledoc). Absent when the capability doesn''t
 %% set one, matching `macula:advertise/5''s own default: open. A
 %% hecate-service opts a specific capability into gating by adding the
-%% appropriate `auth' value to that capability's map; every other
+%% appropriate `auth' value to that capability''s map; every other
 %% capability advertised through this module is unaffected. This
 %% function is deliberately policy-agnostic — it forwards whatever
 %% value `auth' holds without inspecting which variant it is, so a
@@ -528,20 +528,20 @@ has_handler(_) -> false.
 auth_opts(#{auth := Policy}) -> #{auth => Policy};
 auth_opts(_)                 -> #{}.
 
-%% @doc The names of every capability in `Caps' with no explicit `auth'
+%% @doc The names of every capability in `Caps' with no explicit 'auth'
 %% key -- i.e. every one that will silently advertise `open' via
 %% `auth_opts/1''s own default, whether that policy was actually
 %% decided or simply never set. Pure and unit-testable without a live
-%% mesh, matching this module's other pure helpers.
+%% mesh, matching this module''s other pure helpers.
 %%
-%% This can only see what a service's own `capabilities/0' reports --
+%% This can only see what a service''s own `capabilities/0' reports --
 %% `register/1' warns about exactly this list on every registration
 %% (see `log_unguarded_once/1'), giving free, per-boot visibility to
 %% every service that routes through this module. It cannot see a
 %% capability a service advertises out-of-band via its own direct
-%% `macula:advertise/5'/`macula_response:advertise_direct/7' call
+%% `macula:advertise/5'/'macula_response:advertise_direct/7' call
 %% instead of declaring it here -- `capabilities/0' under-reporting is
-%% the pre-migration `hecate-rag' pattern this module's own moduledoc
+%% the pre-migration `hecate-rag' pattern this module''s own moduledoc
 %% already documents fixing for one service, not yet audited fleet-wide.
 %% See `scripts/audit-fleet-ucan-adoption.sh' for that separate,
 %% source-scan half of the check.
@@ -553,7 +553,7 @@ has_auth(#{auth := _}) -> true;
 has_auth(_)            -> false.
 
 %% @doc Which macula provider module advertises `Cap''s handler --
-%% `macula_streamer' only when the capability opts in with `kind =>
+%% `macula_streamer' only when the capability opts in with 'kind =>
 %% streamer', `macula_response' (request/reply RPC) otherwise. Every
 %% capability declared before `kind' existed has no such key and keeps
 %% advertising through `macula_response', unchanged.
@@ -561,18 +561,18 @@ has_auth(_)            -> false.
 provider_module(#{kind := streamer}) -> macula_streamer;
 provider_module(_)                  -> macula_response.
 
-%% @doc `Cap''s `stream_opts' (e.g. `#{mode => client_stream}'), merged
-%% into `advertise_direct''s `Opts' only for a `kind => streamer'
-%% capability -- `macula_response:advertise_direct' has no `mode' concept
-%% and a `response'-kind capability has no `stream_opts' to begin with,
+%% @doc `Cap''s 'stream_opts' (e.g. `#{mode => client_stream}'), merged
+%% into `advertise_direct''s 'Opts' only for a `kind => streamer'
+%% capability -- `macula_response:advertise_direct' has no 'mode' concept
+%% and a `response'-kind capability has no 'stream_opts' to begin with,
 %% so this is `#{}' for every non-streamer capability.
 -spec stream_opts(mcl_om_service:capability()) -> map().
 stream_opts(#{kind := streamer, stream_opts := Opts}) -> Opts;
 stream_opts(_)                                        -> #{}.
 
-%% @doc `Cap''s `handler_timeout_ms', merged into `advertise_direct''s `Opts':
+%% @doc `Cap''s 'handler_timeout_ms', merged into `advertise_direct''s 'Opts':
 %% how long macula_response waits for the handler before answering the caller
-%% `temporary_relay_failure' (1 to 600000 ms, macula's default 30000; macula
+%% `temporary_relay_failure' (1 to 600000 ms, macula''s default 30000; macula
 %% refuses anything else). Only a response capability has one: macula_streamer
 %% takes no such option, so a streamer that sets it is refused by name rather
 %% than advertised as if it had taken effect.
@@ -584,7 +584,7 @@ handler_timeout_opts(#{handler_timeout_ms := Ms}) ->
 handler_timeout_opts(_) ->
     #{}.
 
-%% @doc `Cap''s `confidential', merged into `advertise_direct''s `Opts' for
+%% @doc `Cap''s 'confidential', merged into `advertise_direct''s 'Opts' for
 %% response AND streamer capabilities. macula 13's provider modes: `off' (the
 %% advertisement names no KEM key, even with kem_advertise enabled), `preferred'
 %% (it names one when kem_advertise is enabled; callers seal) and `required'
@@ -601,12 +601,12 @@ confidentiality_opts(#{confidential := Other, name := Name}) ->
 confidentiality_opts(_) ->
     #{}.
 
-%% @doc Whether `Caps' can be advertised as declared under macula's
+%% @doc Whether `Caps' can be advertised as declared under macula''s
 %% `kem_advertise' setting. Every way this could fail at advertise time would
 %% be caught per republish tick as a warning, leaving the service green and
 %% unreachable, so `register/1' turns each into a boot failure, by name:
-%% a `confidential' that is not one of macula's provider modes (a typo), a
-%% `kem_advertise' that is not `enabled' or `disabled' (macula raises
+%% a `confidential' that is not one of macula''s provider modes (a typo), a
+%% `kem_advertise' that is not 'enabled' or `disabled' (macula raises
 %% not_a_switch on every advertise), and a `required' capability while
 %% kem_advertise is not `enabled' (macula refuses it: kem_advertise_disabled).
 -spec confidentiality_verdict([mcl_om_service:capability()], term()) ->
@@ -649,22 +649,22 @@ required_verdict(Required, KemAdvertise) ->
 %% whole gen_server: `macula_response:advertise/6' (and
 %% `macula_streamer:advertise/6') LINKS each factory supervisor it
 %% creates to whoever calls it, i.e. this process, so a crash here kills
-%% every OTHER capability's already-healthy supervisor too, turning one
+%% every OTHER capability''s already-healthy supervisor too, turning one
 %% transient timeout into an outage for every capability this node
 %% serves. Found live 2026-09-01: hecate-rag generated `noproc' on
-%% `search_chunks_semantic'/`answer_query'/`add_knowledge' minutes after
+%% `search_chunks_semantic'/'answer_query'/`add_knowledge' minutes after
 %% a clean boot, none of which had anything to do with the capability
 %% that actually timed out (`ingest_document') -- the crash cascaded
 %% through the link, not through any fault of theirs.
 %%
 %% Catching per-capability here is the documented exception to
-%% let-it-crash (see this org's CLAUDE.md): it distinguishes which
+%% let-it-crash (see this org''s CLAUDE.md): it distinguishes which
 %% capability failed and why, a signal a single opaque
 %% `mcl_om_capabilities' supervisor-exit report would otherwise erase
-%% along with every other capability's live registration. `Acc' returned
-%% unchanged means the failed capability's PREVIOUS (still live)
+%% along with every other capability''s live registration. `Acc' returned
+%% unchanged means the failed capability''s PREVIOUS (still live)
 %% registration is left in place; the next republish tick (~30s) retries
-%% it. `macula_response'/`macula_streamer''s own `existing_or_new_sup/1'
+%% it. `macula_response'/'macula_streamer''s own `existing_or_new_sup/1'
 %% additionally verifies a reused sup is still alive before trusting it,
 %% so a sup that DOES die between ticks (this path or any other) self-
 %% heals on the next successful call rather than handing `dispatch' a
@@ -686,20 +686,20 @@ advertise_one_safely(Pool, Key, Realm, Org, Cap, Acc) ->
 %% pipeline (mcl-om#13) unless `guard => none' opts it out: the wrap
 %% happens here, once, before the handler tuple reaches advertise_direct.
 %% Streamers are left alone (macula_streamer has no macula_response
-%% contract to wrap) -- the pipeline's wrapper/3 decides from the
-%% capability's `kind'.
+%% contract to wrap) -- the pipeline''s wrapper/3 decides from the
+%% capability''s `kind'.
 advertise_one(Pool, Key, Realm, Org,
              #{name := Name, handler := {Mod, Args}} = Cap, Sups) ->
     Provider = provider_module(Cap),
     %% 11.x refuses a procedure without an org namespace
     %% (no_org_namespace), so the one registration is the org-qualified
-    %% procedure. The SDK's advertise path resolves this pool's own D25
+    %% procedure. The SDK''s advertise path resolves this pool''s own D25
     %% authorization from the DHT (org_directory + procedure_delegation
-    %% naming the pool's node id) for the WIRE frame -- but the
+    %% naming the pool''s node id) for the WIRE frame -- but the
     %% direct-dial DHT record advertise_direct publishes carries only
     %% what its Opts say, and the station refuses an org-namespaced
     %% record without one ({call_error, <<"no_authorization">>}). So
-    %% this module resolves the chain itself -- via the SDK's own
+    %% this module resolves the chain itself -- via the SDK''s own
     %% `macula:provider_authorization/3' (11.4.0) -- and embeds it, or
     %% the record never lands and every mcl_om caller resolves
     %% no_provider.
@@ -707,14 +707,14 @@ advertise_one(Pool, Key, Realm, Org,
     Authorization = recorded_authorization(
                       OrgProcedure,
                       macula:provider_authorization(Pool, Realm, OrgProcedure)),
-    %% The registration goes ONLY to this node's serving station
-    %% (choose_serving_station/2): a station's registry holds ONE
+    %% The registration goes ONLY to this node''s serving station
+    %% (choose_serving_station/2): a station''s registry holds ONE
     %% advertiser per (realm, procedure), so two providers of one
     %% procedure must not share a serving station, and an advertise
     %% without `stations' fans out to EVERY connected link, which would
     %% keep the last-write-wins fight alive at each of them (issue #5).
     %% `stations => [Station]' (macula 12.7.0) registers the handler on
-    %% that station's link only and names it in the DHT record.
+    %% that station''s link only and names it in the DHT record.
     Opts = maps:merge(maps:merge(maps:merge(auth_opts(Cap), stream_opts(Cap)),
                                  maps:merge(handler_timeout_opts(Cap),
                                             confidentiality_opts(Cap))),
@@ -738,7 +738,7 @@ advertised_on({error, no_station} = Refused, _Provider, _Pool, _Key, _Realm, Org
               _Handler, _Opts, Sups) ->
     advertised(Refused, OrgProcedure, Sups).
 
-%% The D25 authorization this provider's org-namespaced procedure
+%% The D25 authorization this provider''s org-namespaced procedure
 %% needs, as the `authorization' opt to embed in the record the SDK
 %% publishes. `#{}' when the chain is not published yet: the wire
 %% advertise then fails fast with its own `{provider_authorization,
@@ -762,7 +762,7 @@ authorization_opts({ok, Authorization}) -> #{authorization => Authorization};
 authorization_opts({error, _Reason})    -> #{}.
 
 %% @doc The org-qualified wire-level procedure string a handler-bearing
-%% capability's SECOND `advertise_direct' registration uses. Deliberately
+%% capability''s SECOND `advertise_direct' registration uses. Deliberately
 %% NOT `procedure_uri/3''s realm-hex-prefixed form: the ADVERTISE/CALL
 %% wire frames already carry `realm' as a separate field
 %% (`macula_frame:advertise/1'), so re-embedding it here would be
@@ -774,9 +774,9 @@ authorization_opts({error, _Reason})    -> #{}.
 org_procedure(Org, Name) when is_binary(Org), is_binary(Name) ->
     <<Org/binary, "/", Name/binary>>.
 
-%% @doc The extra `Opts' entry an `advertise_direct' retry needs to reuse
-%% a prior call's factory supervisor instead of leaking a new one every
-%% republish tick. `#{}' on a capability's first-ever advertise.
+%% @doc The extra `Opts' entry an 'advertise_direct' retry needs to reuse
+%% a prior call''s factory supervisor instead of leaking a new one every
+%% republish tick. `#{}' on a capability''s first-ever advertise.
 -spec reuse_sup_opts(pid() | undefined) -> map().
 reuse_sup_opts(undefined)            -> #{};
 reuse_sup_opts(Sup) when is_pid(Sup) -> #{reuse_sup => Sup}.
@@ -790,13 +790,13 @@ advertised({error, Reason}, Name, Sups) ->
     record_advertise_failed(Name, Reason),
     Sups.
 
-%% The advertise loop's last outcome, per procedure — /health's
+%% The advertise loop''s last outcome, per procedure — /health''s
 %% advertise-liveness signal (see mcl_om_advertise_liveness). The
 %% grants table records what the realm thinks of this provider; this
-%% records what the provider's own loop actually did. A dead loop
+%% records what the provider''s own loop actually did. A dead loop
 %% (silent, no attempt at all) is seen by neither, which is exactly
 %% the point: /health judges a procedure stale when its last success
-%% outlives the advertisement's own TTL.
+%% outlives the advertisement''s own TTL.
 record_advertise_ok(Proc) ->
     record_advertise(Proc, ok).
 
@@ -818,13 +818,13 @@ advertise_record_only({ok, Station}, Pool, Key, Realm, Org, Cap) ->
 advertise_record_only({error, no_station}, _Pool, _Key, _Realm, _Org, _Cap) ->
     ok.
 
-%% `macula:put_record/2' returns `ok | {error, term()}' -- both branches
+%% `macula:put_record/2' returns 'ok | {error, term()}' -- both branches
 %% were previously discarded outright (the old `try ... catch _:_ -> ok
 %% end' only guarded against an exception, never inspected a plain
 %% `{error, _}' return at all), so a rejected or failed record-only
 %% advertisement had no trace anywhere. Logged now, matching
 %% `advertised/3''s own fix -- this is the legacy no-handler path
-%% (`advertise_one/7''s second clause), the handler-bearing path's own
+%% (`advertise_one/7''s second clause), the handler-bearing path''s own
 %% failures are `advertised/3''s concern above.
 put_advertisement(Pool, Record, Proc) ->
     log_put_result(Proc, try macula:put_record(Pool, Record)
@@ -840,12 +840,12 @@ log_put_result(Proc, {error, Reason}) ->
     record_advertise_failed(Proc, Reason),
     ok.
 
-%% One station this service is reachable through, from the pool's
+%% One station this service is reachable through, from the pool''s
 %% connected links -- chosen deterministically per node (see
 %% choose_serving_station/2), NOT "the first connected link": the
-%% station a provider names is the one callers dial, and a station's
+%% station a provider names is the one callers dial, and a station''s
 %% remote_advertise_registry holds ONE advertiser per (realm,
-%% procedure) -- last direct ADVERTISE wins (macula-station's
+%% procedure) -- last direct ADVERTISE wins (macula-station''s
 %% single-provider invariant). Two providers of one procedure that
 %% both name the same station are therefore not both dialable; the
 %% per-node spread keeps co-org providers on different stations
@@ -907,7 +907,7 @@ list_org_with({ok, Pool}, {ok, Realm}, Org) ->
 list_org_with(_Pool, _Realm, _Org) ->
     [].
 
-%% @doc Every capability `Org' has advertised, under `Realm' — see
+%% @doc Every capability `Org' has advertised, under 'Realm' — see
 %% moduledoc for why this is a client-side filter over
 %% `find_records_by_type', not a DHT-indexed query.
 -spec resolve_org_capabilities(pid(), binary(), binary()) -> [map()].
@@ -916,10 +916,10 @@ resolve_org_capabilities(Pool, Realm, Org) ->
     lists:filtermap(fun(R) -> decode_if_org_matches(R, Realm, Pattern) end,
                     find_by_type(Pool)).
 
-%% `Org/*' -- the pattern every one of Org's advertisements' procedure
+%% `Org/*' -- the pattern every one of Org''s advertisements' procedure
 %% string must match (a wildcard trailing segment, matched via
 %% `macula_topic_pattern:matches/2'). The realm is checked as the
-%% record's own realm_id field, not as part of the pattern.
+%% record''s own realm_id field, not as part of the pattern.
 org_capability_pattern(Org) ->
     [Org, <<"*">>].
 
@@ -938,7 +938,7 @@ decode_if_org_matches(Record, Realm, Pattern) ->
     decode_verified_if_org_matches(reverify(Record), Record, Realm, Pattern).
 
 %% find_records/2 and find_records_by_type/2 already return records
-%% verified under the node's profile; re-verify the {key, tbs,
+%% verified under the node''s profile; re-verify the {key, tbs,
 %% signature} projection -- the map form macula_record:verify/2 takes.
 %% Passing the full decoded record would trip verify/2's map_size =:= 3
 %% guard and drop every record as malformed.
@@ -957,9 +957,9 @@ decode_verified_if_org_matches({ok, _Payload}, Record, Realm, Pattern) ->
 decode_verified_if_org_matches({error, _}, _Record, _Realm, _Pattern) ->
     false.
 
-%% @doc Whether `Procedure' (a procedure_advertisement's own procedure
-%% string, `Org/Name') matches the `Org/*' `Pattern'. Split purely on
-%% `/'. The realm is the record's own realm_id, checked by the caller.
+%% @doc Whether `Procedure' (a procedure_advertisement''s own procedure
+%% string, `Org/Name') matches the 'Org/*' `Pattern'. Split purely on
+%% `/'. The realm is the record''s own realm_id, checked by the caller.
 -spec matches_org_pattern([binary()], binary()) -> boolean().
 matches_org_pattern(Pattern, Procedure) ->
     macula_topic_pattern:matches(Pattern, binary:split(Procedure, <<"/">>, [global])).
@@ -983,7 +983,7 @@ discovery_key_org(Realm, Org, Name) ->
 
 %% find/2 always returns `{ok, List}' (its retry loop converts an
 %% exhausted/persistent error into `{ok, []}' rather than passing
-%% `{error, _}' through) -- no `_Other' clause needed here any more.
+%% `{error, _}' through) -- no '_Other' clause needed here any more.
 resolve_records({ok, Records}) -> decode_resolved(Records).
 
 %% Like resolve_at/4 but keeps each raw record so the verifying-consumer
@@ -1030,12 +1030,12 @@ decode_verified_full({error, _}, _Record) ->
     false.
 
 %% Retries a fresh publish out of DHT-propagation lag. Matches
-%% macula_direct_dial's own internal find_records_retry/3 budget (50 x
+%% macula_direct_dial''s own internal find_records_retry/3 budget (50 x
 %% 100ms = up to 5s) — a budget this module does NOT get for free by
 %% calling `macula:find_records/2' directly (the bare, single-shot SDK
 %% RPC; the retrying version is private to macula_direct_dial). Found
 %% live 2026-08-29: two providers advertising back-to-back, the second
-%% one's own resolve raced its own just-written record with zero retry
+%% one''s own resolve raced its own just-written record with zero retry
 %% margin, `{error, no_provider}' even though the record existed --
 %% `run_org_scoped/0' only sleeps a fixed 2s between the last advertise
 %% and the first call, not long enough for eager replication AND both
@@ -1103,7 +1103,7 @@ call_capability_via(_Pool, _Realm, _Org, _CapName, _Payload, _TimeoutMs, _Opts) 
 %%
 %% `{error, no_provider}' is reserved for "nothing to dial": no provider
 %% resolved, or the pin matched none. A provider that WAS dialed reports
-%% its own failure (`{error, timeout}', `{error, {station_endpoint,
+%% its own failure (`{error, timeout}', '{error, {station_endpoint,
 %% Reason}}', a call error...) -- see call_providers/7 for why the two
 %% must never collapse into one.
 %%
@@ -1151,19 +1151,19 @@ call_providers([#{serving_station := Station, advertiser := Advertiser,
 %% Endpoint resolved: dial + call; on error, fail over to the next.
 %%
 %% Trust: a resolved provider is trusted because the signed DHT
-%% `procedure_advertisement' named exactly this `Station' node id — the
+%% `procedure_advertisement' named exactly this 'Station' node id — the
 %% 11.x call_station pins the dial on it as the Target (D5): the
-%% CONNECT/HELLO handshake refuses any other identity, and a station's
-%% TLS cert has no relationship to its macula identity. The CALL's
-%% target is the PROVIDER's node id (the station routes by it, and the
+%% CONNECT/HELLO handshake refuses any other identity, and a station''s
+%% TLS cert has no relationship to its macula identity. The CALL''s
+%% target is the PROVIDER''s node id (the station routes by it, and the
 %% reply verifies as answered by that exact target); the station proves
 %% only that it holds the key of the self-signed ML-DSA-87 certificate
 %% it presents, so the pinned handshake is the whole transport trust,
-%% exactly macula's own direct-dial caller
-%% (macula_station_gated_call_SUITE's call/6).
+%% exactly macula''s own direct-dial caller
+%% (macula_station_gated_call_SUITE''s call/6).
 %%
 %% Sealing (macula 13, E2E Amendment A1): the call hands macula the
-%% provider's verified advertisement, and macula seals to the KEM key it
+%% provider''s verified advertisement, and macula seals to the KEM key it
 %% names, or calls in the clear when it names none. The advertisement is
 %% the one this resolve verified, so a station can withhold it (no call)
 %% but never downgrade the call to the clear.
@@ -1192,10 +1192,10 @@ failover({error, _}, Rest, Pool, Realm, CapName, Payload, TimeoutMs, Ucan) ->
     call_providers(Rest, Pool, Realm, CapName, Payload, TimeoutMs, Ucan).
 
 %% Resolve a serving_station pubkey to a dialable `quic://' URL. The
-%% SDK's own resolver: it retries past an absent, expired or malformed
+%% SDK''s own resolver: it retries past an absent, expired or malformed
 %% endpoint record until its deadline (the station re-announces its
 %% endpoint periodically, and a one-shot lookup misses), and verifies
-%% the record's signer is exactly the station.
+%% the record''s signer is exactly the station.
 resolve_endpoint(Pool, Station) ->
     macula_direct_dial:resolve_station_endpoint(Pool, Station).
 
@@ -1225,7 +1225,7 @@ build_advertisement(Key, Realm, Org, #{name := Name}, Station) ->
                                                    Station),
     macula_record:sign(Record, Key).
 
-%% Verify each record's signature and project it to
+%% Verify each record''s signature and project it to
 %% `{advertiser, serving_station}'. Non-procedure records and bad
 %% signatures are dropped. (Full trust-chain checking is Slice 7; this
 %% is the authenticity floor.)
@@ -1252,7 +1252,7 @@ arm_timer(S) ->
     Ref = erlang:send_after(republish_delay_ms(), self(), republish),
     S#state{timer = Ref}.
 
-%% @doc `?REPUBLISH_INTERVAL_MS' +/- up to `?REPUBLISH_JITTER_MS' / 2,
+%% @doc `?REPUBLISH_INTERVAL_MS' +/- up to '?REPUBLISH_JITTER_MS' / 2,
 %% uniformly -- see `?REPUBLISH_JITTER_MS''s own doc for why a fixed
 %% period is the actual bug being fixed here, not just a nice-to-have.
 -spec republish_delay_ms() -> pos_integer().

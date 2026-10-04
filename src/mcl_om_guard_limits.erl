@@ -4,30 +4,30 @@
 %%% through mcl_om_guard_pipeline has ONE entry here, keyed by its
 %%% org-qualified procedure:
 %%%
-%%% - `declared': the limits the capability itself declares (its `limits'
+%%% - `declared': the limits the capability itself declares (its 'limits'
 %%%   key merged over the framework defaults), recomputed on every
 %%%   advertise tick;
-%%% - `overrides': runtime changes, from `limits.set' (guardian tier,
+%%% - `overrides': runtime changes, from 'limits.set' (guardian tier,
 %%%   inside the envelope) or `limits.set_operator' (human, anything);
 %%% - `limits': the effective set = merge(declared, overrides) -- what the
 %%%   stages enforce on every call;
-%%% - `envelope' / `declared_envelope': per-key min/max clamps. Only the
-%%%   operator tier may change them, and a guardian-tier set that a key's
+%%% - `envelope' / 'declared_envelope': per-key min/max clamps. Only the
+%%%   operator tier may change them, and a guardian-tier set that a key''s
 %%%   envelope does not cover fails with `envelope_exceeded' -- no
 %%%   envelope, no guardian movement, by default.
 %%%
 %%% WHY persistent_term: the stages read `limits' on EVERY inbound call,
-%%% in the caller's own process, and must not serialize through a
+%%% in the caller''s own process, and must not serialize through a
 %%% gen_server; reads are shared and copy-free, writes are rare (a
 %%% declare tick, or an explicit limits.set).
 %%%
 %%% A redeclare at republish time recomputes `limits' as
 %%% merge(declared', overrides), so a service upgrade re-declares its
-%%% base without wiping the guardian's runtime changes -- the tick must
+%%% base without wiping the guardian''s runtime changes -- the tick must
 %%% never undo what an operator or a guardian set.
 -module(mcl_om_guard_limits).
 
-%% `get/1' is this module's own API name, next to the auto-imported
+%% `get/1' is this module''s own API name, next to the auto-imported
 %% `erlang:get/1'; the clash is resolved here once instead of at every
 %% call site.
 -compile({no_auto_import, [get/1]}).
@@ -53,7 +53,7 @@
 -export_type([limits/0, envelope/0]).
 
 %% @doc The shipped framework defaults, per procedure. Deliberately
-%% roomier than the echo's hand-rolled numbers: a capability that needs
+%% roomier than the echo''s hand-rolled numbers: a capability that needs
 %% tighter bounds declares its own `limits'.
 -spec defaults() -> limits().
 defaults() ->
@@ -62,7 +62,7 @@ defaults() ->
       per_caller_max            => 600,
       global_max                => 6000}.
 
-%% @doc The framework defaults with the app env's
+%% @doc The framework defaults with the app env''s
 %% `{mcl_om, [{inbound_guard, #{default_limits => ...}}]}' merged over
 %% them. Validated at guard boot (mcl_om_guard:init/1); this is the
 %% read side.
@@ -75,8 +75,8 @@ effective_defaults() ->
             defaults()
     end.
 
-%% @doc Register (or re-register) a capability's declared limits and
-%% envelope, from its capability map's `limits' key. A redeclare with
+%% @doc Register (or re-register) a capability''s declared limits and
+%% envelope, from its capability map''s `limits' key. A redeclare with
 %% the same base is a no-op -- runtime overrides survive. Raises
 %% `{mcl_om_guard_bad_limits, Proc, Reason}' on a bad map, so the
 %% advertise tick that carries it fails loud and keeps the prior
@@ -194,7 +194,7 @@ validate_new_envelope(undefined) -> ok;
 validate_new_envelope(Envelope) -> validate_envelope(Envelope).
 
 %% A guardian-tier set: every key it changes must sit inside the
-%% envelope's clamp for that key. A key the envelope does not cover
+%% envelope''s clamp for that key. A key the envelope does not cover
 %% cannot be moved by the guardian at all.
 within_envelope(Request, #{envelope := Envelope}) ->
     Fold = fun(Key, Value, Acc) -> envelope_verdict(Key, Value, Envelope, Acc) end,
@@ -221,8 +221,8 @@ validate_limits(Map) when is_map(Map) ->
 validate_limits(NotMap) ->
     {error, {not_a_map, NotMap}}.
 
-%% @doc Envelope validation: every clamp names a limit key, and is
-%% `#{min, max}` positive integers with min =< max.
+%% @doc Envelope validation: every clamp names a limit key, and carries
+%% positive `min' and `max' integers, min not above max.
 -spec validate_envelope(map()) -> ok | {error, term()}.
 validate_envelope(Envelope) when is_map(Envelope) ->
     validate_envelope_entries(maps:to_list(Envelope));
@@ -244,7 +244,7 @@ validate_clamp(Key, Clamp, _Rest) ->
     {error, {bad_envelope_clamp, Key, Clamp}}.
 
 %% @doc The largest window length any declared procedure uses -- the
-%% sweep's conservative cutoff horizon (mcl_om_guard:sweep_old_windows/0).
+%% sweep''s conservative cutoff horizon (mcl_om_guard:sweep_old_windows/0).
 -spec max_window_ms() -> pos_integer().
 max_window_ms() ->
     lists:max([maps:get(window_ms, effective_defaults())
