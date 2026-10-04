@@ -3,6 +3,18 @@
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [SemVer](https://semver.org/).
 
+## [0.37.5] - 2026-10-05
+
+### Fixed
+
+- **The denial counters are windowed.** They were cumulative since
+  boot: one denial ever made every later window read as denied, so
+  `should_report` published a fact every tick forever — the quiet
+  service became the fact amplifier the design exists to prevent — and
+  the fact's `denied_rate`/`denied_size` were lifetime totals. The
+  counters now key by window start like the caller buckets, the sweep
+  ages them out, and a quiet window reads zero.
+
 ## [0.37.4] - 2026-10-05
 
 ### Added

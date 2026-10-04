@@ -22,7 +22,8 @@ guard_test_() ->
             fun the_audit_ring_records_changes/0,
             fun should_report_only_flags_new_windows_with_activity/0,
             fun alert_payload_is_numbers_and_binaries_only/0,
-            fun the_alert_payload_names_the_offenders/0
+            fun the_alert_payload_names_the_offenders/0,
+            fun the_denial_counters_are_windowed/0
         ]
     end}.
 
@@ -145,6 +146,22 @@ should_report_only_flags_new_windows_with_activity() ->
     ?assertNot(mcl_om_guard:should_report(1000, undefined, Quiet)),
     ?assertNot(mcl_om_guard:should_report(1000, 1000, Active)),
     ?assert(mcl_om_guard:should_report(2000, 1000, Active)).
+
+%% The enrichment (mcl-om 0.37.4) rides on a lie: the denial counters
+%% were CUMULATIVE since boot, never windowed — one denial ever made
+%% every later window "denied", so should_report published a fact every
+%% tick forever (the fact amplifier the design exists to prevent), and
+%% the fact's denied_rate was a lifetime total. A windowed read must
+%% not see a counter that outlived its window.
+the_denial_counters_are_windowed() ->
+    Proc = declare_proc(),
+    ok = mcl_om_guard:count_denial(Proc, rate),
+    ok = mcl_om_guard:count_denial(Proc, rate),
+    ?assertEqual(2, maps:get(denied_rate, mcl_om_guard:stats(Proc))),
+    %% The legacy cumulative shape: a denial counted under an older
+    %% window must not leak into the current window's stats.
+    ets:insert(mcl_om_guard_table, {{Proc, '$denied', rate}, 99}),
+    ?assertEqual(2, maps:get(denied_rate, mcl_om_guard:stats(Proc))).
 
 alert_payload_is_numbers_and_binaries_only() ->
     L = mcl_om_guard_limits:defaults(),

@@ -67,11 +67,19 @@ allow(Proc, Caller, Limits) ->
         false -> count_denial(Proc, rate), deny
     end.
 
-%% @doc A cumulative denial counter, `rate' or 'size'.
+%% @doc One fixed-window denial counter, `rate' or 'size', keyed by the
+%% window start exactly like the caller buckets: a quiet window reads
+%% zero, so should_report/3 stops once its denials age out, and the
+%% alert fact's denied counts describe the window they rode in — a
+%% cumulative counter made one denial mark every later window denied,
+%% turning the service into the fact amplifier should_report exists to
+%% prevent.
 -spec count_denial(binary(), rate | size) -> ok.
 count_denial(Proc, Kind) ->
-    _ = ets:update_counter(?TABLE, {Proc, '$denied', Kind}, {2, 1},
-                           {{Proc, '$denied', Kind}, 0}),
+    #{limits := Limits} = mcl_om_guard_limits:get(Proc),
+    Start = window_start(Limits),
+    _ = ets:update_counter(?TABLE, {Proc, '$denied', Kind, Start}, {2, 1},
+                           {{Proc, '$denied', Kind, Start}, 0}),
     ok.
 
 %% @doc A guardian-facing view of one procedure''s CURRENT window: limits
@@ -130,8 +138,8 @@ wire_caller(Caller) when is_binary(Caller) ->
 wire_caller(Other) ->
     Other.
 
-denied(Proc, Kind) ->
-    case ets:lookup(?TABLE, {Proc, '$denied', Kind}) of
+denied(Proc, Kind, Start) ->
+    case ets:lookup(?TABLE, {Proc, '$denied', Kind, Start}) of
         [{_Key, Count}] -> Count;
         [] -> 0
     end.
@@ -156,8 +164,8 @@ counters(Proc, Limits) ->
       distinct_callers => length(Callers),
       callers_over_limit => length(OverLimit),
       top_callers => TopCallers,
-      denied_rate => denied(Proc, rate),
-      denied_size => denied(Proc, size)}.
+      denied_rate => denied(Proc, rate, Start),
+      denied_size => denied(Proc, size, Start)}.
 
 window_start(Limits) ->
     WindowMs = maps:get(window_ms, Limits),
@@ -250,9 +258,13 @@ sweep_old_windows() ->
     %% The same wall clock the window keys use (see window_start/1).
     Now = erlang:system_time(millisecond),
     Cutoff = Now - ?RETAIN_WINDOWS * mcl_om_guard_limits:max_window_ms(),
-    %% Only windowed entries carry an integer start time; the cumulative
-    %% denial counters ({Proc, '$denied', Kind}) never match.
-    MatchSpec = [{{{'_', '_', '$1'}, '_'},
-                  [{is_integer, '$1'}, {'<', '$1', Cutoff}], [true]}],
-    _ = ets:select_delete(?TABLE, MatchSpec),
+    %% Windowed entries carry an integer start time: the caller buckets
+    %% in the third element, the denial counters ({Proc, '$denied',
+    %% Kind, Start}) in the fourth.
+    BucketSpec = [{{{'_', '_', '$1'}, '_'},
+                   [{is_integer, '$1'}, {'<', '$1', Cutoff}], [true]}],
+    DenialSpec = [{{{'_', '_', '_', '$1'}, '_'},
+                   [{is_integer, '$1'}, {'<', '$1', Cutoff}], [true]}],
+    _ = ets:select_delete(?TABLE, BucketSpec),
+    _ = ets:select_delete(?TABLE, DenialSpec),
     ok.
