@@ -18,7 +18,7 @@ guard_test_() ->
             fun a_callers_bucket_is_per_procedure_and_per_caller/0,
             fun the_global_key_has_its_own_bucket/0,
             fun stats_report_the_window_and_denial_counters/0,
-            fun the_stats_reply_passes_the_wire_codec_test/0,
+            fun the_stats_reply_passes_the_wire_codec/0,
             fun the_audit_ring_records_changes/0,
             fun should_report_only_flags_new_windows_with_activity/0,
             fun alert_payload_is_numbers_and_binaries_only/0,
@@ -40,31 +40,42 @@ teardown({Pid, Keeper}) ->
     mcl_om_guard_limits:clear().
 
 %% The keeper holds the parent link instead of the (short-lived) eunit
-%% setup process, so the guard survives the fixture build.
+%% setup process, so the guard survives the fixture build. It reports
+%% its outcome either way: a refused start must fail the fixture loudly,
+%% not leave it waiting for a message that never comes.
 start_guard() ->
     Parent = self(),
     Keeper = spawn(fun() ->
-                           Pid = start_tolerating_stray(),
-                           Parent ! {guard_started, self(), Pid},
+                           Outcome = try start_tolerating_stray()
+                                     catch Class:Reason -> {error, {Class, Reason}}
+                                     end,
+                           Parent ! {guard_started, self(), Outcome},
                            receive stop -> ok end
                    end),
-    receive {guard_started, Keeper, Pid} -> {Pid, Keeper} end.
+    receive
+        {guard_started, Keeper, {ok, Pid}}    -> {Pid, Keeper};
+        {guard_started, Keeper, {error, Why}} -> error({guard_start_failed, Why})
+    end.
 
-%% A previous module's in-test guard can still hold the name when this
-%% module's setup runs; wait for it, then start.
+%% A previous module's instance can still hold the name as it dies
+%% (termination is async), and one leaked by a test that ran standalone
+%% never lets go. Wait a moment for a genuine exit, then KILL it -- this
+%% setup runs under eunit's own timeout, and a fixture that waits
+%% seconds here is a fixture eunit kills, cancelling every test in it
+%% (the 5-cancelled CI runs of mcl-om 0.37.x).
 start_tolerating_stray() ->
     case mcl_om_guard:start_link() of
         {ok, Pid} ->
-            Pid;
+            {ok, Pid};
         {error, {already_started, Stray}} ->
             Ref = erlang:monitor(process, Stray),
-            receive {'DOWN', Ref, _, _, _Reason} -> ok
-            after 5000 ->
+            receive
+                {'DOWN', Ref, _, _, _Reason} -> ok
+            after 100 ->
                 exit(Stray, kill),
                 receive {'DOWN', Ref, _, _, _Reason} -> ok end
             end,
-            {ok, Pid} = mcl_om_guard:start_link(),
-            Pid
+            mcl_om_guard:start_link()
     end.
 
 declare_proc() ->
@@ -119,7 +130,15 @@ stats_report_the_window_and_denial_counters() ->
 %% The guard is ensured here rather than assumed: eunit fixture timing
 %% can take the fixture's instance down before the last test, so this
 %% test starts its own (linked to this test process, dying with it).
-the_stats_reply_passes_the_wire_codec_test() ->
+%%
+%% NO `_test' SUFFIX, deliberately: eunit auto-collects every exported
+%% zero-arity function whose name ends in `_test', so the suffix ran this
+%% a second time at module level -- outside the fixture, where the
+%% start_link'd guard outlived the test and the next fixture waited five
+%% seconds on it until eunit killed that fixture, cancelling every test
+%% in it (the 5-cancelled CI runs of mcl-om 0.37.x). The fixture list
+%% still calls it; that is the run that counts.
+the_stats_reply_passes_the_wire_codec() ->
     case mcl_om_guard:start_link() of
         {ok, _OwnPid} -> ok;
         {error, {already_started, _Pid}} -> ok

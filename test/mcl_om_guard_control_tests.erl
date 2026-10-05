@@ -37,32 +37,43 @@ teardown({Pid, Keeper}) ->
 
 %% The guard starts under a keeper, not the eunit setup process: eunit
 %% exits its setup process once the fixture is built, and a start_link'd
-%% child dies with it (see mcl_om_guard_tests).
+%% child dies with it (see mcl_om_guard_tests). The keeper reports its
+%% outcome either way: a refused start must fail the fixture loudly, not
+%% leave it waiting for a message that never comes.
 start_guard() ->
     Parent = self(),
     Keeper = spawn(fun() ->
-                           Pid = start_tolerating_stray(),
-                           Parent ! {guard_started, self(), Pid},
+                           Outcome = try start_tolerating_stray()
+                                     catch Class:Reason -> {error, {Class, Reason}}
+                                     end,
+                           Parent ! {guard_started, self(), Outcome},
                            receive stop -> ok end
                    end),
-    receive {guard_started, Keeper, Pid} -> {Pid, Keeper} end.
+    receive
+        {guard_started, Keeper, {ok, Pid}}    -> {Pid, Keeper};
+        {guard_started, Keeper, {error, Why}} -> error({guard_start_failed, Why})
+    end.
 
 %% A previous module's in-test guard can still hold the name when this
 %% module's setup runs (its test process ended; the termination is
-%% async). Wait for it, then start.
+%% async), and one leaked by a test that ran standalone never lets go.
+%% Wait a moment for a genuine exit, then KILL it -- this setup runs
+%% under eunit's own timeout, and a fixture that waits seconds here is a
+%% fixture eunit kills, cancelling every test in it (the 5-cancelled CI
+%% runs of mcl-om 0.37.x).
 start_tolerating_stray() ->
     case mcl_om_guard:start_link() of
         {ok, Pid} ->
-            Pid;
+            {ok, Pid};
         {error, {already_started, Stray}} ->
             Ref = erlang:monitor(process, Stray),
-            receive {'DOWN', Ref, _, _, _Reason} -> ok
-            after 5000 ->
+            receive
+                {'DOWN', Ref, _, _, _Reason} -> ok
+            after 100 ->
                 exit(Stray, kill),
                 receive {'DOWN', Ref, _, _, _Reason} -> ok end
             end,
-            {ok, Pid} = mcl_om_guard:start_link(),
-            Pid
+            mcl_om_guard:start_link()
     end.
 
 declare_proc() ->
