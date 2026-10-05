@@ -223,7 +223,7 @@ station_url_brackets_ipv6_only_test() ->
     ?assertEqual(<<"quic://10.0.0.7:4433">>,
                  mcl_om_capabilities:station_url(<<"10.0.0.7">>, 4433)).
 
-%%% Piece B (PLAN_MCL_OM_MESH_WRAPPERS.md): a capability carrying
+%%% Piece B (guides/mesh_native_services.md): a capability carrying
 %%% `handler => {Module, Args}' is advertised via
 %%% `macula_response:advertise_direct/7' instead of the legacy bare
 %%% `put_record'. `has_handler/1' is the dispatch decision;
@@ -243,7 +243,7 @@ reuse_sup_opts_carries_a_known_sup_and_nothing_else_test() ->
     ?assertEqual(#{reuse_sup => Sup},
                  mcl_om_capabilities:reuse_sup_opts(Sup)).
 
-%%% PLAN_UCAN_GATED_CAPABILITIES.md: a capability may opt into gating
+%%% CHANGELOG 0.24.0: a capability may opt into gating
 %%% via its own `auth' key, forwarded into advertise_direct's Opts.
 %%% Absence must merge nothing -- an explicit #{auth => open} would work
 %%% too (macula:advertise/5 treats them identically) but silently

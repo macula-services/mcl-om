@@ -1,4 +1,4 @@
-%%% Live end-to-end proof for piece A (PLAN_MCL_OM_MESH_WRAPPERS.md):
+%%% Live end-to-end proof for piece A (guides/mesh_native_services.md):
 %%% boots mcl_om as a real OTP application (application:
 %%% ensure_all_started/1, not just mcl_om_identity standalone)
 %%% against a real PQ-fleet station, and confirms the migrated

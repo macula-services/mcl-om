@@ -1,4 +1,4 @@
-%% Live end-to-end proof for piece D (PLAN_MCL_OM_MESH_WRAPPERS.md):
+%% Live end-to-end proof for piece D (guides/mesh_native_services.md):
 %% a service declaring a subscription via `mcl_om_pubsub:ensure_
 %% subscriptions/1' genuinely receives real events published (via
 %% piece C's `mcl_om_pubsub:publish/2') on a real PQ-fleet station --

@@ -1,4 +1,4 @@
-%% Live end-to-end proof for piece B (PLAN_MCL_OM_MESH_WRAPPERS.md):
+%% Live end-to-end proof for piece B (guides/mesh_native_services.md):
 %% a capability carrying a `handler' is genuinely CALLABLE mesh-to-mesh
 %% via macula_response:advertise_direct, not just discoverable. Run
 %% against a real PQ-fleet station (pq.station-fi-helsinki.macula.io,
@@ -89,7 +89,7 @@ run() ->
     %% Reply keys arrive as {text, _} markers (the 11.x wire marks
     %% every text key explicitly, D26) -- mcl_om_wire:field/2 is the
     %% contract every caller reads them through; see piece F,
-    %% PLAN_MCL_OM_MESH_WRAPPERS.md. The echo carries the payload the
+    %% guides/mesh_native_services.md. The echo carries the payload the
     %% provider received, which includes the wire-authenticated caller
     %% (macula >= 10.15.0 threads it into every RPC payload).
     {ok, Reply} = DirectResult,

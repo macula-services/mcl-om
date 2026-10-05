@@ -1,6 +1,6 @@
 %%% @doc Reconciles the desired subscription set against
 %%% `mcl_om_pubsub_sup''s actual running children (piece D,
-%%% `PLAN_MCL_OM_MESH_WRAPPERS.md').
+%%% guides/mesh_native_services.md).
 %%%
 %%% One supervised `macula_subscriber' per `{Topic, HandlerMod, Args}'
 %%% not already running; any running one no longer desired is stopped.

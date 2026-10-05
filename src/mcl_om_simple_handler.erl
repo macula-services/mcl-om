@@ -4,7 +4,7 @@
 %%% state — the common case for a hecate-service migrating a capability
 %%% from bare `macula:advertise/5' onto
 %%% `mcl_om_capabilities:register/1' (see
-%%% `plans/PLAN_UCAN_GATED_CAPABILITIES.md').
+%%% CHANGELOG 0.24.0).
 %%%
 %%% Without this, every migrating service would hand-write its own
 %%% `init/1'/`handle_request/2' pair per capability just to keep calling

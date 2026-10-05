@@ -10,10 +10,8 @@ declaration, store/read-model wiring), see
 you already have a booting service and want it to actually talk to the
 mesh.
 
-**Status as of this writing (2026-08-25):** everything below is on
-`main`, not yet in a tagged release. See
-`../plans/PLAN_HECATE_OM_MESH_WRAPPERS.md` for the full design history
-and evidence behind each piece, referenced below as piece A/B/C/D/E/F/G/H.
+Each wrapper is referred to below as piece A/B/C/D/E/F/G/H; the
+CHANGELOG, from 0.1.0 onward, records how each one landed.
 
 `mcl_om` does not reimplement mesh I/O. Every wrapper below is a
 thin resolve-your-handles-then-call-the-real-thing layer over macula's
@@ -488,6 +486,3 @@ and non-blocking.
   chapters 4–5 note `mcl_om` does not wrap (content and streaming) —
   built directly against
   the SDK, and the source this whole plan was derived from.
-- `../plans/PLAN_HECATE_OM_MESH_WRAPPERS.md` — the design history,
-  evidence, and every bug each piece's tests found, if you want the
-  "why," not just the "how" above.

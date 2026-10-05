@@ -1,5 +1,5 @@
 %%% Unit + live tests for mcl_om_pubsub, piece C of the mesh-wrappers
-%%% plan (`plans/PLAN_MCL_OM_MESH_WRAPPERS.md'). No real station is
+%%% plan (guides/mesh_native_services.md). No real station is
 %%% needed for the live group: `macula_client:connect([], #{})' gives a
 %%% real pool with zero spawned links, so a publish genuinely resolves
 %%% to `{error, {transient, no_healthy_station}}' from the SDK itself —
@@ -9,7 +9,7 @@
 
 %% A caller-supplied macula_publisher callback, standing in for a
 %% service that needs outcome handling start_publisher/3,4,5 exists
-%% for (see the escape-hatch discussion, PLAN_MCL_OM_MESH_WRAPPERS.md
+%% for (see the escape-hatch discussion, guides/mesh_native_services.md
 %% piece C) -- proves start_publisher/3,4,5 genuinely hands control to
 %% THIS module, not mcl_om_pubsub's own.
 -behaviour(macula_publisher).
@@ -158,7 +158,7 @@ test_start_publisher_uses_caller_module() ->
 
 %% The actual motivating scenario for the escape hatch (see the
 %% "imagine such a service exists" discussion,
-%% PLAN_MCL_OM_MESH_WRAPPERS.md piece C), built and run to real
+%% guides/mesh_native_services.md piece C), built and run to real
 %% exhaustion, not just asserted possible: a retry-with-backoff
 %% coordinator. Every attempt fails deterministically against the
 %% zero-link pool, so this exercises the full retry loop down to

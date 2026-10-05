@@ -1,5 +1,5 @@
 %%% @doc Connection-lifecycle acceptance tests for piece A
-%%% (`PLAN_MCL_OM_MESH_WRAPPERS.md'): the mesh pool as an ordinary
+%%% (guides/mesh_native_services.md): the mesh pool as an ordinary
 %%% `mcl_om_sup' child (`macula_client:child_spec/3'-shaped, via
 %%% `mcl_om_identity:start_mesh_pool/0') instead of `mcl_om_
 %%% identity''s old hand-rolled `self() ! connect' / 5s-retry /

@@ -2,7 +2,7 @@
 %%% instead of every service hand-rolling `catch macula:publish(...)'.
 %%%
 %%% Confirmed by a 2026-08-24 workspace-wide survey (see
-%%% `hecate-om/plans/PLAN_MCL_OM_MESH_WRAPPERS.md', piece C): ~20
+%%% guides/mesh_native_services.md, piece C): ~20
 %%% `hecate-services/*' repos independently wrote the same
 %%%
 %%%   case {mcl_om:macula_client(), mcl_om_identity:realm()} of

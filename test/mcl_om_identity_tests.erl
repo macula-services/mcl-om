@@ -8,7 +8,7 @@
 %%% silently replace the service's identity, so those stop the service
 %%% instead.
 %%% Also configured_seeds/0 (piece A) and the non-raising accessor
-%%% contract (piece H) -- see PLAN_MCL_OM_MESH_WRAPPERS.md.
+%%% contract (piece H) -- see guides/mesh_native_services.md.
 %%% The 11.x port: fixtures generate real pq_hybrid node keys
 %%% (macula_node_keys), and the seed contract carries the station node
 %%% ids every dial must be pinned to.
@@ -225,7 +225,7 @@ start_in_helper() ->
 
 %% mcl_om_identity:configured_seeds/0 -- exported for mcl_om_sup's
 %% own use deciding whether the mesh pool child (piece A,
-%% PLAN_MCL_OM_MESH_WRAPPERS.md) belongs in the children list at
+%% guides/mesh_native_services.md) belongs in the children list at
 %% all, which makes a wrong answer here higher-stakes than before this
 %% piece: it used to only pick which seeds a connect attempt used, now
 %% it decides whether a pool is started at all.
@@ -317,7 +317,7 @@ set_env(Var, Val)   -> os:putenv(Var, Val).
 set_app_env(undefined) -> application:unset_env(mcl_om, station_seeds);
 set_app_env(Seeds)     -> application:set_env(mcl_om, station_seeds, Seeds).
 
-%% Piece H (PLAN_MCL_OM_MESH_WRAPPERS.md): calling an accessor
+%% Piece H (guides/mesh_native_services.md): calling an accessor
 %% before mcl_om_identity has started must degrade to {error,
 %% not_booted} rather than raising {noproc, _}. Several OTHER test
 %% modules in this suite start a real mcl_om_identity in their own

@@ -1,5 +1,5 @@
 %%% @doc Proof that an identity authorised exactly this request, once: the
-%%% `asserted_by' block of a payload (plans/PLAN_OWNERSHIP_PROOF_V2.md,
+%%% `asserted_by' block of a payload (mcl-om#7,
 %%% mcl-om#7).
 %%%
 %%% The signer sends `asserted_by => #{identity => Hex, proof => Proof}'

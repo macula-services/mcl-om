@@ -1,5 +1,5 @@
 %%% @doc Dynamic supervisor for this service's `macula_subscriber'
-%%% children (piece D, `PLAN_MCL_OM_MESH_WRAPPERS.md').
+%%% children (piece D, guides/mesh_native_services.md).
 %%%
 %%% Starts empty; `mcl_om_pubsub_subscriptions' adds/removes one
 %%% child per declared `{Topic, HandlerMod, Args}', keyed by `Topic' so

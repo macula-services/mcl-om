@@ -11,7 +11,7 @@
 # directly, outside `mcl_om_capabilities:register/1', is advertising
 # something the in-process audit never sees at all (this was
 # `hecate-rag''s own state before its 0.17.0 migration -- see
-# plans/PLAN_UCAN_GATED_CAPABILITIES.md). This script finds that bypass
+# CHANGELOG 0.24.0). This script finds that bypass
 # pattern by source, since no running BEAM node can observe another
 # repo's code. It does NOT attempt to grep a capability list's own
 # `auth' keys out of Erlang source -- that would silently give false

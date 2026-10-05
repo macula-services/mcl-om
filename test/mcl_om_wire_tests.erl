@@ -1,7 +1,7 @@
 %%% Unit tests for mcl_om_wire:field/2,3 and retryable/1 — pure
 %%% logic, no mesh involved, same convention as mcl_om_capabilities.
 %%% erl/mcl_om_pubsub.erl's own exported pure helpers
-%%% (PLAN_MCL_OM_MESH_WRAPPERS.md, pieces F and G).
+%%% (guides/mesh_native_services.md, pieces F and G).
 -module(mcl_om_wire_tests).
 -include_lib("eunit/include/eunit.hrl").
 

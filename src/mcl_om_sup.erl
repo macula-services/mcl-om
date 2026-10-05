@@ -19,7 +19,7 @@
 %%% have something to hit).
 %%%
 %%% When station seeds are configured, also the mesh pool itself
-%%% (piece A, `PLAN_MCL_OM_MESH_WRAPPERS.md'): an ordinary
+%%% (piece A, guides/mesh_native_services.md): an ordinary
 %%% `restart => permanent' child wrapping 'macula_client:connect/2'
 %%% (via `mcl_om_identity:start_mesh_pool/0', which needs this
 %%% gen_server''s already-loaded keypair — hence positioned right after

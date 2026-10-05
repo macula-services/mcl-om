@@ -1,4 +1,4 @@
-%%% Tests for mcl_om_ownership_proof v2 (plans/PLAN_OWNERSHIP_PROOF_V2.md,
+%%% Tests for mcl_om_ownership_proof v2 (mcl-om#7,
 %%% mcl-om#7). A proof binds the identity, the realm, the procedure, a nonce
 %%% and every field of the payload as the handler receives it. The payloads
 %%% here travel through macula's own frame codec and the station's caller
