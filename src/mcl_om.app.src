@@ -18,10 +18,9 @@
         %% no seeds are configured. See mcl_om_identity.
         {mesh, optional},
 
-        %% Service-principal cert path. The container mounts
-        %% /etc/hecate/secrets/<service-name> read-only on this path
-        %% (Quadlet maps the per-service host directory to it).
-        {service_cert_path, "/etc/hecate/secrets/service-cert.pem"},
+        %% Service-principal cert path, inside the service's identity
+        %% volume, which the deploy mounts at /etc/mcl/secrets.
+        {service_cert_path, "/etc/mcl/secrets/service-cert.pem"},
 
         %% Realm tag (32-byte binary). Operator pins this via the
         %% per-service env file in macula-fleet. May also be supplied

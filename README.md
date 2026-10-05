@@ -323,7 +323,7 @@ a generated service carries what the service knows about itself;
 which realm key, which secret file. The boxes pull it; nothing is pushed to them.
 
 **How a box runs its services.** Each box has macula-fleet checked out at
-`~/gitops/macula-fleet`. The `hecate-reconcile` systemd `--user` timer runs
+`~/gitops/macula-fleet`. The `macula-reconcile` systemd `--user` timer runs
 `edge/gitops/reconcile.sh` every 2 minutes: it fast-forwards the checkout and
 runs `docker compose up -d` for every row of `edge/<box>/reconcile.manifest`.
 Who updates images is set per box in `edge/<box>/reconcile.options`. The
@@ -340,10 +340,10 @@ reconciler then applies config only.
    `<project> <compose> <config-env|-> <secret-file|-> <prep|->`. Public per-box
    configuration, such as `MCL_REALM_KEY` (the realm's public key), goes in a
    committed `edge/<box>/<service>-config.env`.
-3. Seed the secrets once, on the box, at `~/.hecate/secrets/<name>.env`, 0600,
+3. Seed the secrets once, on the box, at `~/.macula/secrets/<name>.env`, 0600,
    never committed (`MCL_COOKIE`, for one). A row whose secret file is missing
    starts nothing: the reconciler logs `[reconcile] FAILED: <project>`, and only
-   `journalctl --user -u hecate-reconcile` shows it.
+   `journalctl --user -u macula-reconcile` shows it.
 4. Push macula-fleet. The box picks it up on its next tick, within 2 minutes.
 
 Health ports bound on beam00 today: 8450, 8461 (mcl-echo), 8484, 8494. Host

@@ -3,6 +3,18 @@
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [SemVer](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+
+- **The service cert's default path is `/etc/mcl/secrets/service-cert.pem`**
+  (was `/etc/hecate/secrets/service-cert.pem`): inside the identity volume
+  the deploy mounts at `/etc/mcl/secrets`, the path mcl-corpus documents. No
+  code in mcl_om or a service reads `service_cert_path` today, so nothing
+  moves on a box. The README names the fleet's reconcile timer
+  `macula-reconcile` and its secrets `~/.macula/secrets/`, as macula-fleet
+  does. (macula-services/mcl-om#17)
+
 ## [0.37.6] - 2026-10-05
 
 ### Added
