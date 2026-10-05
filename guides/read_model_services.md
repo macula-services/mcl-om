@@ -12,14 +12,14 @@ subscribe to a mesh topic — see [`mesh_native_services.md`](mesh_native_servic
 chapter 3 first if not. This guide is specifically about the part that goes wrong if you
 stop at "subscribe, then write": **staleness and scale**. The pattern is documented in
 full, with the real bug that motivated it, in the corpus —
-[`hecate-corpus/examples/MESH_FACT_READ_MODELS.md`](https://github.com/hecate-social/hecate-corpus/blob/main/examples/MESH_FACT_READ_MODELS.md).
+[`mcl-corpus/examples/MESH_FACT_READ_MODELS.md`](https://github.com/macula-services/mcl-corpus/blob/main/examples/MESH_FACT_READ_MODELS.md).
 Read that for the "why." This is the "how, with this library's actual functions."
 
 ## The shape: three modules, not two
 
 A read-model service that goes straight from a `subscriptions/0` handler to a database
 write has nowhere to put the "should this actually be written" decision — which is
-exactly the bug `hecate-stations` shipped with. Split it into three:
+exactly the bug the earlier stations service shipped with. Split it into three:
 
 ```
 subscriptions/0 (Listener)  →  a Policy module (pure function)  →  a Projection module (the store)
@@ -172,8 +172,8 @@ refresh on the order of hours, not seconds.
 
 ## Where to look next
 
-- [`hecate-corpus/examples/MESH_FACT_READ_MODELS.md`](https://github.com/hecate-social/hecate-corpus/blob/main/examples/MESH_FACT_READ_MODELS.md) — the pattern, the "why," and the real bug it's drawn from
+- [`mcl-corpus/examples/MESH_FACT_READ_MODELS.md`](https://github.com/macula-services/mcl-corpus/blob/main/examples/MESH_FACT_READ_MODELS.md) — the pattern, the "why," and the real bug it's drawn from
 - [`mesh_native_services.md`](mesh_native_services.md) — subscribing/publishing/calling over the mesh, the layer this guide builds on
 - [`service_anatomy.md`](service_anatomy.md) — the boot lifecycle this guide assumes
-- `macula-services/mcl-stations` — the running example, ported from the hecate-stations
+- `macula-services/mcl-stations` — the running example, ported from the earlier stations
   service this guide was extracted from finding a genuine gap in, not a clean-room design

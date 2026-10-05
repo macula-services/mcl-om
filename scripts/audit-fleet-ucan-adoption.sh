@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Fleet-wide audit for PLAN_ROLL_OUT_UCAN_REQUIRED.md's Phase 1: which
-# hecate-services can `mcl_om_capabilities:unguarded_capabilities/1`
+# services can `mcl_om_capabilities:unguarded_capabilities/1`
 # (and the boot-time warning built on it, in this same release) actually
 # see, and which cannot.
 #
@@ -10,7 +10,7 @@
 # `macula_response:advertise_direct/7' or `macula_streamer:advertise_direct/7'
 # directly, outside `mcl_om_capabilities:register/1', is advertising
 # something the in-process audit never sees at all (this was
-# `hecate-rag''s own state before its 0.17.0 migration -- see
+# an earlier RAG service's own state before its 0.17.0 migration -- see
 # CHANGELOG 0.24.0). This script finds that bypass
 # pattern by source, since no running BEAM node can observe another
 # repo's code. It does NOT attempt to grep a capability list's own
@@ -24,9 +24,9 @@
 #   scripts/audit-fleet-ucan-adoption.sh [workspace-root]
 #
 # workspace-root defaults to this script's own grandparent directory
-# (i.e. ~/work/github.com/hecate-services when run from a normal
-# checkout) -- deliberately derived, not hardcoded, so this script stays
-# usable against any hecate-services workspace, not just this fleet's.
+# (i.e. the directory holding the service checkouts, when run from a
+# normal checkout) -- deliberately derived, not hardcoded, so this script stays
+# usable against any services workspace, not just this fleet's.
 
 set -euo pipefail
 
@@ -37,7 +37,7 @@ THIS_REPO="$(basename "$(dirname "$SCRIPT_DIR")")"
 
 BYPASS_PATTERN='macula:advertise\(|macula_response:advertise_direct\(|macula_streamer:advertise_direct\('
 
-echo "Auditing hecate-services under: $WORKSPACE_ROOT"
+echo "Auditing services under: $WORKSPACE_ROOT"
 echo "(excluding $THIS_REPO itself, and each repo's own _build/ output)"
 echo
 
@@ -56,8 +56,8 @@ for repo_path in "$WORKSPACE_ROOT"/*/; do
     # umbrella app (apps/<name>/src/*.erl, no top-level src/ at all) as
     # flat -- a literal "$repo_path/src" glob silently missed EVERY
     # umbrella-structured repo the first time this script was run
-    # (hecate-agora, hecate-citizens, hecate-mail, hecate-warden and
-    # others all reported false "no"s for both checks below). Always
+    # (the agora, citizens, mail and warden services and others all
+    # reported false "no"s for both checks below). Always
     # exclude _build -- that's a compiled copy of mcl_om itself plus
     # release artifacts, not this repo's own source.
     calls_boot="no"
@@ -66,7 +66,7 @@ for repo_path in "$WORKSPACE_ROOT"/*/; do
     # test/ and test_live/ deliberately excluded: a live-fleet test
     # fixture calling advertise_direct to stand up a fake peer is not
     # the service's own capability path (found live:
-    # hecate-tube/test_live/tube_content_live_station_tests.erl).
+    # an earlier tube service's test_live/tube_content_live_station_tests.erl).
     direct_calls="$( { grep -rlE "$BYPASS_PATTERN" --include='*.erl' \
                         --exclude-dir=_build --exclude-dir=test --exclude-dir=test_live \
                         "$repo_path" 2>/dev/null || true; } | sed "s#^$repo_path##" | tr '\n' ' ')"

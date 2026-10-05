@@ -518,7 +518,7 @@ live_pool_streamer_capability_test_() ->
 
 %%%===================================================================
 %%% Regression test for the crash-cascade bug found live 2026-09-01
-%%% (hecate-rag): one capability's `advertise_direct' call raising (the
+%%% (a RAG service): one capability's `advertise_direct' call raising (the
 %%% real incident was a `gen_server:call' timeout against the station
 %%% link) used to crash the whole `mcl_om_capabilities' process
 %%% before it could register any OTHER capability in the same batch --

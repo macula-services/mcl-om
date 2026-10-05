@@ -221,9 +221,9 @@ identity_key() ->
 %% @doc The `{Pool, Realm}' pair every PubSub/RPC-consumer/Content call
 %% needs together. Replaces the hand-rolled
 %% `case {macula_client(), realm()} of {{ok,P},{ok,R}} -> ...' pairing
-%% four independent hecate-services repos each wrote for themselves
-%% (`hecate_mesh.erl', `tom_ocean_mesh.erl', `tom_wire_macula.erl',
-%% `tom_crier.erl') because mcl_om gave them nothing to build on.
+%% four independent service repos each wrote for themselves (among
+%% them `tom_ocean_mesh.erl', `tom_wire_macula.erl', `tom_crier.erl')
+%% because mcl_om gave them nothing to build on.
 %% Degrades to `{error, mesh_unavailable}' rather than crashing when
 %% either half is missing (mesh unreachable, or no client attached yet).
 -spec mesh_handles() -> {ok, term(), binary()} | {error, mesh_unavailable}.

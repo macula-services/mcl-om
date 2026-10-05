@@ -353,7 +353,8 @@ health_script_is_executable(Config) ->
 %% design, mcl_om_capabilities's own moduledoc). Confirmed live 2026-08-31
 %% on a service generated from an earlier copy of this template that lacked
 %% this key: keypair/0 stayed {error, no_keypair} for its entire deployed
-%% lifetime, and hecate_stations.list_stations never once reached the DHT.
+%% lifetime, and the stations service's list_stations never once reached
+%% the DHT.
 %% Same class of recorded recurring mistake as the chmod one above -- a
 %% generated repo that looks completely healthy while doing nothing.
 sys_config_configures_a_stable_identity(Config) ->

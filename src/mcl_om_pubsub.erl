@@ -3,7 +3,7 @@
 %%%
 %%% Confirmed by a 2026-08-24 workspace-wide survey (see
 %%% guides/mesh_native_services.md, piece C): ~20
-%%% `hecate-services/*' repos independently wrote the same
+%%% service repos independently wrote the same
 %%%
 %%%   case {mcl_om:macula_client(), mcl_om_identity:realm()} of
 %%%       {{ok, Pool}, {ok, Realm}} -> catch macula:publish(...), ok;
@@ -65,20 +65,20 @@ publish(Topic, Payload) ->
 %% @doc As `publish/2', with `Opts':
 %%
 %%   `realm'   — publish on a realm other than this service's own.
-%%               A real, deployed need (see `hecate-dronex',
-%%               `hecate-robo-rumbler', `hecate-biotope'/`hecate-society'
+%%               A real, deployed need (see the dronex,
+%%               robo-rumbler and biotope/society services
 %%               in the survey): a fleet realm for mcl_om's own
 %%               plumbing and a separate business/public realm for the
 %%               facts themselves, off the same pool.
 %%   `mode'    — `async_silent' (default): fire-and-forget, outcome
 %%                 discarded.
 %%               `async_log': fire-and-forget, but a failed publish is
-%%                 logged (`hecate-victron'/`hecate-warden'/`hecate-sentinel'
+%%                 logged (the victron, warden and sentinel services
 %%                 all re-added this after an earlier silent-swallow
 %%                 version ate refused frames unnoticed).
 %%               `sync': blocks until the publish resolves and returns
-%%                 its outcome (`hecate-biotope'/`hecate-society'/
-%%                 `hecate-mpong-bot' all already block their own
+%%                 its outcome (the biotope/society and mpong services
+%%                 all already block their own
 %%                 caller today; this just moves that blocking here).
 %%   `timeout' — `sync' mode only. Milliseconds to wait for the
 %%               outcome before returning `{error, timeout}'. Default
@@ -210,7 +210,7 @@ counter_or_new(C) ->
     C.
 
 %% @doc Publish `Payload' on every topic in `Topics'. Convenience for a
-%% one-fact-fans-to-N-topics service (`hecate-news' publishes to a
+%% one-fact-fans-to-N-topics service (a news service publishes to a
 %% firehose topic plus one sub-topic per non-empty axis). Every topic
 %% is attempted regardless of an earlier one's outcome; returns `ok'
 %% only if every publish returned `ok'.

@@ -1,4 +1,4 @@
-# How to write mesh-native services with hecate-om
+# How to write mesh-native services with mcl-om
 
 A "mesh-native" service is one that talks to other services over the
 mesh — connects, calls, publishes, subscribes, moves bytes — without
@@ -102,7 +102,7 @@ signed `procedure_advertisement` DHT record naming your serving
 station, so it's discoverable **and** callable. Re-advertised every
 30s; a station's wire-level registration is tied to the connection
 that sent it and doesn't survive that connection being replaced, so a
-single advertise-at-boot isn't enough (`hecate-tube` hit this live
+single advertise-at-boot isn't enough (an earlier tube service hit this live
 before `advertise_direct` existed).
 
 A capability with no `handler` key still gets the legacy
@@ -350,7 +350,7 @@ does internally.
 ### Serving a stream
 
 ```erlang
-%% Real example: hecate-tube's stream_video_clip_by_id.erl, trimmed.
+%% Real example: mcl-tube's stream_video_clip_by_id.erl, trimmed.
 -module(stream_video_clip_by_id).
 -behaviour(macula_streamer).
 -export([init/1, handle_open/2]).
@@ -376,7 +376,7 @@ push-based and driven from outside them once `handle_open/2` has
 returned `{ok, State}` — any process holding the streamer's pid calls
 `macula_streamer:send/2,3`/`close/1` on it, so a natural shape is
 spawning a dedicated sender process from inside `handle_open/2` itself
-(as `hecate-tube` does), not sending inline.
+(as `mcl-tube` does), not sending inline.
 
 Registering this as callable — the supervised call, not a hand-rolled
 wire-level ADVERTISE — is `macula_streamer:advertise_direct/6,7`, the

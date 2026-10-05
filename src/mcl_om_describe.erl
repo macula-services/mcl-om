@@ -49,8 +49,8 @@ result_or_empty(false, _ServiceMod, _Fun) -> [].
 %% -- nothing to advertise, so nothing is. Left with no explicit `auth'
 %% key (defaults to `open'): pure metadata about what a service exposes
 %% is not sensitive, matching this codebase's own existing precedent
-%% for other discovery-shaped capabilities (`hecate-llm.list_available'
-%% / `hecate-llm.check_health').
+%% for other discovery-shaped capabilities (an LLM service's
+%% `list_available' / `check_health').
 -spec capability_for(module(), binary()) -> mcl_om_service:capability() | undefined.
 capability_for(ServiceMod, ServiceName)
   when is_atom(ServiceMod), is_binary(ServiceName) ->

@@ -83,9 +83,9 @@ text_key_is_tried_after_the_atom_and_binary_forms_test() ->
 %%% fails to match a real caller's payload.
 
 field_unwraps_a_cbor_text_tuple_test() ->
-    ?assertEqual(<<"hecate-corpus/CODEX.md">>,
+    ?assertEqual(<<"mcl-corpus/CODEX.md">>,
                  mcl_om_wire:field(source_path,
-                                      #{source_path => {text, <<"hecate-corpus/CODEX.md">>}})).
+                                      #{source_path => {text, <<"mcl-corpus/CODEX.md">>}})).
 
 field_unwraps_a_cbor_text_tuple_found_via_binary_key_test() ->
     ?assertEqual(<<"x">>,

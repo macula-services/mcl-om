@@ -24,7 +24,7 @@
         {service_cert_path, "/etc/hecate/secrets/service-cert.pem"},
 
         %% Realm tag (32-byte binary). Operator pins this via the
-        %% per-service env file in hecate-gitops. May also be supplied
+        %% per-service env file in macula-fleet. May also be supplied
         %% as a 64-char hex binary. v2 will extract from the
         %% service-principal cert instead.
         %% {realm, <<...32 bytes...>>}

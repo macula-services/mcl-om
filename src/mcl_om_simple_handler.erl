@@ -1,7 +1,7 @@
 %%% @doc Bridges `macula''s native `{Module, Function}' single-call
 %%% handler convention into `macula_response''s per-request `init/1' +
 %%% `handle_request/2' contract, for a handler that needs no per-request
-%%% state — the common case for a hecate-service migrating a capability
+%%% state — the common case for a service migrating a capability
 %%% from bare `macula:advertise/5' onto
 %%% `mcl_om_capabilities:register/1' (see
 %%% CHANGELOG 0.24.0).

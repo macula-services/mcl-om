@@ -1,6 +1,6 @@
-# Anatomy of a hecate-service
+# Anatomy of an mcl service
 
-A Hecate service is one OTP release and one OCI container, running on
+An mcl service is one OTP release and one OCI container, running on
 an infrastructure node rather than on a user's laptop. A laptop is a
 citizen: it consults services across the mesh, it does not host them.
 
@@ -10,20 +10,20 @@ README for how to install the template.
 ## Repository layout
 
 ```
-<org>/hecate-X/
+<org>/mcl-X/
 ├── README.md
 ├── LICENSE
 ├── CHANGELOG.md
 ├── Containerfile                ← multi-stage Erlang build
 ├── rebar.config                 ← deps incl. {mcl_om, "~> 0.26"}, relx release
-├── apps/hecate_x/
+├── apps/mcl_x/
 │   ├── src/
-│   │   ├── hecate_x.app.src     ← `applications: [mcl_om, …]`
-│   │   ├── hecate_x_app.erl     ← `start/2 -> mcl_om:boot(hecate_x_service)`
-│   │   ├── hecate_x_sup.erl
-│   │   └── hecate_x_service.erl ← implements mcl_om_service
+│   │   ├── mcl_x.app.src        ← `applications: [mcl_om, …]`
+│   │   ├── mcl_x_app.erl        ← `start/2 -> mcl_om:boot(mcl_x_service)`
+│   │   ├── mcl_x_sup.erl
+│   │   └── mcl_x_service.erl    ← implements mcl_om_service
 │   └── test/
-│       └── hecate_x_service_tests.erl
+│       └── mcl_x_service_tests.erl
 ├── config/
 │   ├── sys.config.src           ← realm, health port, station socket
 │   └── vm.args.src
@@ -71,7 +71,7 @@ Service is live.
 Six callbacks. See `mcl_om_service` for the full type spec.
 
 ```erlang
--module(hecate_X_service).
+-module(mcl_X_service).
 -behaviour(mcl_om_service).
 -export([info/0, start/1, stop/1, health/0, capabilities/0, identity_spec/0]).
 ```
@@ -98,13 +98,13 @@ application and opens nothing (mcl-om#10). An event-sourced service:
 `rebar3 new mcl_service store=1` generates all four. Boot order with a store:
 
 ```
-hecate_X_app:start/2
+mcl_X_app:start/2
    ├── open_store(): reckon_db_sup:start_store(#store_config{indexes = ...}),
    │   wait until reckon_db_sup:which_stores/0 lists it,
    │   evoq_store_subscription:start_link(StoreId)
-   └── mcl_om:boot(hecate_X_service)
+   └── mcl_om:boot(mcl_X_service)
           ↓
-       hecate_X_service:start/1 → hecate_X_sup:start_link()   (store already up)
+       mcl_X_service:start/1 → mcl_X_sup:start_link()   (store already up)
 ```
 
 ## Read-model-backed services
@@ -122,7 +122,7 @@ barrel's system database does not land in a relative `data/`.
 ## Vertical slicing inside
 
 A service may host its own CMD / PRJ / QRY tier internally. Same
-vertical-slicing rules as user-domain apps. Example for `hecate-rag`:
+vertical-slicing rules as user-domain apps. Example for `mcl-rag`:
 
 ```
 apps/
@@ -135,5 +135,5 @@ apps/
 └── query_chunks/        QRY
 ```
 
-`hecate-om` enforces nothing here — it's a contract for the daemon
+`mcl-om` enforces nothing here — it's a contract for the daemon
 boundary, not for the daemon's internals.

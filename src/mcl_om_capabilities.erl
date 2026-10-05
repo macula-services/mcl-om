@@ -95,9 +95,9 @@
 %%% `advertise_direct''s own 'reuse_sup' option on every 30s republish tick
 %%% — a station''s wire-level registration for a procedure is tied to the
 %%% connection that sent it and does not survive that connection being
-%%% replaced (see `macula_response:advertise_direct/7' and 'hecate-tube''s
-%%% `tube_mesh_providers.erl', which hit this bug live before this option
-%%% existed); periodic re-advertise without `reuse_sup' would also leak
+%%% replaced (see `macula_response:advertise_direct/7' and an earlier
+%%% tube service's `tube_mesh_providers.erl', which hit this bug live
+%%% before this option existed); periodic re-advertise without `reuse_sup' would also leak
 %%% one factory supervisor per tick.
 %%%
 %%% Every advertisement carries `ttl_ms => ?ADVERTISEMENT_TTL_MS' (4x the
@@ -189,7 +189,7 @@
 %% or evenly divide ?REPUBLISH_INTERVAL_MS by coincidence. A perfectly
 %% fixed-period retry that loses that race once has no drift to ever
 %% land outside the cooldown window again: found live 2026-09-01,
-%% hecate-rag''s `get_document_verbatim' capability stayed
+%% an earlier RAG service's `get_document_verbatim' capability stayed
 %% `unknown_method' for 45+ minutes across ~90 identically-timed retries
 %% while sibling capabilities (registered moments earlier or later in
 %% the same advertise batch, landing just outside whatever tombstone
@@ -517,7 +517,7 @@ has_handler(_) -> false.
 %% forwarded all the way to `macula_station_link''s inbound call
 %% authorization — see moduledoc). Absent when the capability doesn''t
 %% set one, matching `macula:advertise/5''s own default: open. A
-%% hecate-service opts a specific capability into gating by adding the
+%% service opts a specific capability into gating by adding the
 %% appropriate `auth' value to that capability''s map; every other
 %% capability advertised through this module is unaffected. This
 %% function is deliberately policy-agnostic — it forwards whatever
@@ -541,7 +541,7 @@ auth_opts(_)                 -> #{}.
 %% capability a service advertises out-of-band via its own direct
 %% `macula:advertise/5'/'macula_response:advertise_direct/7' call
 %% instead of declaring it here -- `capabilities/0' under-reporting is
-%% the pre-migration `hecate-rag' pattern this module''s own moduledoc
+%% the pre-migration RAG service pattern this module''s own moduledoc
 %% already documents fixing for one service, not yet audited fleet-wide.
 %% See `scripts/audit-fleet-ucan-adoption.sh' for that separate,
 %% source-scan half of the check.
@@ -651,7 +651,7 @@ required_verdict(Required, KemAdvertise) ->
 %% creates to whoever calls it, i.e. this process, so a crash here kills
 %% every OTHER capability''s already-healthy supervisor too, turning one
 %% transient timeout into an outage for every capability this node
-%% serves. Found live 2026-09-01: hecate-rag generated `noproc' on
+%% serves. Found live 2026-09-01: an earlier RAG service generated `noproc' on
 %% `search_chunks_semantic'/'answer_query'/`add_knowledge' minutes after
 %% a clean boot, none of which had anything to do with the capability
 %% that actually timed out (`ingest_document') -- the crash cascaded

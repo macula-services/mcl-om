@@ -89,7 +89,7 @@ in the service''s own `<name>_app', reading the store''s settings from
      "that advertise a capability another mechanism serves).".
 -callback capabilities() -> [capability()].
 
--doc "UCAN this service wants minted by hecate-realm at boot. "
+-doc "UCAN this service wants minted by the realm at boot. "
      "Until UCAN-delegation lands in realm, this is informational only.".
 -callback identity_spec() -> identity_spec().
 

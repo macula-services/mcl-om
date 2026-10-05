@@ -2,8 +2,7 @@
 
 **Over-mesh substrate for the PQ fleet**: the shared library every
 `macula-services/mcl-X` service daemon stands on, built on macula 12
-(`{macula, "~> 12.0"}`), post-quantum only. The `mcl-*` services it carries
-replace the obsolete `hecate-*` services one port at a time.
+(`{macula, "~> 12.0"}`), post-quantum only.
 
 Services in this org are **edge-first**. A service runs wherever its
 operator puts it (a cooperative infrastructure node, a relay box, a lab
@@ -80,11 +79,8 @@ Layer 1 — identity    macula-realm
 Layer 0 — kernel      macula-station (the PQ fleet)
 ```
 
-See [`philosophy/HECATE_TIER_MODEL.md`](https://github.com/hecate-social/hecate-corpus/blob/main/philosophy/HECATE_TIER_MODEL.md)
-in hecate-corpus for the longer cut-criteria discussion. Note that the
-tier model still phrases the L2 placement rule absolutely ("NOT on user
-laptops"); read that as a policy about where the realm's own shared
-services belong, not as a limit on what an mcl-om service can do.
+See [`philosophy/TIER_MODEL.md`](https://github.com/macula-services/mcl-corpus/blob/main/philosophy/TIER_MODEL.md)
+in mcl-corpus for the longer cut-criteria discussion.
 
 **Service ≠ provider.** A node that serves a procedure is not thereby a
 service: every SDK lets a client serve procedures (`pool.Serve` in

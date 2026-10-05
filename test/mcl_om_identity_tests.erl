@@ -2,7 +2,7 @@
 %%% (mcl_om_identity:node_key_from/1) -- generate on a MISSING key file,
 %%% refuse any other load failure. Confirmed live: without generate-on-
 %%% missing, a service whose job is a direct-dial RPC/Streaming provider
-%%% (hecate-tube) silently never advertises anything -- identity_key/0
+%%% (a tube service) silently never advertises anything -- identity_key/0
 %%% stays {error, no_identity_key} forever, unless something out-of-band
 %%% provisions the file first. Generating on any OTHER failure would
 %%% silently replace the service's identity, so those stop the service

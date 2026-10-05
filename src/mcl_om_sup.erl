@@ -1,4 +1,4 @@
-%%% @doc Top-level supervisor for hecate-om.
+%%% @doc Top-level supervisor for mcl-om.
 %%%
 %%% Owns five workers and one nested supervisor, all shared by the
 %%% hosting service:

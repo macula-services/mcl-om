@@ -12,15 +12,15 @@
 %%% carry atom or binary keys, so a lookup must cope with all three. Before
 %%% macula 12 the decoder also atomised keys the receiving VM happened to
 %%% know, and three incompatible ways of coping with that were live in the
-%%% hecate-era services; this module replaced them.
+%%% earlier services; this module replaced them.
 %%%
-%%% Gotcha two -- VALUES, found live 2026-09-01 fixing hecate-rag: a
+%%% Gotcha two -- VALUES, found live 2026-09-01 fixing a RAG service: a
 %%% JSON string sent as an RPC arg is encoded as a CBOR text string
 %%% (major type 3), which `macula_record_cbor''s own documented value
 %%% representation decodes to `{text, binary()}', NOT a bare `binary()'
 %%% -- a plain binary is reserved for a CBOR BYTE string (major type 2),
 %%% a different wire type. Every `is_binary/1' guard and `:: binary()'
-%%% field spec in hecate-rag (and any other consumer) assumed the wire
+%%% field spec in that service (and any other consumer) assumed the wire
 %%% delivers plain binaries for a text field; every one of them silently
 %%% failed to match a real caller's payload instead, indistinguishable
 %%% from a missing field. This one recurses: a list of strings decodes
@@ -44,8 +44,8 @@
 %%%
 %%% `retryable/1' (piece G) is the response-side counterpart: whether a
 %%% failed RPC/stream call outcome is worth retrying, per macula's own
-%%% published BOLT#4 retry policy. `hecate-tom-player''s `tom_wire_
-%%% macula.erl' was, before this, the one place in the workspace doing
+%%% published BOLT#4 retry policy. The tom-player service's
+%%% `tom_wire_macula.erl' was, before this, the one place in the workspace doing
 %%% this at all -- asking `macula_bolt4:is_retryable/1' rather than
 %%% keeping a second copy of its code table locally, which would rot
 %%% the moment BOLT#4 grows a code.
