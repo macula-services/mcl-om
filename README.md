@@ -19,6 +19,11 @@ human whose machine it happens to be running on. See
 [`guides/identity_model.md`](guides/identity_model.md) for the
 town/library metaphor that drives the identity choices.
 
+Every response capability is guarded by inbound size and rate limits,
+which a realm's guardian reads and retunes through `get_limits` /
+`set_limits`; see
+[`docs/design/GUARDIAN_CONTROL_SURFACE.md`](docs/design/GUARDIAN_CONTROL_SURFACE.md).
+
 ```
                          mcl-om
                             │
