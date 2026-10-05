@@ -75,9 +75,9 @@
 %%% membership tier `RequiredCan' names (mandatory, no default — a
 %%% realm mints membership at more than one tier from the same signing
 %%% key, see the comment on the auth_policy() type in macula_client for
-%%% why a caller must name the tier it actually needs). See
-%%% `macula-mcp/plans/PLAN_AGENT_IDENTITY_UCAN.md' for the caller side
-%%% of presenting a token shaped for either policy.
+%%% why a caller must name the tier it actually needs). The caller side
+%%% (presenting a token shaped for either policy) shipped in macula-mcp
+%%% 0.19.0.
 %%%
 %%% `call_capability/5,7' resolves 'CapName' under `Org' and only under
 %%% `Org' ('discovery_key_org/3'). There is no bare-key fallback on the

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Fleet-wide audit for PLAN_ROLL_OUT_UCAN_REQUIRED.md's Phase 1: which
+# Fleet-wide audit of `ucan_required` adoption: which
 # services can `mcl_om_capabilities:unguarded_capabilities/1`
 # (and the boot-time warning built on it, in this same release) actually
 # see, and which cannot.
