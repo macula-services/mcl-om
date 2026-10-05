@@ -57,12 +57,16 @@ boot_dummy_service(_Config) ->
     {ok, _Pid} = mcl_om:boot(dummy_service, #{}),
     ?assertEqual(dummy_service, mcl_om:service_module()),
     Caps = mcl_om_capabilities:list(),
-    %% Its own capability, and the `info' mcl_om adds to every service.
+    %% Its own capability, plus the two mcl_om prepends to every service:
+    %% the guard control surface's `get_limits' (0.37.1; `set_limits' is
+    %% absent without a guardian realm + tier) and `info'.
     %% The dummy's capabilities/0 answers ONLY while the worker its
     %% start/1 spawned is alive -- so this assertion IS the ordering
     %% proof: a boot that registered capabilities before start/1 would
     %% see an empty list here and fail red.
-    ?assertEqual([mcl_om_info:capability(), #{name => <<"dummy.do_thing">>, version => 1}], Caps).
+    [GetLimits | _] = mcl_om_guard_control:with_caps([]),
+    ?assertEqual([GetLimits, mcl_om_info:capability(),
+                  #{name => <<"dummy.do_thing">>, version => 1}], Caps).
 
 %% A service whose start/1 refuses must leave NO advertisement behind:
 %% boot returns the refusal, and the refused service's procedures are
