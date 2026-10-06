@@ -8,10 +8,14 @@
 %%%
 %%% The realm verifies the caller (the connection proves it), checks
 %%% membership + org binding, and either issues immediately or records
-%%% the request as a pending row for its operator. EITHER reply ends
-%%% this worker's retries — the realm has the claim on file — and the
-%%% advertise path (`mcl_om_capabilities:resolved_authorization/3')
-%%% resolves the delegation independently once it exists.
+%%% the request as a pending row for its operator. An issued claim ends
+%%% this worker's retries. A pending one is asked again every RETRY_MS:
+%%% the realm answers a repeat with not_admitted while the row is pending
+%%% and issues at once after an operator admits the node, so the state
+%%% /health shows moves to issued within a minute of the admission
+%%% (mcl-om#12). The advertise path
+%%% (`mcl_om_capabilities:resolved_authorization/3') resolves the
+%%% delegation independently once it exists.
 %%%
 %%% No credentials travel: there is nothing to configure here beyond
 %%% the informational labels the realm's operator sees on the pending
@@ -29,7 +33,7 @@
 
 -export([start_link/0, labels/0, status/0]).
 %% Exported for mcl_om_claim_tests.erl: pure classification and announcing.
--export([classify/1, announcement/4]).
+-export([classify/1, announcement/4, asks_again/1]).
 
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
 
@@ -125,8 +129,19 @@ publish_if(false, State) -> ok = publish(State), State.
 publish(#state{claim = Claim, since = Since}) ->
     persistent_term:put(?STATUS_KEY, {Claim, Since}).
 
-next({not_delivered, _}, State) -> retry(State);
-next(_Settled, State)            -> State.
+next(Claim, State) ->
+    next_if(asks_again(Claim), State).
+
+next_if(true, State)  -> retry(State);
+next_if(false, State) -> State.
+
+%% @doc Whether a claim in this state is asked again after RETRY_MS: one not
+%% delivered, and one pending (an operator may admit the node at any time);
+%% never one issued.
+-spec asks_again(claim()) -> boolean().
+asks_again({not_delivered, _}) -> true;
+asks_again(pending)            -> true;
+asks_again(_Settled)           -> false.
 
 moved(Old, New, State) ->
     moved_since(same_kind(Old, New), State).

@@ -15,6 +15,17 @@ Versioning: [SemVer](https://semver.org/).
   `macula-reconcile` and its secrets `~/.macula/secrets/`, as macula-fleet
   does. (macula-services/mcl-om#17)
 
+### Fixed
+
+- **A pending provider claim is asked again until it is issued.** The claim
+  went out once at boot; when the realm filed it as pending, nothing asked
+  again, so after an operator admitted the node `/health` still read
+  `claim.state: pending` until a restart (measured on mcl-graph and
+  mcl-kanban). A pending claim is now re-sent every 60 s, as an undelivered
+  one already was: the realm answers `not_admitted` while the row is pending
+  and issues at once after the admission, so `/health` reads `issued` within
+  a minute. An issued claim is never re-sent. (macula-services/mcl-om#12)
+
 ## [0.37.6] - 2026-10-05
 
 ### Added

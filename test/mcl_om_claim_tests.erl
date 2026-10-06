@@ -178,3 +178,16 @@ wait_gone(Pid, _Name) ->
     Ref = monitor(process, Pid),
     exit(Pid, kill),
     receive {'DOWN', Ref, process, Pid, _} -> ok end.
+
+%% mcl-om#12: a claim made at boot that the realm files as pending must be
+%% asked again, or /health reads `pending' for the life of the process after
+%% an operator admits the node. The realm answers a repeat of a pending claim
+%% with not_admitted (still pending) and, once admitted, issues at once.
+a_pending_claim_is_asked_again_test() ->
+    ?assert(mcl_om_claim:asks_again(pending)).
+
+an_undelivered_claim_is_asked_again_test() ->
+    ?assert(mcl_om_claim:asks_again({not_delivered, timeout})).
+
+an_issued_claim_is_not_asked_again_test() ->
+    ?assertNot(mcl_om_claim:asks_again(issued)).
