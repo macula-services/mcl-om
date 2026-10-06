@@ -5,6 +5,16 @@ Versioning: [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **The house build-push signs every image it pushes (#9).** A newer push queued behind a run in flight now,
+  instead of cancelling it (`cancel-in-progress: false`): a cancelled run could already have pushed its
+  image and not signed it. The template's test also guards the digest step's `id: digest` and
+  `id-token: write`, without which the attest job is skipped and the run is green with an unsigned image.
+  The attest comment no longer names macula-fleet, which not every service is deployed by.
+- **The template pins attest-image.yml at 601c719**, which installs cosign per job: the earlier pin raced
+  concurrent attest jobs on one `$HOME/.cosign` (macula-io/macula-ci-images#2).
+
 ## [0.38.0] - 2026-10-06
 
 ### Changed

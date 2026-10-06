@@ -1003,6 +1003,25 @@ house_images_are_signed_by_digest(Config) ->
     ?assertMatch({match, _},
                  re:run(House, "^      digest: \\$\\{\\{ steps\\.digest\\.outputs\\.digest \\}\\}$",
                         [multiline])),
+    %% The output reads a step by its id, and the attest job runs only on a
+    %% digest: without the id the output is '', the attest job is skipped and
+    %% the run is green with an unsigned image. A build that pushes signs or
+    %% fails (mcl-om#9).
+    ?assertMatch({match, _}, re:run(House, "^        id: digest$", [multiline])),
+    ?assertMatch({match, _}, re:run(House, "^      id-token: write$", [multiline])),
+    %% A newer push queues behind a run in flight instead of cancelling it, so
+    %% an image already pushed is never left unsigned by a cancelled attest.
+    ?assertMatch({match, _}, re:run(House, "^  cancel-in-progress: false$", [multiline])),
+    ?assertEqual(nomatch, re:run(House, "cancel-in-progress: true")),
+    %% The attest job's comment names no one fleet: not every service is
+    %% deployed by macula-fleet.
+    ?assertEqual(nomatch, binary:match(House, <<"macula-fleet's reconciler">>)),
+    %% The attest workflow at the commit that installs cosign per job: the
+    %% earlier one raced concurrent jobs on one $HOME/.cosign
+    %% (macula-ci-images#2).
+    ?assertMatch({match, _},
+                 re:run(House, "attest-image\\.yml@601c719b7cfbd8ed15852281d87c652d776a6ae7$",
+                        [multiline])),
     Stranger = read(filename:join(?config(root, Config), ".github/workflows/build-push.yml")),
     ?assertEqual(nomatch, binary:match(Stranger, <<"attest">>)).
 

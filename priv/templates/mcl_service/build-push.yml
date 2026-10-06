@@ -35,9 +35,11 @@ on:
 # whatever order the runners please, and :latest ends up being whichever
 # finished LAST, not whichever was pushed last -- watchtower then rolls the
 # fleet onto an older commit and flaps. A sibling service hit exactly that live.
+# A newer push QUEUES behind the run in flight, never cancels it: a cancelled
+# run could already have pushed its image and not yet signed it (mcl-om#9).
 concurrency:
   group: build-and-push-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   build-and-push:
@@ -159,7 +161,7 @@ jobs:
 
   # SIGNED BY DIGEST, SBOM AND PROVENANCE ATTESTED, keyless, so a box can refuse any
   # digest of this image that did not come from this workflow on a commit of this
-  # repository (macula-fleet's reconciler checks it before it runs the image). Pinned
+  # repository (a box that verifies signatures refuses one before it runs it). Pinned
   # by full commit sha: the signing identity is that file at that ref. Runs on the
   # build's own runner. See macula-ci-images' README.
   attest:
@@ -169,7 +171,7 @@ jobs:
       contents: read
       packages: write
       id-token: write
-    uses: macula-io/macula-ci-images/.github/workflows/attest-image.yml@b304162c9b46b366f93af362d3a76f17ae01794f
+    uses: macula-io/macula-ci-images/.github/workflows/attest-image.yml@601c719b7cfbd8ed15852281d87c652d776a6ae7
     with:
       image: ghcr.io/<%org%>/<%repo%>
       digest: ${{ needs.build-and-push.outputs.digest }}
