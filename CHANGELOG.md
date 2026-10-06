@@ -5,7 +5,16 @@ Versioning: [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.38.0] - 2026-10-06
+
 ### Changed
+
+- **mcl_om builds on macula 14** (`~> 14.0`, was `~> 13.3`). macula 14.0.0 stores a node identity per user
+  account at `<identity_dir>/<name>.<profile>.key` and refuses the removed `node_identity_path` setting
+  (macula-io/macula#76). mcl_om hands its pool the service's own node key, so services see no change at run
+  time; the test config moves to an `identity_dir` under `_build/test`. A service that sets
+  `node_identity_path` in its own config must move it to `identity_dir` with this release.
+  (macula-services/mcl-om#21)
 
 - **The service cert's default path is `/etc/mcl/secrets/service-cert.pem`**
   (was `/etc/hecate/secrets/service-cert.pem`): inside the identity volume
