@@ -1010,8 +1010,11 @@ house_images_are_signed_by_digest(Config) ->
     ?assertMatch({match, _}, re:run(House, "^        id: digest$", [multiline])),
     ?assertMatch({match, _}, re:run(House, "^      id-token: write$", [multiline])),
     %% A newer push queues behind a run in flight instead of cancelling it, so
-    %% an image already pushed is never left unsigned by a cancelled attest.
-    ?assertMatch({match, _}, re:run(House, "^  cancel-in-progress: false$", [multiline])),
+    %% an image already pushed is never left unsigned by a cancelled attest;
+    %% only pull-request runs, which push nothing, cancel each other.
+    ?assertMatch({match, _},
+                 re:run(House, "^  cancel-in-progress: \\$\\{\\{ github\\.event_name == 'pull_request' \\}\\}$",
+                        [multiline])),
     ?assertEqual(nomatch, re:run(House, "cancel-in-progress: true")),
     %% The attest job's comment names no one fleet: not every service is
     %% deployed by macula-fleet.
