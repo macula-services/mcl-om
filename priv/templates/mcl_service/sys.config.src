@@ -13,7 +13,9 @@
         %% on a service generated from an earlier copy of this template that
         %% lacked this line. Point it at the mounted secrets volume.
         {identity_key_path, "/etc/mcl/secrets/identity.key"},
-        {health_port,       ${MCL_HEALTH_PORT}},
+        %% /health on a Unix socket, not a port (mcl_om 0.39): the image's
+        %% HEALTHCHECK reaches it with curl --unix-socket.
+        {health_socket,     "/run/mcl/health.sock"},
         {capability_topic,  <<"_mesh.cap.">>},
         %% THIS SERVICE EXISTS TO ANSWER ON THE MESH, so it does not boot
         %% without MCL_REALM, MCL_REALM_KEY, MACULA_STATION_SEEDS and

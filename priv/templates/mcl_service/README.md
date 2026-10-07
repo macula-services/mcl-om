@@ -4,7 +4,8 @@
 
 ## Status: scaffold
 
-The service boots, joins the mesh and answers `/health` on <%health_port%>. It
+The service boots, joins the mesh and answers `/health` on its Unix socket,
+`/run/mcl/health.sock` inside the container. It
 does nothing else yet.
 
 It announces no capability and asks the realm for no authority, because it can do
@@ -38,7 +39,6 @@ that same builder image, and the service's tests fail if the two drift apart.
 | `MACULA_STATION_NODE_IDS` | required | The matching 64-hex station node ids, comma-separated, index-paired with the seeds. The dial is pinned (D5): mcl_om refuses to boot a pool with an unpinned seed. |
 | `MCL_SERVICE_NAME` | `<%repo%>` | Label on the boot claim the realm's operator sees. Falls back to the service's own name. |
 | `MCL_BOX` | empty | Label naming the host, also on the boot claim. Set it where you deploy. |
-| `MCL_HEALTH_PORT` | `<%health_port%>` | Health endpoint. Host networking makes a collision a silent bind failure, so check the host before changing.  |
 | `MCL_NODE_NAME` | `<%name%>` | Erlang node name. |
 | `MCL_NODE_HOST` | `127.0.0.1` | Erlang node host. |
 | `MCL_COOKIE` | `<%name%>` | Erlang cookie. |

@@ -26,6 +26,7 @@
 -export([all/0, init_per_suite/1, end_per_suite/1]).
 -export([generates_every_expected_file/1,
          health_script_is_executable/1,
+         health_is_a_unix_socket_not_a_port/1,
          sys_config_configures_a_stable_identity/1,
          stable_identity_survives_a_recreate/1,
          image_build_decides_from_the_pushed_range/1,
@@ -66,7 +67,6 @@
 -define(REPO, "mcl-probe-svc").
 -define(APP,  "mcl_probe_svc").
 -define(DESC, "A generated probe service").
--define(PORT, "8499").
 %% DELIBERATELY NOT OUR OWN ORG OR REGISTRY. Generating as a stranger is what
 %% makes leaked_house_specifics/1 able to prove the scaffold is usable by one.
 -define(ORG,      "acme-widgets").
@@ -91,6 +91,7 @@
 all() ->
     [generates_every_expected_file,
      health_script_is_executable,
+     health_is_a_unix_socket_not_a_port,
      sys_config_configures_a_stable_identity,
      stable_identity_survives_a_recreate,
      image_build_decides_from_the_pushed_range,
@@ -146,7 +147,7 @@ init_per_suite(Config) ->
     Added = install_templates(templates_dir()),
     Out = run(Rebar3, ["new", "mcl_service",
                        "repo=" ?REPO, "name=" ?APP,
-                       "desc=" ?DESC, "health_port=" ?PORT,
+                       "desc=" ?DESC,
                        "org=" ?ORG, "registry=" ?REGISTRY,
                        "holder=" ?HOLDER,
                        "builder_image=" ?BUILDER_IMAGE,
@@ -170,7 +171,7 @@ scaffold_with_a_store(Rebar3, Dir) ->
     ok = filelib:ensure_path(Dir),
     Out = run(Rebar3, ["new", "mcl_service",
                        "repo=" ?STORE_REPO, "name=" ?STORE_APP,
-                       "desc=A store probe", "health_port=8497",
+                       "desc=A store probe",
                        "org=" ?ORG, "registry=" ?REGISTRY, "holder=" ?HOLDER,
                        "builder_image=" ?BUILDER_IMAGE, "runtime_image=" ?RUNTIME_IMAGE,
                        "store=1"],
@@ -194,7 +195,7 @@ scaffold_with_a_store(Rebar3, Dir) ->
 %% private services, which is the one choice it must make.
 scaffold_as_the_house(Dir) ->
     ok = filelib:ensure_path(Dir),
-    Out = run(scaffold_script(), [?HOUSE_REPO, "A house default probe", "8498"], Dir,
+    Out = run(scaffold_script(), [?HOUSE_REPO, "A house default probe"], Dir,
               [{"MCL_VISIBILITY", "private"} | cleared_overrides()]),
     ct:pal("scaffold-service.sh said:~n~s", [Out]),
     Root = filename:join(Dir, ?HOUSE_REPO),
@@ -345,6 +346,20 @@ health_script_is_executable(Config) ->
     Path = filename:join(?config(root, Config), "scripts/health.sh"),
     {ok, #file_info{mode = Mode}} = file:read_file_info(Path),
     ?assertEqual(8#100, Mode band 8#100).
+
+%% NO SERVICE LISTENS ON A PORT JUST TO BE HEALTH-CHECKED (mcl_om 0.39): the
+%% generated service serves /health on a Unix socket, its image checks it over
+%% that socket, and nothing configures, exposes or passes a health port.
+health_is_a_unix_socket_not_a_port(Config) ->
+    Root = ?config(root, Config),
+    Read = fun(F) -> {ok, B} = file:read_file(filename:join(Root, F)), B end,
+    SysConfig = Read("config/sys.config.src"),
+    Containerfile = Read("Containerfile"),
+    ?assertMatch({match, _}, re:run(SysConfig, <<"\\{health_socket, +\"/run/mcl/health\\.sock\"\\}">>)),
+    ?assertNotEqual(nomatch, binary:match(Containerfile, <<"--unix-socket /run/mcl/health.sock">>)),
+    ?assertEqual([], [F || F <- ["config/sys.config.src", "Containerfile", "deploy/docker-compose.yml",
+                                 "scripts/health.sh", "README.md"],
+                           binary:match(Read(F), [<<"health_port">>, <<"MCL_HEALTH_PORT">>, <<"EXPOSE">>]) =/= nomatch]).
 
 %% Forgetting identity_key_path produces a sys.config that renders clean,
 %% boots clean, peers and calls fine, and NEVER advertises a single

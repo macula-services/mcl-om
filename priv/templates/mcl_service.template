@@ -25,7 +25,7 @@
 %% Usage, from the directory that will hold the new repository:
 %%
 %%   rebar3 new mcl_service repo=mcl-foo name=mcl_foo \
-%%       desc="Does X over the mesh" health_port=8484
+%%       desc="Does X over the mesh"
 %%
 %% THE BUILD AND RUNTIME IMAGES ARE NAMED HERE AND ONLY HERE, as the defaults of
 %% builder_image and runtime_image below. scripts/scaffold-service.sh passes
@@ -49,8 +49,6 @@
      "Image the release is BUILT in, by the Containerfile's first stage, and the image lint runs in. Pin it by digest. It must carry OTP 28.4.3 with an OpenSSL that has ML-DSA (the build refuses any other), rebar3, Rust (macula's NIFs always build from source), a C toolchain and git. The default is the macula-services fleet's build image; CHANGE THIS together with runtime_image if you are not building for that fleet."},
     {runtime_image, "ghcr.io/macula-io/macula-pq-runtime:20260928-1800@sha256:a1d18c6a6a22d8d7fba6086785c683bd113828e16fdfde147d96ae67d2c6892d",
      "Image the release RUNS on, the Containerfile's last stage. Pin it by digest. It must match builder_image's libc and carry the libraries the release loads (OpenSSL with ML-DSA, libstdc++, ncurses) and curl for the healthcheck: the two images are a PAIR, and move together. The default is the macula-services fleet's runtime image."},
-    {health_port, "8484",
-     "Port for the /health endpoint. The container uses host networking, because macula stations are AAAA-only and a default bridge cannot reach them, so a port already bound on the host fails SILENTLY. Pick one you know is free."},
     {holder, "Rafael Lefever",
      "Copyright holder, named in LICENSE. CHANGE THIS if you are not building for the BEAM Campus fleet."},
     {proprietary, "",

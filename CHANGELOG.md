@@ -5,6 +5,17 @@ Versioning: [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **`/health` on a Unix socket (#23).** `health_socket` (a path such as `/run/mcl/health.sock`) serves
+  `/health` on that socket and opens no TCP health listener, whatever `health_port` says, so no service
+  listens on a port just to be health-checked. A stale socket file left by a previous container is
+  replaced, and the socket is mode 0600: only the service's own user may connect. Unset, `health_port` is
+  the fallback, as before. The `mcl_service` template generates the socket: its sys.config sets it, the
+  image's HEALTHCHECK uses `curl --unix-socket`, nothing exposes or passes a health port, and
+  `scripts/health.sh` asks the running container. `scaffold-service.sh` and the template take no health
+  port any more.
+
 ### Fixed
 
 - **The house build-push signs every image it pushes (#9).** A newer push to a branch or tag queues behind a

@@ -35,9 +35,11 @@
 
 -export([start_link/0]).
 -export([init/1]).
+%% The /health listener's start function, named in its child spec.
+-export([start_health_socket/2]).
 
 -ifdef(TEST).
--export([health_socket_opts/2]).
+-export([health_socket_opts/2, health_listener/0]).
 -endif.
 
 start_link() ->
@@ -90,26 +92,74 @@ mesh_pool_child() ->
         modules  => [macula_client]
     }.
 
-%% The GET /health HTTP endpoint: a Cowboy listener on `health_port', dispatching
-%% to mcl_om_health_handler. The handler and its routes existed but nothing
-%% ever mounted them, so /health was dead code and every service reported
-%% unhealthy to Podman/k8s. Returns [] (no listener) when no `health_port' is
-%% configured, so a service that does not want an HTTP health endpoint simply
-%% omits the config.
+%% The GET /health HTTP endpoint, dispatching to mcl_om_health_handler. The
+%% handler and its routes existed but nothing ever mounted them, so /health was
+%% dead code and every service reported unhealthy to Podman/k8s.
 %%
-%% `health_ip' (optional) is the address the listener binds: a string such as
-%% "127.0.0.1" or an address tuple. Unset or empty, it binds every interface.
+%% ⚠ NO SERVICE LISTENS ON A PORT JUST TO BE HEALTH-CHECKED. With
+%% `health_socket' set (a path such as "/run/mcl/health.sock") the listener is
+%% that Unix socket and nothing else: no TCP listener runs, whatever
+%% `health_port' says. The container's health check reaches it with
+%% `curl -fsS --unix-socket <path> http://localhost/health'. A stale socket file
+%% left by a previous container is replaced, and the socket is mode 0600, so
+%% only the service's own user may connect.
+%%
+%% Without `health_socket', `health_port' is the fallback: a TCP listener there,
+%% on `health_ip' (optional: a string such as "127.0.0.1" or an address tuple;
+%% unset or empty binds every interface). Neither set: no listener, for a
+%% service that wants no health endpoint.
+-spec health_listener() -> [supervisor:child_spec()].
 health_listener() ->
-    health_listener(application:get_env(mcl_om, health_port),
+    health_listener(socket_path(application:get_env(mcl_om, health_socket, undefined)),
+                    application:get_env(mcl_om, health_port),
                     application:get_env(mcl_om, health_ip, undefined)).
 
-health_listener({ok, Port}, Ip) when is_integer(Port), Port > 0 ->
-    Dispatch = cowboy_router:compile([{'_', mcl_om_health_handler:routes()}]),
+health_listener({ok, Path}, _Port, _Ip) ->
+    [#{id       => mcl_om_health_http,
+       start    => {?MODULE, start_health_socket, [Path, health_dispatch()]},
+       restart  => permanent,
+       shutdown => infinity,
+       type     => supervisor,
+       modules  => [ranch_listener_sup]}];
+health_listener(none, {ok, Port}, Ip) when is_integer(Port), Port > 0 ->
     [ranch:child_spec(mcl_om_health_http,
                       ranch_tcp, health_socket_opts(Port, Ip),
-                      cowboy_clear, #{env => #{dispatch => Dispatch}})];
-health_listener(_NoPort, _Ip) ->
+                      cowboy_clear, #{env => #{dispatch => health_dispatch()}})];
+health_listener(none, _NoPort, _Ip) ->
     [].
+
+%% A configured socket path, or `none'. Empty counts as unset.
+socket_path(Unset) when Unset =:= undefined; Unset =:= ""; Unset =:= <<>> -> none;
+socket_path(Path) when is_binary(Path) -> {ok, binary_to_list(Path)};
+socket_path(Path) when is_list(Path) -> {ok, Path}.
+
+health_dispatch() ->
+    cowboy_router:compile([{'_', mcl_om_health_handler:routes()}]).
+
+%% @doc Starts the /health listener on the Unix socket `Path': the stale file a
+%% previous container left is removed first (a bind on an existing path fails),
+%% and the socket is made mode 0600 once it exists.
+-spec start_health_socket(file:filename(), cowboy_router:dispatch_rules()) -> {ok, pid()} | {error, term()}.
+start_health_socket(Path, Dispatch) ->
+    ok = filelib:ensure_dir(Path),
+    ok = without_stale(file:delete(Path)),
+    {M, F, A} = start_of(ranch:child_spec(mcl_om_health_http, ranch_tcp,
+                                          [{ip, {local, Path}}, {port, 0}],
+                                          cowboy_clear, #{env => #{dispatch => Dispatch}})),
+    owner_only(apply(M, F, A), Path).
+
+%% ranch gives its child spec as a map or as the classic tuple.
+start_of(#{start := Start}) -> Start;
+start_of({_Id, Start, _Restart, _Shutdown, _Type, _Modules}) -> Start.
+
+without_stale(ok) -> ok;
+without_stale({error, enoent}) -> ok.
+
+owner_only({ok, Pid}, Path) ->
+    ok = file:change_mode(Path, 8#600),
+    {ok, Pid};
+owner_only(Error, _Path) ->
+    Error.
 
 health_socket_opts(Port, Unset) when Unset =:= undefined; Unset =:= ""; Unset =:= <<>> ->
     [{port, Port}];

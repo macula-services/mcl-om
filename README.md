@@ -175,6 +175,14 @@ gets without writing it:
   any other value, on a `kem_advertise` that is not `enabled`/`disabled`, and on
   `required` without `kem_advertise` enabled, instead of running green and
   unreachable.
+- **`health_socket`** (0.39.0): `/health` on a Unix socket, for example
+  `{mcl_om, [{health_socket, "/run/mcl/health.sock"}]}`, so no service listens
+  on a port just to be health-checked. Set, it is the only health listener (no
+  TCP one runs, whatever `health_port` says); a stale socket file left by a
+  previous container is replaced, and the socket is mode 0600, so only the
+  service's own user may connect. The container checks it with
+  `curl -fsS --unix-socket /run/mcl/health.sock http://localhost/health`.
+  Unset, `health_port` (default 8470, on `health_ip`) is the fallback.
 - **`failed_publishes`** on /health: publishes whose publisher exited before
   resolving. `mcl_om_pubsub` runs each publisher under a watcher, so such an
   exit is counted and logged instead of killing the process that published.
@@ -236,7 +244,7 @@ no dependencies to carry them there:
 ```bash
 scripts/install-templates.sh          # symlinks; --remove to undo
 rebar3 new mcl_service repo=mcl-newservice name=mcl_newservice \
-    desc="Does X over the mesh" org=your-org registry=ghcr.io health_port=8484
+    desc="Does X over the mesh" org=your-org registry=ghcr.io
 ```
 
 **The scaffold is not house-specific.** `org`, `registry`, `builder_image`,
@@ -346,8 +354,9 @@ reconciler then applies config only.
    `journalctl --user -u macula-reconcile` shows it.
 4. Push macula-fleet. The box picks it up on its next tick, within 2 minutes.
 
-Health ports bound on beam00 today: 8450, 8461 (mcl-echo), 8484, 8494. Host
-networking turns a collision into a silent bind failure.
+A service answers `/health` on a Unix socket inside its container
+(`health_socket`, from 0.39), not on a host port, so there is no health port to
+pick or to collide.
 
 ## Status
 

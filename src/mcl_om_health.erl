@@ -1,7 +1,8 @@
 %%% @doc Tracks a single service's health snapshot.
 %%%
 %%% Exposed over HTTP by `mcl_om_health_handler' (Cowboy) at
-%%% `GET /health' on port `health_port' (default 8470). Podman's
+%%% `GET /health' on the Unix socket `health_socket', or else on port
+%%% `health_port' (default 8470). Podman's
 %%% HEALTHCHECK and systemd's `EXEC_START' Readiness mechanics use it.
 -module(mcl_om_health).
 -behaviour(gen_server).

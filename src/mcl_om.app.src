@@ -39,7 +39,10 @@
         %% mcl_om_identity:configured_seeds/0.
         {station_seeds, []},
 
-        %% Health endpoint port (GET /health).
+        %% Health endpoint (GET /health). `health_socket', a path such as
+        %% "/run/mcl/health.sock", serves it on a Unix socket and opens no TCP
+        %% listener; unset, `health_port' is the fallback.
+        {health_socket,     undefined},
         {health_port,       8470},
 
         %% Address the health listener binds: a string such as "127.0.0.1" or

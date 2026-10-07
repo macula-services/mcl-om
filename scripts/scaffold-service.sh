@@ -18,7 +18,7 @@
 #
 # Usage:
 #
-#   MCL_VISIBILITY=private scripts/scaffold-service.sh mcl-foo "Does X over the mesh" 8484
+#   MCL_VISIBILITY=private scripts/scaffold-service.sh mcl-foo "Does X over the mesh"
 #
 # MCL_VISIBILITY IS ASKED, NEVER ASSUMED: `private' or `public', and nothing
 # else. It decides three things that must agree. A private service carries a
@@ -32,9 +32,8 @@
 
 set -euo pipefail
 
-REPO_NAME="${1:?usage: scaffold-service.sh <repo-name> \"<description>\" [health-port]}"
+REPO_NAME="${1:?usage: scaffold-service.sh <repo-name> \"<description>\"}"
 DESCRIPTION="${2:?one-line description required}"
-HEALTH_PORT="${3:-8484}"
 
 # WHO IS BUILDING THIS. Defaulted to the macula-services fleet because that is
 # who runs this script most, and overridable because the scaffold is meant to
@@ -119,11 +118,6 @@ if ! printf '%s' "${APP_NAME}" | grep -qE '^[a-z][a-z0-9_]*$'; then
     exit 65
 fi
 
-if ! printf '%s' "${HEALTH_PORT}" | grep -qE '^[0-9]{2,5}$'; then
-    echo "health port '${HEALTH_PORT}' is not a port number" >&2
-    exit 65
-fi
-
 if [ -e "${REPO_NAME}" ]; then
     echo "'${PWD}/${REPO_NAME}' already exists" >&2
     exit 66
@@ -140,7 +134,7 @@ if [ ! -e "${HOME}/.config/rebar3/templates/mcl_service.template" ]; then
     "${HERE}/install-templates.sh" >/dev/null
 fi
 
-echo "[scaffold] ${REPO_NAME} (app ${APP_NAME}, ${MCL_VISIBILITY}, ${REGISTRY}/${ORG}, health port ${HEALTH_PORT}, runs on ${RUNS_ON}, images: ${MCL_BUILDER_IMAGE:-the fleet pair})"
+echo "[scaffold] ${REPO_NAME} (app ${APP_NAME}, ${MCL_VISIBILITY}, ${REGISTRY}/${ORG}, runs on ${RUNS_ON}, images: ${MCL_BUILDER_IMAGE:-the fleet pair})"
 
 rebar3 new mcl_service \
     repo="${REPO_NAME}" \
@@ -148,7 +142,6 @@ rebar3 new mcl_service \
     desc="${DESCRIPTION}" \
     org="${ORG}" \
     registry="${REGISTRY}" \
-    health_port="${HEALTH_PORT}" \
     proprietary="${PROPRIETARY}" \
     runs_on="${RUNS_ON}" \
     attest="${ATTEST}" \

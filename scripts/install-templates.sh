@@ -66,7 +66,7 @@ case "${1:-}" in
               echo "Now, from the directory that will hold the new repository:"
               echo
               echo "  rebar3 new mcl_service repo=mcl-foo name=mcl_foo \\"
-              echo "      desc=\"Does X over the mesh\" health_port=8484"
+              echo "      desc=\"Does X over the mesh\""
               ;;
     *)        echo "usage: $0 [--remove]" >&2 ; exit 64 ;;
 esac
