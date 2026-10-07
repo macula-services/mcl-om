@@ -5,6 +5,8 @@ Versioning: [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.39.0] - 2026-10-07
+
 ### Added
 
 - **`/health` on a Unix socket (#23).** `health_socket` (a path such as `/run/mcl/health.sock`) serves
