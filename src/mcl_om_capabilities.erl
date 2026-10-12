@@ -17,6 +17,15 @@
 %%% (macula 12.7.0, D32); this module also re-resolves it every republish
 %%% tick for the DHT record.
 %%%
+%%% ADVERTISING RUNS IN A MONITORED WORKER, ONE RUN AT A TIME (issue
+%%% #11): `do_advertise/2' is network I/O for every capability, so it
+%%% never runs in this gen_server. No call to this server -- `list/0',
+%%% `lookup/1', `publish/0', `register/1' -- waits on an advertise, and
+%%% a trigger (`register/1', `publish/0', the 30s republish tick) that
+%%% arrives while a run is in flight is coalesced into ONE follow-up
+%%% run. See "Internals -- the advertise worker" for the lifetime and
+%%% linking story.
+%%%
 %%% The one registration is under `org_procedure(Org, Name)'
 %%% (`<<Org/binary, "/", Name/binary>>'). THERE IS NO BARE-NAME
 %%% REGISTRATION: 11.x refuses a procedure with no org namespace
@@ -173,7 +182,8 @@
 -define(TYPE_PROCEDURE_ADVERTISEMENT, 6).
 
 %% Process dictionary key for advertise_with/7's log-once throttle. Scoped
-%% to this gen_server''s own process, not shared/global state.
+%% to the advertise worker''s own process, not shared/global state (the
+%% worker is one long-lived process, so the throttle still spans runs).
 -define(ADVERTISE_GATE_LOG_KEY, mcl_om_capabilities_advertise_gate_reason).
 
 %% Re-assert advertisements this often. Records outlive one interval;
@@ -228,7 +238,18 @@
     %% Capability name -> factory supervisor pid from a prior
     %% advertise_direct/7 call. Passed back in as `reuse_sup' on the
     %% next tick for that capability; see moduledoc.
-    advertise_sups = #{}       :: #{binary() => pid()}
+    advertise_sups = #{}       :: #{binary() => pid()},
+    %% The advertise worker and the one-run-at-a-time bookkeeping (issue
+    %% #11). `advertise_run' is true from the moment a run is handed to
+    %% the worker until its answer; a trigger arriving meanwhile only
+    %% sets `advertise_pending', and one coalesced run follows.
+    %% `advertise_clear' marks a capability-set change: the next run
+    %% starts from empty tables, so no grant or liveness row for a
+    %% procedure that is no longer advertised can outlive the change.
+    advertise_worker  = undefined :: undefined | {pid(), reference()},
+    advertise_run     = false     :: boolean(),
+    advertise_pending = false     :: boolean(),
+    advertise_clear   = false     :: boolean()
 }).
 
 %%% API
@@ -342,9 +363,14 @@ list() ->
 %%% gen_server
 
 init([]) ->
-    ?GRANTS = ets:new(?GRANTS, [set, protected, named_table,
+    %% `public': the grant and liveness rows are recorded from inside the
+    %% advertise RUN (the worker -- see "Internals -- the advertise
+    %% worker"), which cannot write a `protected' table. This server
+    %% still creates and owns both tables (they outlive every worker),
+    %% and /health reads them lock-free, as before.
+    ?GRANTS = ets:new(?GRANTS, [set, public, named_table,
                                 {read_concurrency, true}]),
-    ?ADVERTISE = ets:new(?ADVERTISE, [set, protected, named_table,
+    ?ADVERTISE = ets:new(?ADVERTISE, [set, public, named_table,
                                       {read_concurrency, true}]),
     {ok, arm_timer(#state{})}.
 
@@ -352,23 +378,23 @@ handle_call({register, Caps}, _From, S) ->
     log_unguarded(Caps),
     %% A new capability set: a procedure no longer advertised must not keep
     %% degrading /health -- neither as a stale grant nor as a stale
-    %% advertise loop.
-    true = ets:delete_all_objects(?GRANTS),
-    true = ets:delete_all_objects(?ADVERTISE),
-    %% REPLY FIRST, ADVERTISE RIGHT AFTER. Advertising is network I/O for every
-    %% capability, and the caller (mcl_om:boot/1, from the service''s start/2)
-    %% waits only the gen_server default 5 s: a service with many capabilities
-    %% or slow stations failed its boot on the timeout (mcl-rag''s 17, 2026-09-29).
-    %% The message is this process''s own, so it is handled before any later
-    %% call: a caller that asks next finds the capabilities advertised.
-    self() ! advertise_registered,
-    {reply, ok, S#state{capabilities = Caps}};
+    %% advertise loop. The clear happens when the NEXT RUN starts
+    %% (`advertise_clear'), not here: a run may be in flight, and the rows
+    %% IT writes belong to the old set; clearing before it finishes would
+    %% leave exactly the stale rows this is here to remove.
+    %% REPLY FIRST, ADVERTISE IN THE WORKER. Advertising is network I/O for
+    %% every capability, and the caller (mcl_om:boot/1, from the service''s
+    %% start/2) waits only the gen_server default 5 s: a service with many
+    %% capabilities or slow stations failed its boot on the timeout
+    %% (mcl-rag''s 17, 2026-09-29). Since issue #11 the advertise runs in a
+    %% worker, so no later call to this server waits behind it either.
+    {reply, ok, request_run(S#state{capabilities = Caps, advertise_clear = true})};
 
-%% Same reason as register: publish/0 (mcl_om:advertise_capabilities/0) waits only the
-%% gen_server default, so it replies first and the advertising follows.
+%% Same reason as register: publish/0 (mcl_om:advertise_capabilities/0)
+%% waits only the gen_server default, so it replies at once and the
+%% advertising runs in the worker.
 handle_call(publish, _From, S) ->
-    self() ! advertise_registered,
-    {reply, ok, S};
+    {reply, ok, request_run(S)};
 
 handle_call({lookup, CapName}, _From, S) ->
     {reply, {ok, do_resolve(CapName)}, S};
@@ -384,17 +410,112 @@ handle_call(_Msg, _From, S) ->
 
 handle_cast(_Msg, S) -> {noreply, S}.
 
-handle_info(advertise_registered, #state{capabilities = Caps,
-                                         advertise_sups = Sups} = S) ->
-    {noreply, S#state{advertise_sups = do_advertise(Caps, Sups)}};
-handle_info(republish, #state{capabilities = Caps,
-                              advertise_sups = Sups} = S) ->
-    NewSups = do_advertise(Caps, Sups),
-    {noreply, arm_timer(S#state{advertise_sups = NewSups})};
+handle_info({advertise_run_done, Pid, NewSups},
+            #state{advertise_run = true, advertise_worker = {Pid, _Ref}} = S) ->
+    {noreply, maybe_run_pending(S#state{advertise_sups = NewSups,
+                                        advertise_run = false})};
+handle_info({advertise_run_done, _Pid, _Sups}, S) ->
+    %% A superseded worker''s late answer (it was replaced after a death):
+    %% its factory supervisors are gone with it; ignore.
+    {noreply, S};
+handle_info({'DOWN', Ref, process, Pid, Reason},
+            #state{advertise_run = Run, advertise_worker = {Pid, Ref}} = S) ->
+    %% The worker died -- a factory supervisor linked to it taking it down
+    %% mid-run is the usual vector (macula_response/macula_streamer link
+    %% each sup to its advertise caller). A run that died is lost; the
+    %% next republish tick retries, and a pending trigger runs now. The
+    %% server itself must survive this: that isolation is what
+    %% advertise_one_safely/7 already promises per capability.
+    case Run of
+        true ->
+            logger:warning(
+              "mcl_om_capabilities: the advertise worker died during a run "
+              "(~p); the run is retried on the next republish tick", [Reason]);
+        false ->
+            ok
+    end,
+    {noreply, maybe_run_pending(S#state{advertise_worker = undefined,
+                                        advertise_run = false})};
+handle_info(republish, S) ->
+    {noreply, arm_timer(request_run(S))};
 handle_info(_Other, S) ->
     {noreply, S}.
 
-terminate(_, _) -> ok.
+terminate(_Reason, #state{advertise_worker = {Pid, Ref}}) when is_pid(Pid) ->
+    %% Take the worker down with the server: the factory supervisors it is
+    %% linked to follow it, the same lifetime they had while this server
+    %% called advertise_direct/7 itself.
+    erlang:demonitor(Ref, [flush]),
+    exit(Pid, shutdown),
+    ok;
+terminate(_Reason, _S) ->
+    ok.
+
+%%% Internals — the advertise worker (issue #11)
+
+%% ONE long-lived, monitored worker runs advertise jobs; its own loop
+%% serialises them, so "one run at a time" costs no state here. It is
+%% spawned lazily on the first run and replaced when it dies. It
+%% monitors the server and exits `shutdown' with it, so a server
+%% restart still takes every factory supervisor this node registered
+%% (macula_response/macula_streamer link each sup to its advertise
+%% caller -- the worker now) down with it, as it did when the server
+%% called advertise_direct/7 directly. A worker death never kills the
+%% server: it gets the DOWN, logs it, and retries.
+spawn_advertise_worker() ->
+    Server = self(),
+    spawn_monitor(fun() -> advertise_worker(Server) end).
+
+advertise_worker(Server) ->
+    MRef = erlang:monitor(process, Server),
+    advertise_worker_loop(Server, MRef).
+
+advertise_worker_loop(Server, MRef) ->
+    receive
+        {advertise_run, Caps, Sups} ->
+            Server ! {advertise_run_done, self(), do_advertise(Caps, Sups)},
+            advertise_worker_loop(Server, MRef);
+        {'DOWN', MRef, process, Server, _Reason} ->
+            exit(shutdown)
+    end.
+
+%% Hand a run to the worker -- or, a run is already in flight, note that
+%% ONE run must follow (coalescing: any number of triggers while a run
+%% runs costs exactly one more run). The tables are cleared here, at the
+%% start of the first run after register/1, never mid-run.
+request_run(S = #state{advertise_run = true}) ->
+    S#state{advertise_pending = true};
+request_run(S) ->
+    S1 = clear_if_requested(S),
+    Worker = ensure_worker(S1#state.advertise_worker),
+    {Pid, Ref} = Worker,
+    Pid ! {advertise_run, S1#state.capabilities, S1#state.advertise_sups},
+    S1#state{advertise_worker = {Pid, Ref}, advertise_run = true}.
+
+maybe_run_pending(S = #state{advertise_pending = true}) ->
+    request_run(S#state{advertise_pending = false});
+maybe_run_pending(S) ->
+    S.
+
+clear_if_requested(S = #state{advertise_clear = true}) ->
+    true = ets:delete_all_objects(?GRANTS),
+    true = ets:delete_all_objects(?ADVERTISE),
+    S#state{advertise_clear = false};
+clear_if_requested(S) ->
+    S.
+
+ensure_worker(undefined) ->
+    spawn_advertise_worker();
+ensure_worker({Pid, Ref}) ->
+    case is_process_alive(Pid) of
+        true ->
+            {Pid, Ref};
+        false ->
+            %% Died, its DOWN not handled yet: replace it now and drop the
+            %% stale DOWN, which must not clobber the new worker.
+            erlang:demonitor(Ref, [flush]),
+            spawn_advertise_worker()
+    end.
 
 %%% Internals — advertise (write records / register handlers)
 

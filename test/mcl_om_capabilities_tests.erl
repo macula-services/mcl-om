@@ -449,6 +449,9 @@ live_pool_records_the_provider_grant_test_() ->
          [fun() ->
              ?assertEqual(#{}, mcl_om_capabilities:provider_grants()),
              ok = registered([Cap]),
+             ok = wait_until(fun() ->
+                                 maps:size(mcl_om_capabilities:provider_grants()) =:= 1
+                             end),
              Grants = mcl_om_capabilities:provider_grants(),
              ?assertEqual([<<"acme/svc.answer">>], maps:keys(Grants)),
              ?assertMatch(#{result := {not_granted, _}, since := Since}
@@ -478,6 +481,9 @@ unset_org_advertises_nothing_and_says_so_test_() ->
          Cap = #{name => <<"svc.answer">>, version => 1, handler => {?MODULE, []}},
          [fun() ->
              ok = registered([Cap]),
+             ok = wait_until(fun() ->
+                                 maps:size(mcl_om_capabilities:provider_grants()) =:= 1
+                             end),
              ?assertEqual(0, meck:num_calls(macula_response, advertise_direct, '_')),
              ?assertMatch(#{<<"_/svc.answer">> :=
                               #{result := {not_granted, {org_unset, <<"_">>}}}},
@@ -555,6 +561,14 @@ advertise_one_timeout_test_() ->
                        advertise_direct_stub(Proc)
                     end),
               ?assertEqual(ok, registered([Ok, Boom])),
+              %% Both capabilities were attempted before the assertions --
+              %% this fixture has no station, so each records its no_station
+              %% failure in the liveness table -- and the server is still
+              %% the same process: one failed capability (or two) never
+              %% takes the registration server down.
+              ok = wait_until(fun() ->
+                                  maps:size(mcl_om_capabilities:advertise_liveness()) =:= 2
+                              end),
               ?assert(is_process_alive(Pid)),
               ?assertEqual(Pid, whereis(mcl_om_capabilities)),
               meck:unload(macula_response)
@@ -589,9 +603,11 @@ register_does_not_wait_for_the_network_test_() ->
              {Us, Result} = timer:tc(fun() -> mcl_om_capabilities:register(Caps) end),
              ?assertEqual(ok, Result),
              ?assert(Us < 1_000_000),
-             %% A later call is served after the advertising: every one was made.
-             _ = gen_server:call(mcl_om_capabilities, list, 30_000),
-             ?assertEqual(3, meck:num_calls(macula_response, advertise_direct, '_'))
+             %% The advertising runs in a worker now; wait for every one to
+             %% have been made (the timed call above must not have waited).
+             ok = wait_until(fun() ->
+                                 meck:num_calls(macula_response, advertise_direct, '_') =:= 3
+                             end)
           end}]
       end}}.
 
@@ -607,6 +623,11 @@ publish_does_not_wait_for_the_network_test_() ->
              Caps = [#{name => <<"svc.pub", (integer_to_binary(I))/binary>>, version => 1,
                        handler => {?MODULE, []}} || I <- lists:seq(1, 3)],
              ok = registered(Caps),
+             %% The initial three finish first, so the slow stub below
+             %% governs only the publish tick's three.
+             ok = wait_until(fun() ->
+                                 meck:num_calls(macula_response, advertise_direct, '_') =:= 3
+                             end),
              ok = meck:expect(macula_response, advertise_direct,
                               fun(_Pool, _Realm, _Proc, _Mod, _Args, _Key, _Opts) ->
                                   timer:sleep(2_000),
@@ -615,18 +636,121 @@ publish_does_not_wait_for_the_network_test_() ->
              {Us, Result} = timer:tc(fun() -> mcl_om_capabilities:publish() end),
              ?assertEqual(ok, Result),
              ?assert(Us < 1_000_000),
-             _ = gen_server:call(mcl_om_capabilities, list, 30_000),
-             ?assertEqual(6, meck:num_calls(macula_response, advertise_direct, '_'))
+             %% publish/0 returned at once; the worker makes all three.
+             ok = wait_until(fun() ->
+                                 meck:num_calls(macula_response, advertise_direct, '_') =:= 6
+                             end)
           end}]
       end}}.
 
-%% registered(Caps): register/1, then one call to the server, which it serves only
-%% after the advertising register/1 set off, so what a test asserts next is what
-%% the advertising did.
+%% INVARIANT (issue #11): no call to this server waits on advertise
+%% network I/O. Advertising runs in a worker, so while a slow
+%% advertise_direct is in flight, list/0 and lookup/1 answer without
+%% waiting for it -- they used to queue behind the advertise inside the
+%% gen_server and time out (this class of failure crash-looped mcl-rag
+%% with its 17 capabilities, 2026-09-29).
+advertising_does_not_block_other_calls_test_() ->
+    {timeout, 120,
+     {setup, fun() -> start_live_with_links([<<11:256>>]) end,
+      fun stop_live_with_links/1,
+      fun(_) ->
+         %% Its own timeout: the advertises take 6 s and the lookup's DHT
+         %% resolve is bounded at 5 s, both past eunit's 5 s default.
+         [{timeout, 60, fun() ->
+             %% Each advertise takes 3 s and the run has two capabilities,
+             %% so the run is in flight for ~6 s. The stub signals the
+             %% test from INSIDE the call: meck's history (and so
+             %% num_calls) only records a call once it returned.
+             Self = self(),
+             ok = meck:expect(macula_response, advertise_direct,
+                              fun(_Pool, _Realm, _Proc, _Mod, _Args, _Key, _Opts) ->
+                                  Self ! advertise_started,
+                                  timer:sleep(3_000),
+                                  {ok, spawn(fun() -> receive stop -> ok end end)}
+                              end),
+             Caps = [#{name => <<"svc.slow.a">>, version => 1, handler => {?MODULE, []}},
+                     #{name => <<"svc.slow.b">>, version => 1, handler => {?MODULE, []}}],
+             ok = mcl_om_capabilities:register(Caps),
+             %% The worker is inside the FIRST of the two 3 s calls.
+             receive advertise_started -> ok
+             after 5_000 -> error(advertise_never_started)
+             end,
+             {UsList, Listed} = timer:tc(fun() -> mcl_om_capabilities:list() end),
+             ?assertEqual(Caps, Listed),
+             ?assert(UsList < 1_000_000),
+             %% list/0 did not wait for the run.
+             {UsLookup, Lookup} = timer:tc(fun() -> mcl_om_capabilities:lookup(<<"svc.zzz">>) end),
+             ?assertMatch({ok, _}, Lookup),
+             %% lookup/1's caller budget is 15 s (its DHT resolve is bounded
+             %% at 5 s): it answers well inside that while the advertise
+             %% keeps running.
+             ?assert(UsLookup < 10_000_000),
+             %% both advertises were still made
+             ok = wait_until(fun() ->
+                                 maps:size(mcl_om_capabilities:advertise_liveness()) =:= 2
+                             end)
+         end}]
+      end}}.
+
+%% A trigger that arrives while a run is in flight does not queue a run
+%% of its own: the follow-up is ONE coalesced run, whatever the trigger
+%% count.
+a_trigger_during_a_run_is_coalesced_test_() ->
+    {timeout, 60,
+     {setup, fun() -> start_live_with_links([<<11:256>>]) end,
+      fun stop_live_with_links/1,
+      fun(_) ->
+         [{timeout, 60, fun() ->
+             Self = self(),
+             ok = meck:expect(macula_response, advertise_direct,
+                              fun(_Pool, _Realm, _Proc, _Mod, _Args, _Key, _Opts) ->
+                                  Self ! advertise_started,
+                                  timer:sleep(1_000),
+                                  {ok, spawn(fun() -> receive stop -> ok end end)}
+                              end),
+             Cap = #{name => <<"svc.one">>, version => 1, handler => {?MODULE, []}},
+             ok = mcl_om_capabilities:register([Cap]),
+             receive advertise_started -> ok
+             after 5_000 -> error(advertise_never_started)
+             end,
+             %% Three triggers while run 1 is in flight: exactly one run
+             %% follows it, not three. Each call records in meck only when
+             %% it returns, so a completed count of two is two runs.
+             ok = mcl_om_capabilities:publish(),
+             ok = mcl_om_capabilities:publish(),
+             ok = mcl_om_capabilities:publish(),
+             ok = wait_until(fun() ->
+                                 meck:num_calls(macula_response, advertise_direct, '_') =:= 2
+                             end),
+             %% Nothing queued behind the coalesced run.
+             timer:sleep(1_500),
+             ?assertEqual(2, meck:num_calls(macula_response, advertise_direct, '_'))
+         end}]
+      end}}.
+
+%% registered(Caps): register/1, then one call the server serves right
+%% away. Advertising now runs in a worker (issue #11), so this no longer
+%% means "the advertising happened": a test asserting on what the
+%% advertising did waits for that effect itself -- see wait_until/1.
 registered(Caps) ->
     ok = mcl_om_capabilities:register(Caps),
     _ = gen_server:call(mcl_om_capabilities, list, 60_000),
     ok.
+
+%% Wait (with a 30 s deadline) for an effect the advertise worker
+%% produces -- an SDK call, a grant row, a liveness row. The worker is
+%% asynchronous, so a test cannot expect it to have run by the time a
+%% call to the server returns.
+wait_until(Fun) ->
+    wait_until(Fun, 600).
+
+wait_until(_Fun, 0) ->
+    error(wait_until_deadline);
+wait_until(Fun, N) ->
+    case Fun() of
+        true -> ok;
+        false -> timer:sleep(50), wait_until(Fun, N - 1)
+    end.
 
 %% `Proc' is the org-qualified procedure -- match on substring so the
 %% "boom" capability triggers the same simulated timeout; the other
@@ -783,6 +907,10 @@ registration_names_only_the_serving_station_test_() ->
                     kind => streamer},
          [?_test(begin
                      ?assertEqual(ok, registered([Resp, Stream])),
+                     ok = wait_until(fun() ->
+                                             meck:num_calls(macula_response, advertise_direct, '_') =:= 1
+                                                 andalso meck:num_calls(macula_streamer, advertise_direct, '_') =:= 1
+                                         end),
                      Opts = [advertised_opts(macula_response), advertised_opts(macula_streamer)],
                      ?assertEqual([[Chosen], [Chosen]], [maps:get(stations, O, none) || O <- Opts]),
                      ?assertEqual([], [K || O <- Opts, K <- [advertise, publish_advertisement],
@@ -800,6 +928,11 @@ no_serving_station_advertises_nothing_test_() ->
          Resp = #{name => <<"svc.answer">>, version => 1, handler => {?MODULE, []}},
          [?_test(begin
                      ?assertEqual(ok, registered([Resp])),
+                     %% The run records the no-station failure before the
+                     %% assertion: nothing was advertised, nothing called.
+                     ok = wait_until(fun() ->
+                                             maps:size(mcl_om_capabilities:advertise_liveness()) =:= 1
+                                         end),
                      ?assertEqual(0, meck:num_calls(macula_response, advertise_direct, '_'))
                  end)]
       end}}.

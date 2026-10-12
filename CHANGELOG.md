@@ -5,6 +5,17 @@ Versioning: [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Advertising no longer blocks every other call to `mcl_om_capabilities` (#11).** The advertise loop
+  (`register/1` after its reply, `publish/0`, and every 30 s republish tick) ran inside the gen_server,
+  so `list/0` and `publish/0` waited behind it on their 5 s default and `lookup/1` on its 15 s: a service
+  with many capabilities or slow stations could time out callers right after boot and on each tick. A run
+  now happens in a monitored worker -- one at a time, and a trigger that arrives mid-run is coalesced
+  into a single follow-up run -- so no call to the server waits on advertise network I/O. The grants and
+  liveness tables stay this server's; they are cleared at the start of the first run after a capability
+  set changes, so a row for a procedure no longer advertised cannot outlive the change.
+
 ## [0.39.0] - 2026-10-07
 
 ### Added
