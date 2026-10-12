@@ -22,7 +22,7 @@ town/library metaphor that drives the identity choices.
 Every response capability is guarded by inbound size and rate limits,
 which a realm's guardian reads and retunes through `get_limits` /
 `set_limits`; see
-[`docs/design/GUARDIAN_CONTROL_SURFACE.md`](docs/design/GUARDIAN_CONTROL_SURFACE.md).
+[`docs/design/GUARDIAN_CONTROL_SURFACE.md`](https://github.com/macula-services/mcl-om/blob/main/docs/design/GUARDIAN_CONTROL_SURFACE.md).
 
 ```
                          mcl-om

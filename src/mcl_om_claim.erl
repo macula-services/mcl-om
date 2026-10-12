@@ -13,9 +13,9 @@
 %%% the realm answers a repeat with not_admitted while the row is pending
 %%% and issues at once after an operator admits the node, so the state
 %%% /health shows moves to issued within a minute of the admission
-%%% (mcl-om#12). The advertise path
-%%% (`mcl_om_capabilities:resolved_authorization/3') resolves the
-%%% delegation independently once it exists.
+%%% (mcl-om#12). The advertise path (mcl_om_capabilities, through
+%%% `macula:provider_authorization/3') resolves the delegation
+%%% independently once it exists.
 %%%
 %%% No credentials travel: there is nothing to configure here beyond
 %%% the informational labels the realm's operator sees on the pending
