@@ -68,7 +68,8 @@ combined(NotOk, _Verdict)  -> NotOk.
 
 grant_verdict() ->
     mcl_om_provider_grant:verdict(mcl_om_capabilities:provider_grants(),
-                                  erlang:monotonic_time(millisecond),
+                                  #{mono => erlang:monotonic_time(millisecond),
+                                    sys  => erlang:system_time(millisecond)},
                                   mcl_om_provider_grant:grace_ms()).
 
 %% The advertise loop's verdict: a provider whose last successful

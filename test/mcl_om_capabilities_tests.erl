@@ -61,7 +61,8 @@ signed_records_test_() ->
           [?_test(build_advertisement_round_trips(Keys)),
            ?_test(decode_resolved_returns_verified_providers(Keys)),
            ?_test(decode_resolved_drops_tampered_and_foreign_records(Keys)),
-           ?_test(discovery_key_org_matches_what_gets_published_under_it(Keys))]
+           ?_test(discovery_key_org_matches_what_gets_published_under_it(Keys)),
+           ?_test(chain_window_is_the_record_that_ends_first(Keys))]
       end}}.
 
 key_pool() ->
@@ -1101,3 +1102,25 @@ register_refuses_a_misspelled_mode_at_boot_test() ->
 
 restore_env(App, Key, undefined)   -> application:unset_env(App, Key);
 restore_env(App, Key, {ok, Value}) -> application:set_env(App, Key, Value).
+
+%% The bound /health reports (mcl-om#25) is the one macula signs
+%% advertisements under: the earlier expires_at of the org directory and the
+%% delegation, with that record's own created_at as the start of its life.
+chain_window_is_the_record_that_ends_first([NodeKey | _]) ->
+    {ok, RealmKey} = macula_node_keys:generate(realm, profile()),
+    {ok, OrgKey} = macula_node_keys:generate(org, profile()),
+    OrgKeyId = macula_node_keys:key_id(OrgKey),
+    Dir = macula_record:sign(
+            macula_record:org_directory(macula_node_keys:key_id(RealmKey), <<"acme">>, OrgKeyId,
+                                        #{ttl_ms => 6 * 3_600_000}),
+            RealmKey),
+    Deleg = macula_record:sign(
+              macula_record:procedure_delegation(OrgKeyId, node_id(NodeKey), #{ttl_ms => 1_800_000}),
+              OrgKey),
+    Chain = {ok, #{org_directory => macula_record:encode(Dir),
+                   procedure_delegation => macula_record:encode(Deleg)}},
+    ?assertEqual({macula_record:created_at(Deleg), macula_record:expires_at(Deleg)},
+                 mcl_om_capabilities:chain_window(Chain)),
+    ?assertEqual(undefined, mcl_om_capabilities:chain_window({error, timeout})),
+    Torn = {ok, #{org_directory => macula_record:encode(Dir), procedure_delegation => <<"x">>}},
+    ?assertEqual(undefined, mcl_om_capabilities:chain_window(Torn)).

@@ -55,7 +55,8 @@ service_info(Mod)       -> Mod:info().
 
 grant_report() ->
     mcl_om_provider_grant:report(mcl_om_capabilities:provider_grants(),
-                                 erlang:monotonic_time(millisecond),
+                                 #{mono => erlang:monotonic_time(millisecond),
+                                    sys  => erlang:system_time(millisecond)},
                                  mcl_om_provider_grant:grace_ms()).
 
 advertise_report() ->

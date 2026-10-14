@@ -3,7 +3,20 @@
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [SemVer](https://semver.org/).
 
-## [Unreleased]
+## [0.40.0] - 2026-10-14
+
+### Added
+
+- **A service whose delegation lapses claims again and comes back without a restart (#25, macula-realm#81).**
+  - Until now an `issued` claim was never sent again. When the realm lapsed the delegation and tombstoned it, every resolution answered `{procedure_delegation, not_found}` and the service stayed dark until restarted.
+  - Now, while the claim is issued, a resolution that finds the delegation or the org directory gone sends the claim again, at most once a minute, with one warning line.
+  - A live member is re-issued at once (realm 0.3.13). An ended membership answers `not_admitted`, and the claim shows `pending`.
+- **`/health` says when each authorization ends, and warns before it does (#25).**
+  - Every `provider_grants` entry with a chain carries `not_after_ms`: the chain's bound, the earlier `expires_at` of the org directory and the delegation, which macula bounds advertisements by.
+  - With a third or less of the binding record's life left, the state is `expiring` (cause `realm_has_not_renewed`): /health is degraded and a warning is logged once. Past the bound it is `expired` (cause `chain_expired`), logged as an error.
+  - A failed re-resolve keeps the bound of the chain the registration still carries.
+  - A healthy realm reissues every 10 min, so a 30-min delegation never reaches `expiring`. The realm's operator notice fires at the same moment.
+  - `mcl_om_provider_grant:verdict/3` and `report/3` take a clock (`#{mono, sys}`) instead of a monotonic time, and `observed/4` takes the chain's window.
 
 ### Fixed
 

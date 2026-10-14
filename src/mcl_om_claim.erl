@@ -26,14 +26,23 @@
 %%% carries it under `claim' (status/0). A pending claim is an operator's
 %%% to admit; it must be visible without reading debug logs.
 %%%
+%%% AN ISSUED CLAIM IS ASKED AGAIN WHEN ITS CHAIN GOES MISSING (mcl-om#25).
+%%% The realm tombstones a delegation the moment it lapses (an ended
+%%% membership, an admin's withdraw or revoke), and the org directory with
+%%% the org's last provider. mcl_om_capabilities reports a chain the DHT no
+%%% longer holds through chain_missing/0; while the claim stands issued it
+%%% is sent again, at most once per RETRY_MS. A live member is re-issued at
+%%% once (macula-realm#81) and the service comes back without a restart; an
+%%% ended one answers not_admitted and the claim shows pending.
+%%%
 %%% See PLAN_PROVIDER_AUTHORIZATION_FLOW.md §3.2 (macula-realm).
 %%%-------------------------------------------------------------------
 -module(mcl_om_claim).
 -behaviour(gen_server).
 
--export([start_link/0, labels/0, status/0]).
+-export([start_link/0, labels/0, status/0, chain_missing/0]).
 %% Exported for mcl_om_claim_tests.erl: pure classification and announcing.
--export([classify/1, announcement/4, asks_again/1]).
+-export([classify/1, announcement/4, asks_again/1, claims_again/3]).
 
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
 
@@ -53,10 +62,20 @@
 
 -record(state, {retry_ref :: reference() | undefined,
                 claim = unsent :: claim(),
+                %% When an issued claim was last sent again for a missing chain.
+                reclaimed_at :: integer() | undefined,
                 since = erlang:monotonic_time(millisecond) :: integer()}).
 
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
+
+%% @doc The chain this service's claim produced is no longer in the DHT
+%% (`procedure_delegation' or `org_directory' not found). Never blocks the
+%% caller; a no-op while the worker does not run (no seeds) or the claim
+%% is not issued.
+-spec chain_missing() -> ok.
+chain_missing() ->
+    gen_server:cast(?MODULE, chain_missing).
 
 init([]) ->
     case mcl_om_identity:configured_seeds() of
@@ -77,6 +96,9 @@ init([]) ->
 handle_call(_Msg, _From, State) ->
     {reply, ok, State}.
 
+handle_cast(chain_missing, #state{claim = Claim, reclaimed_at = At} = State) ->
+    Now = erlang:monotonic_time(millisecond),
+    {noreply, reclaimed(claims_again(Claim, At, Now), Now, State)};
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
@@ -148,6 +170,21 @@ moved(Old, New, State) ->
 
 moved_since(true, State)   -> State;
 moved_since(false, State)  -> State#state{since = erlang:monotonic_time(millisecond)}.
+
+%% @doc Whether an issued claim whose chain went missing is sent again at
+%% `Now': only an issued one (any other state is retried already), and not
+%% within RETRY_MS of the last time.
+-spec claims_again(claim(), integer() | undefined, integer()) -> boolean().
+claims_again(issued, undefined, _Now) -> true;
+claims_again(issued, At, Now)         -> Now - At >= ?RETRY_MS;
+claims_again(_NotIssued, _At, _Now)   -> false.
+
+reclaimed(true, Now, State) ->
+    logger:warning("mcl_om_claim: the realm's chain for org=~s is gone from the DHT "
+                   "(lapsed or withdrawn); claiming again", [mcl_om_identity:org()]),
+    claim(State#state{reclaimed_at = Now});
+reclaimed(false, _Now, State) ->
+    State.
 
 %% @doc The realm's reply, classified. The refusal of a not yet admitted
 %% node is the realm filing the claim as pending. Under macula 13 it

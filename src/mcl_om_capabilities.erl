@@ -155,6 +155,8 @@
 -export([call_providers/7]).
 -endif.
 
+%% Exported for mcl_om_capabilities_tests.erl: the bound of a resolved chain.
+-export([chain_window/1]).
 -export([start_link/0, register/1, publish/0, lookup/1, list/0, provider_grants/0,
          advertise_liveness/0,
          list_org_capabilities/1]).
@@ -593,7 +595,7 @@ advertise_in_org(false, _Pool, _Key, _Realm, Org, Caps, Sups) ->
 
 record_org_unset(OrgProcedure, Org, Now) ->
     Previous = previous_grant(ets:lookup(?GRANTS, OrgProcedure)),
-    Entry = mcl_om_provider_grant:observed({error, {org_unset, Org}}, Now, Previous),
+    Entry = mcl_om_provider_grant:observed({error, {org_unset, Org}}, undefined, Now, Previous),
     true = ets:insert(?GRANTS, {OrgProcedure, Entry}).
 
 valid_org(Org) ->
@@ -868,13 +870,74 @@ advertised_on({error, no_station} = Refused, _Provider, _Pool, _Key, _Realm, Org
 %% The answer is recorded either way, for /health: a provider with no
 %% grant must not look healthy while serving nothing (see
 %% `mcl_om_provider_grant').
+%%
+%% Two things follow from the answer besides the entry (mcl-om#25):
+%% a delegation or org directory the DHT no longer holds, while the claim
+%% stands issued, is a lapse, and the claim is sent again so the realm
+%% re-issues without a restart; and a chain with a third or less of its
+%% life left is logged once as it gets there, since a healthy realm
+%% reissues long before.
 recorded_authorization(OrgProcedure, Answer) ->
     Previous = previous_grant(ets:lookup(?GRANTS, OrgProcedure)),
-    Entry = mcl_om_provider_grant:observed(Answer,
+    Entry = mcl_om_provider_grant:observed(Answer, chain_window(Answer),
                                            erlang:monotonic_time(millisecond),
                                            Previous),
     true = ets:insert(?GRANTS, {OrgProcedure, Entry}),
+    ok = claim_again_if_lapsed(Answer),
+    ok = log_expiry_change(OrgProcedure, Previous, Entry, erlang:system_time(millisecond)),
     authorization_opts(Answer).
+
+claim_again_if_lapsed({error, {provider_authorization, {procedure_delegation, not_found}}}) ->
+    mcl_om_claim:chain_missing();
+claim_again_if_lapsed({error, {provider_authorization, {org_directory, not_found}}}) ->
+    mcl_om_claim:chain_missing();
+claim_again_if_lapsed(_Answer) ->
+    ok.
+
+%% @doc The validity window of the chain a `provider_authorization' answer
+%% carries: the created_at of the record that ends first, and its expires_at,
+%% the bound macula signs advertisements under. `undefined' for no chain or
+%% one that does not verify under this node's profile.
+-spec chain_window({ok, term()} | {error, term()}) -> mcl_om_provider_grant:window().
+chain_window({ok, #{org_directory := Dir, procedure_delegation := Deleg}}) ->
+    window_of(macula_crypto_profile:configured(), [Dir, Deleg]);
+chain_window(_NoChain) ->
+    undefined.
+
+window_of({ok, Profile}, Wires) ->
+    binding_window([macula_record:verify(Wire, Profile) || Wire <- Wires]);
+window_of({error, _}, _Wires) ->
+    undefined.
+
+binding_window(Verified) ->
+    binding_of([{macula_record:expires_at(R), macula_record:created_at(R)} || {ok, R} <- Verified],
+               length(Verified)).
+
+binding_of(Bounds, Count) when length(Bounds) =:= Count, Count > 0 ->
+    {NotAfter, Created} = lists:min(Bounds),
+    {Created, NotAfter};
+binding_of(_SomeUnverified, _Count) ->
+    undefined.
+
+log_expiry_change(OrgProcedure, Previous, #{window := Window}, SysNow) ->
+    announce_expiry(previous_expiry(Previous, SysNow),
+                    mcl_om_provider_grant:expiry(Window, SysNow), OrgProcedure, Window).
+
+previous_expiry(#{window := Window}, SysNow) -> mcl_om_provider_grant:expiry(Window, SysNow);
+previous_expiry(undefined, _SysNow)          -> unknown.
+
+announce_expiry(Same, Same, _OrgProcedure, _Window) ->
+    ok;
+announce_expiry(_Was, expiring, OrgProcedure, {_Created, NotAfter}) ->
+    logger:warning("mcl_om_capabilities: the authorization of ~ts ends at ~ts with a third of its "
+                   "life or less left and no renewal seen; the realm should have reissued it",
+                   [OrgProcedure, calendar:system_time_to_rfc3339(NotAfter, [{unit, millisecond}])]);
+announce_expiry(_Was, expired, OrgProcedure, {_Created, NotAfter}) ->
+    logger:error("mcl_om_capabilities: the authorization of ~ts ended at ~ts; its advertisement "
+                 "is refused until the realm reissues it",
+                 [OrgProcedure, calendar:system_time_to_rfc3339(NotAfter, [{unit, millisecond}])]);
+announce_expiry(_Was, _FreshOrUnknown, _OrgProcedure, _Window) ->
+    ok.
 
 previous_grant([{_Proc, Entry}]) -> Entry;
 previous_grant([])               -> undefined.

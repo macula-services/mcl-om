@@ -28,52 +28,100 @@
 %%%-------------------------------------------------------------------
 -module(mcl_om_provider_grant).
 
--export([observed/3, verdict/3, report/3, grace_ms/0]).
--export_type([entry/0]).
+-export([observed/4, verdict/3, report/3, expiry/2, grace_ms/0]).
+-export_type([entry/0, window/0, clock/0]).
 
 -define(DEFAULT_GRACE_MS, 60_000).
 
+%% The chain's validity, system time in ms: the binding record's
+%% `created_at' and the chain's bound, the earlier `expires_at' of the org
+%% directory and the delegation (what macula bounds an advertisement by).
+-type window() :: {CreatedAt :: integer(), NotAfter :: integer()} | undefined.
+
+%% /health reads both clocks: the grace window runs on monotonic time, a
+%% chain's bound is a wall-clock time written by the realm.
+-type clock() :: #{mono := integer(), sys := integer()}.
+
 -type entry() :: #{result := granted | {not_granted, term()},
-                   since  := integer() | undefined}.
+                   since  := integer() | undefined,
+                   window := window()}.
 
 %% @doc The entry for one procedure, from its `provider_authorization'
-%% answer at `Now' and its previous entry (`undefined' on the first tick).
--spec observed({ok, term()} | {error, term()}, integer(), entry() | undefined) ->
-    entry().
-observed({ok, _Authorization}, _Now, _Previous) ->
-    #{result => granted, since => undefined};
-observed({error, Reason}, Now, Previous) ->
-    #{result => {not_granted, Reason}, since => failing_since(Previous, Now)}.
+%% answer at `Now' (monotonic), the window of the chain it carries
+%% (`undefined' when there is none), and its previous entry (`undefined'
+%% on the first tick). A refusal keeps the previous window: the
+%% registration still carries that chain until its bound passes.
+-spec observed({ok, term()} | {error, term()}, window(), integer(),
+               entry() | undefined) -> entry().
+observed({ok, _Authorization}, Window, _Now, _Previous) ->
+    #{result => granted, since => undefined, window => Window};
+observed({error, Reason}, _Window, Now, Previous) ->
+    #{result => {not_granted, Reason}, since => failing_since(Previous, Now),
+      window => previous_window(Previous)}.
 
 failing_since(#{result := {not_granted, _}, since := Since}, _Now) -> Since;
 failing_since(_GrantedOrNew, Now)                                   -> Now.
 
+previous_window(#{window := Window}) -> Window;
+previous_window(_None)               -> undefined.
+
 %% @doc `ok', or `{degraded, #{provider_grants => Failing}}' naming each
-%% procedure that is past waiting, with the cause an operator acts on.
--spec verdict(#{binary() => entry()}, integer(), non_neg_integer()) ->
+%% procedure that is past waiting, or whose chain is expiring or expired,
+%% with the cause an operator acts on.
+-spec verdict(#{binary() => entry()}, clock(), non_neg_integer()) ->
     ok | {degraded, #{provider_grants := [map()]}}.
-verdict(Entries, Now, GraceMs) ->
-    Failing = [#{procedure => Proc, status => not_granted, cause => cause(Reason)}
-               || {Proc, #{result := {not_granted, Reason}} = E} <- sorted(Entries),
-                  state(E, Now, GraceMs) =:= not_granted],
+verdict(Entries, Clock, GraceMs) ->
+    Failing = [failing(Proc, E, State)
+               || {Proc, E} <- sorted(Entries),
+                  State <- [state(E, Clock, GraceMs)],
+                  State =/= granted, State =/= waiting],
     degraded_if_any(Failing).
+
+failing(Proc, #{result := {not_granted, Reason}}, not_granted) ->
+    #{procedure => Proc, status => not_granted, cause => cause(Reason)};
+failing(Proc, #{window := {_Created, NotAfter}}, Expiry) ->
+    #{procedure => Proc, status => Expiry, cause => expiry_cause(Expiry),
+      not_after_ms => NotAfter}.
+
+expiry_cause(expiring) -> realm_has_not_renewed;
+expiry_cause(expired)  -> chain_expired.
 
 degraded_if_any([])      -> ok;
 degraded_if_any(Failing) -> {degraded, #{provider_grants => Failing}}.
 
 %% @doc Every procedure with its state, for /health to list whatever the
-%% verdict: a service inside its window is ok and still says why.
--spec report(#{binary() => entry()}, integer(), non_neg_integer()) -> [map()].
-report(Entries, Now, GraceMs) ->
-    [reported(Proc, E, Now, GraceMs) || {Proc, E} <- sorted(Entries)].
+%% verdict: a service inside its window is ok and still says why, and a
+%% procedure with a chain says when it ends.
+-spec report(#{binary() => entry()}, clock(), non_neg_integer()) -> [map()].
+report(Entries, Clock, GraceMs) ->
+    [reported(Proc, E, Clock, GraceMs) || {Proc, E} <- sorted(Entries)].
 
-reported(Proc, #{result := granted}, _Now, _GraceMs) ->
-    #{procedure => Proc, status => <<"granted">>};
-reported(Proc, #{result := {not_granted, Reason}, since := Since} = E, Now, GraceMs) ->
-    #{procedure => Proc,
-      status    => atom_to_binary(state(E, Now, GraceMs)),
-      reason    => iolist_to_binary(io_lib:format("~0p", [Reason])),
-      since_ms  => Now - Since}.
+reported(Proc, #{result := granted} = E, Clock, GraceMs) ->
+    with_window(E, #{procedure => Proc,
+                     status => atom_to_binary(state(E, Clock, GraceMs))});
+reported(Proc, #{result := {not_granted, Reason}, since := Since} = E,
+         #{mono := Now} = Clock, GraceMs) ->
+    with_window(E, #{procedure => Proc,
+                     status    => atom_to_binary(state(E, Clock, GraceMs)),
+                     reason    => iolist_to_binary(io_lib:format("~0p", [Reason])),
+                     since_ms  => Now - Since}).
+
+with_window(#{window := {_Created, NotAfter}}, Report) -> Report#{not_after_ms => NotAfter};
+with_window(_NoWindow, Report)                         -> Report.
+
+%% @doc Where a chain stands at wall-clock `SysNow': `fresh' with more than
+%% a third of its life left, `expiring' with a third or less (a healthy
+%% realm reissues every 10 min, so a 30-min delegation never gets there),
+%% `expired' past its bound, `unknown' with no chain.
+-spec expiry(window(), integer()) -> fresh | expiring | expired | unknown.
+expiry(undefined, _SysNow) ->
+    unknown;
+expiry({_Created, NotAfter}, SysNow) when SysNow >= NotAfter ->
+    expired;
+expiry({Created, NotAfter}, SysNow) when (NotAfter - SysNow) * 3 =< NotAfter - Created ->
+    expiring;
+expiry(_Window, _SysNow) ->
+    fresh.
 
 %% @doc The grace window from `mcl_om' app env, default 60 s.
 -spec grace_ms() -> non_neg_integer().
@@ -85,8 +133,14 @@ grace_of(_Unset)                                -> ?DEFAULT_GRACE_MS.
 
 %%% Internals
 
-state(#{result := {not_granted, Reason}, since := Since}, Now, GraceMs) ->
+state(#{result := granted, window := Window}, #{sys := SysNow}, _GraceMs) ->
+    granted_state(expiry(Window, SysNow));
+state(#{result := {not_granted, Reason}, since := Since}, #{mono := Now}, GraceMs) ->
     waited(immediate(Reason), Now - Since >= GraceMs).
+
+granted_state(expiring) -> expiring;
+granted_state(expired)  -> expired;
+granted_state(_Fresh)   -> granted.
 
 waited(true, _Elapsed) -> not_granted;
 waited(false, true)    -> not_granted;

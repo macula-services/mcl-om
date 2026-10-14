@@ -191,3 +191,26 @@ an_undelivered_claim_is_asked_again_test() ->
 
 an_issued_claim_is_not_asked_again_test() ->
     ?assertNot(mcl_om_claim:asks_again(issued)).
+
+%%% Claiming again when the chain goes missing (mcl-om#25): only an issued
+%%% claim, at most once per minute; every other state is retried already.
+
+an_issued_claim_is_sent_again_the_first_time_its_chain_goes_missing_test() ->
+    ?assert(mcl_om_claim:claims_again(issued, undefined, 0)).
+
+an_issued_claim_is_not_sent_again_within_a_minute_test() ->
+    ?assertNot(mcl_om_claim:claims_again(issued, 1_000, 60_999)),
+    ?assert(mcl_om_claim:claims_again(issued, 1_000, 61_000)).
+
+a_claim_not_yet_issued_is_left_to_its_own_retry_test() ->
+    [?assertNot(mcl_om_claim:claims_again(C, undefined, 0))
+     || C <- [unsent, pending, {not_delivered, timeout}]].
+
+%% The realm's answers to a repeat claim (macula-realm#81): a live member is
+%% re-issued (ok), an ended one is not_admitted, an unreadable membership is
+%% an error that is retried.
+the_realms_repeat_claim_answers_classify_test() ->
+    ?assertEqual(issued, mcl_om_claim:classify({ok, <<"ok">>})),
+    ?assertEqual(pending, mcl_om_claim:classify({error, <<"not_admitted">>})),
+    ?assertMatch({not_delivered, _},
+                 mcl_om_claim:classify({error, <<"membership_unreadable">>})).
