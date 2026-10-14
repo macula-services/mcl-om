@@ -18,6 +18,10 @@ Versioning: [SemVer](https://semver.org/).
   - A healthy realm reissues every 10 min, so a 30-min delegation never reaches `expiring`. The realm's operator notice fires at the same moment.
   - `mcl_om_provider_grant:verdict/3` and `report/3` take a clock (`#{mono, sys}`) instead of a monotonic time, and `observed/4` takes the chain's window.
 
+### Changed
+
+- **The `mcl_service` template generates `{mcl_om, "~> 0.40"}`**, so a new service starts on the release that recovers from a lapsed delegation.
+
 ### Fixed
 
 - **Advertising no longer blocks every other call to `mcl_om_capabilities` (#11).** The advertise loop
