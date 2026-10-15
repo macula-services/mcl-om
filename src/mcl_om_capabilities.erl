@@ -110,8 +110,8 @@
 %%% one factory supervisor per tick.
 %%%
 %%% Every advertisement carries `ttl_ms => ?ADVERTISEMENT_TTL_MS' (4x the
-%%% republish interval, matching the buffer `macula_station_announcer''s
-%%% own 75%-of-TTL refresh leaves for stations) instead of the ~48h
+%%% republish interval, leaving the same slack the SDK''s own half-life
+%%% renewal (`macula_station_link', TTL/2) assumes) instead of the ~48h
 %%% envelope default — a dead service''s advertisement should age out on
 %%% the order of minutes, not days. The handler-bearing path''s `ttl_ms'
 %%% needs macula 10.11.1 or later: earlier releases dropped `ttl_ms'
@@ -175,7 +175,8 @@
          pinned_providers/2,
          choose_serving_station/2,
          org_capability_pattern/1, matches_org_pattern/2,
-         resolve_org_capabilities/3, republish_delay_ms/0]).
+         resolve_org_capabilities/3, republish_delay_ms/0,
+         republish_interval_ms/0, advertisement_ttl_ms/0]).
 
 %% `macula_record.erl''s own '?TYPE_PROCEDURE_ADVERTISEMENT' — not
 %% exported there (no shared header defines it either), so mirrored here.
@@ -190,8 +191,15 @@
 
 %% Re-assert advertisements this often. Records outlive one interval;
 %% the tick also retries the initial write until the pool + a station
-%% link are present.
--define(REPUBLISH_INTERVAL_MS, 30_000).
+%% link are present. This is the one knob that sets the whole renewal
+%% floor: every station relays one advertisement renewal per advertiser
+%% per interval, so the station egress of renewals is proportional to
+%% 1/this (mcl-om#26). Raised from 30s to 70s to cut that floor ~2.3x;
+%% kept well under the macula_record 300s advertisement cap by
+%% ?ADVERTISEMENT_TTL_MS = 4x this (= 280s). The SDK's own half-life
+%% renewal (TTL/2 = 140s) is a slower backstop and never binds while
+%% this interval is shorter.
+-define(REPUBLISH_INTERVAL_MS, 70_000).
 
 %% +/- jitter applied to every scheduled republish tick (see arm_timer/1).
 %% A station-side cooldown this republish races against -- e.g.
@@ -207,14 +215,19 @@
 %% the same advertise batch, landing just outside whatever tombstone
 %% they raced) self-healed on their next tick. Jitter costs nothing
 %% when there is no race and guarantees one eventually lands clear when
-%% there is.
--define(REPUBLISH_JITTER_MS, 6_000).
+%% there is. Scaled with the interval to hold ~+/-10% (the 70s interval
+%% is not a multiple of the 30s tombstone, so the phase-lock above is
+%% less likely at this cadence than it was at 30s, but the guard stays).
+-define(REPUBLISH_JITTER_MS, 14_000).
 
-%% 4x the republish interval — the same margin `macula_station_announcer'
-%% leaves by refreshing at 75% of TTL — so one or two missed ticks (a
-%% transient mesh gap) don''t age the record out, but a genuinely dead
-%% service''s advertisement is gone in minutes, not the ~48h envelope
-%% default.
+%% 4x the republish interval, so one or two missed ticks (a transient
+%% mesh gap) don''t age the record out, but a genuinely dead service''s
+%% advertisement is gone in minutes, not the ~48h envelope default. The
+%% SDK (macula_station_link) independently renews each advertisement at
+%% half its remaining life (TTL/2), a slower backstop that never binds
+%% while this interval (the publisher re-assert) is the shorter cadence.
+%% At 280s this stays under macula_record''s 300s procedure-advertisement
+%% cap, which is enforced as a refusal, not a silent clamp.
 -define(ADVERTISEMENT_TTL_MS, ?REPUBLISH_INTERVAL_MS * 4).
 
 %% find/2's DHT-propagation-lag retry budget -- same values as
@@ -1443,6 +1456,22 @@ arm_timer(S) ->
 republish_delay_ms() ->
     ?REPUBLISH_INTERVAL_MS - (?REPUBLISH_JITTER_MS div 2)
         + rand:uniform(?REPUBLISH_JITTER_MS + 1) - 1.
+
+%% @doc The base re-assert cadence, unjittered. The one knob that sets
+%% the advertisement renewal floor every station relays (mcl-om#26):
+%% `advertisement_ttl_ms/0' is 4x this, and the health windows in
+%% `mcl_om_advertise_liveness' derive from these two so the whole
+%% advertise cadence moves together.
+-spec republish_interval_ms() -> pos_integer().
+republish_interval_ms() ->
+    ?REPUBLISH_INTERVAL_MS.
+
+%% @doc The TTL stamped on every advertisement (4x the republish
+%% interval). Held under `macula_record:procedure_advertisement_max_lifetime_ms/0'
+%% (300s), which macula enforces as a refusal, not a silent clamp.
+-spec advertisement_ttl_ms() -> pos_integer().
+advertisement_ttl_ms() ->
+    ?ADVERTISEMENT_TTL_MS.
 
 profile() ->
     {ok, P} = macula_crypto_profile:configured(),

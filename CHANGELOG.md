@@ -3,6 +3,18 @@
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [SemVer](https://semver.org/).
 
+## [0.42.0] - 2026-10-15
+
+### Changed
+
+- **Advertisements renew less often, cutting the renewal bytes every station relays (macula-services/mcl-om#26, macula-io/macula-station#106).**
+  - The republish interval goes from 30 s to 70 s. `ADVERTISEMENT_TTL_MS` is four republish intervals, so the TTL goes from 120 s to 280 s, kept under macula's 300 s procedure-advertisement record cap (which macula enforces as a refusal, not a silent clamp).
+  - After macula-station#106 a station forwards each publisher renewal to its peers, so the renewal traffic a station relays is proportional to 1/interval. At 70 s it drops about 2.3x (measured floor was 6.76 of 11.62 Mbit/s out on a live station). This is the single largest advertise lever; store and event are separate (macula-station#107, #108).
+  - The go-dark margin is unchanged: the TTL stays four intervals, so one or two missed re-asserts still never age a record out, and the SDK's own half-life renewal remains a backstop. The one cost is that a provider that dies stays listed up to 280 s (vs 120 s) before its advertisement lapses: slower liveness, callers fail at connect and re-resolve. Authorization is re-checked per advertise admission and per caller resolve and the advertisement is bounded by the delegation's own expiry, so a longer TTL is not a wider revocation window.
+  - `/health`'s advertise-staleness and grace windows (`mcl_om_advertise_liveness`) now derive from the one republish knob (`mcl_om_capabilities:advertisement_ttl_ms/0` and `republish_interval_ms/0`) instead of a second hard-coded copy of the TTL, so they move with the cadence and a single missed tick does not flap /health. An operator's `advertise_stale_after_ms` / `advertise_grace_ms` overrides still win.
+  - No wire change: `ttl_ms` is an existing field and every node already accepts an advertisement up to the 300 s cap.
+- The service template's `mcl_om` floor is `~> 0.42`, this release.
+
 ## [0.41.0] - 2026-10-15
 
 ### Added

@@ -14,10 +14,12 @@
 %%% advertise failure) still answered `/health ok' with
 %%% `failed_publishes: 0' -- zero is exactly what a loop that makes no
 %%% attempts produces. The last successful advertise's age is the
-%%% signal: a healthy loop republishes every ~30s, so a success older
-%%% than four intervals means the loop is dead (or the mesh has been
-%%% down longer than the record can outlive) and no caller can resolve
-%%% this provider, whatever the grants say.
+%%% signal: a healthy loop republishes every republish interval, so a
+%%% success older than the advertisement TTL (four intervals) means this
+%%% service's own advertise loop is dead or stuck -- whatever the grants
+%%% say. (The SDK link renews a live advertisement on its own half-life
+%%% timer, so a stale window here is specifically "mcl-om's loop stopped
+%%% re-asserting", not every possible mesh failure.)
 %%%
 %%% Judging rules (the caller supplies the clock, like
 %%% mcl_om_provider_grant):
@@ -26,10 +28,10 @@
 %%% - `stale': a success older than that -- the record has expired and
 %%%   the loop is not replacing it. Degraded at once.
 %%% - `never_succeeded': attempts have failed but none has succeeded.
-%%%   Degraded once the failure run is older than `grace_ms/0' (default
-%%%   60s, the same grace the grants use): a pre-grant boot fails its
-%%%   first advertises for reasons the grants already report, and one
-%%%   transient failure should not flap /health.
+%%%   Degraded once the failure run is older than `grace_ms/0' (two
+%%%   republish intervals, so a cold boot gets two attempts): a pre-grant
+%%%   boot fails its first advertises for reasons the grants already
+%%%   report, and one transient failure should not flap /health.
 %%%
 %%% A procedure with no entry at all has never been attempted (or its
 %%%   service just booted): not listed, and not degrading -- the first
@@ -40,17 +42,6 @@
 
 -export([observed/4, verdict/3, report/3, stale_after_ms/0, grace_ms/0]).
 -export_type([entry/0]).
-
-%% The staleness window: four republish intervals
-%% (mcl_om_capabilities's ADVERTISEMENT_TTL_MS, what advertise_opts/0
-%% proportions for the record). A healthy loop republishes every ~30s
-%% (jittered), so a procedure whose last success is this old has
-%% missed several ticks in a row -- the loop is dead or the mesh has
-%% been down longer than the record can outlive.
--define(DEFAULT_STALE_AFTER_MS, 120_000).
-%% The same grace the provider grants use before degrading a
-%% not-granted procedure: one failure should not flap /health.
--define(DEFAULT_GRACE_MS, 60_000).
 
 -type entry() :: #{last_success := integer() | undefined,
                    last_failure := {integer(), term()} | undefined}.
@@ -115,18 +106,23 @@ with_failure({FailureAt, Reason}, Now, Map) ->
 with_failure(undefined, _Now, Map) ->
     Map.
 
-%% @doc The staleness window from `mcl_om' app env, default 120s (the
-%% advertisement record's TTL).
+%% @doc The staleness window from `mcl_om' app env, defaulting to the
+%% advertisement record's TTL (`mcl_om_capabilities:advertisement_ttl_ms/0',
+%% four republish intervals). Not a second copy of the TTL: it tracks the
+%% one cadence knob, so raising the republish interval widens this window
+%% with it and a single missed tick never trips /health (mcl-om#26).
 -spec stale_after_ms() -> non_neg_integer().
 stale_after_ms() ->
     window(application:get_env(mcl_om, advertise_stale_after_ms),
-           ?DEFAULT_STALE_AFTER_MS).
+           mcl_om_capabilities:advertisement_ttl_ms()).
 
 %% @doc The grace window for a never-succeeded procedure, from `mcl_om'
-%% app env, default 60s.
+%% app env, defaulting to two republish intervals: a cold boot gets two
+%% advertise attempts before a never-succeeded loop degrades /health.
 -spec grace_ms() -> non_neg_integer().
 grace_ms() ->
-    window(application:get_env(mcl_om, advertise_grace_ms), ?DEFAULT_GRACE_MS).
+    window(application:get_env(mcl_om, advertise_grace_ms),
+           2 * mcl_om_capabilities:republish_interval_ms()).
 
 window({ok, Ms}, _Default) when is_integer(Ms), Ms >= 0 -> Ms;
 window(_Unset, Default)                                  -> Default.

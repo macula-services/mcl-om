@@ -181,8 +181,21 @@ org_scoped_full_or_any_tags_hits_with_the_org_procedure_test() ->
 %% envelope default. The 10.x cert-chain variant is gone with the cert
 %% authorization form.
 advertise_opts_always_carries_a_proportioned_ttl_test() ->
-    ?assertMatch(#{ttl_ms := Ttl} when is_integer(Ttl) andalso Ttl > 0,
-                 mcl_om_capabilities:advertise_opts()).
+    Interval = mcl_om_capabilities:republish_interval_ms(),
+    Ttl = mcl_om_capabilities:advertisement_ttl_ms(),
+    %% TTL is four republish intervals, so one or two missed ticks (a
+    %% transient mesh gap) never age a record out. The ratio is the
+    %% go-dark margin; keep it whatever the cadence (mcl-om#26).
+    ?assertEqual(4 * Interval, Ttl),
+    %% ... and it stays under macula's procedure-advertisement record
+    %% cap, so a renewal is never refused as lifetime_too_long (the cap
+    %% is enforced as a refusal, not a silent clamp) and a provider
+    %% never goes dark for signing a record macula rejects.
+    ?assert(Ttl < macula_record:procedure_advertisement_max_lifetime_ms()),
+    %% The renewal-cadence lever (mcl-om#26): a longer interval means
+    %% every station relays proportionally fewer advertisement renewals.
+    ?assertEqual(70_000, Interval),
+    ?assertMatch(#{ttl_ms := Ttl}, mcl_om_capabilities:advertise_opts()).
 
 %%% Org capability browse (2026-08-29, slice 4) -- client-side filter
 %%% over find_records_by_type, matched via macula_topic_pattern.
@@ -352,8 +365,11 @@ stream_opts_is_absent_for_a_streamer_capability_with_none_set_test() ->
 %%% actually vary, not just be renamed, or the fix is a no-op.
 
 republish_delay_ms_stays_within_the_jittered_bound_test() ->
+    Interval = mcl_om_capabilities:republish_interval_ms(),
+    Half = 7_000,  %% ?REPUBLISH_JITTER_MS div 2, the +/- bound
     Delays = [mcl_om_capabilities:republish_delay_ms() || _ <- lists:seq(1, 200)],
-    ?assert(lists:all(fun(D) -> D >= 27_000 andalso D =< 33_000 end, Delays)).
+    ?assert(lists:all(fun(D) -> D >= Interval - Half andalso D =< Interval + Half
+                      end, Delays)).
 
 republish_delay_ms_actually_varies_test() ->
     Delays = [mcl_om_capabilities:republish_delay_ms() || _ <- lists:seq(1, 200)],
