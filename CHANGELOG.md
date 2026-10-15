@@ -15,6 +15,7 @@ Versioning: [SemVer](https://semver.org/).
 ### Changed
 
 - The macula floor is `~> 14.11`, the first release with `macula:org_member/4`.
+- The service template's `mcl_om` floor is `~> 0.41`, this release.
 
 ## [0.40.0] - 2026-10-14
 
