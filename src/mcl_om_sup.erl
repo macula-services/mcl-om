@@ -60,6 +60,9 @@ init([]) ->
         %% The inbound guard (mcl-om#13): its ETS must exist before any
         %% handler can answer a call, so it starts ahead of capabilities.
         worker(mcl_om_guard),
+        %% The org-membership cache (mcl_om_org_member): before the
+        %% subscriptions, so no delivery can ask it before its table exists.
+        worker(mcl_om_org_member),
         worker(mcl_om_capabilities),
         worker(mcl_om_claim),
         supervisor_child(mcl_om_pubsub_sup),

@@ -229,6 +229,32 @@ also self-heals on a 30s reconcile tick independent of any caller, so
 a topic that couldn't start because the mesh wasn't attached yet at
 boot is retried automatically.
 
+### Hearing only an org's own nodes
+
+macula verifies who **signed** a publication (`Meta`'s `publisher`,
+with `publisher_verified`), not who may **publish** on a topic. Any node
+in the realm can publish on any topic, whatever org its name carries.
+When your handler must only act on facts from a particular org's nodes
+(the news sensor, the speakers in a square), ask the realm:
+
+```erlang
+handle_event(_Topic, Payload, #{publisher := Publisher, publisher_verified := true}, State) ->
+    {noreply, heard(mcl_om:org_member(<<"mcl-news">>, Publisher), Payload, State)};
+handle_event(_Topic, _Payload, _UnverifiedMeta, State) ->
+    {noreply, State}.
+
+heard({ok, _ExpiresAt}, Payload, State)          -> act_on(Payload, State);
+heard({error, {not_a_member, _}}, _Payload, State) -> State;  %% not that org's node
+heard({error, {unavailable, _}}, _Payload, State)  -> State.  %% could not find out
+```
+
+A node is a member once Raf admits it on the Providers desk, and stops
+being one within 30 minutes of a revocation. Answers are cached, so a
+member costs no lookup per fact and a stranger publishing in a loop
+costs one lookup a minute. Decide for yourself what `unavailable` means
+for your service: it is not a refusal, and a station roll produces it
+for under a minute.
+
 ### The escape hatch
 
 The three publish modes above cover every real call site surveyed

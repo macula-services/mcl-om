@@ -19,6 +19,7 @@
     realm/0,
     identity_key/0,
     mesh_handles/0,
+    org_member/2,
     service_module/0,
     leftover_store_callbacks/1,
     warn_leftover_store/1
@@ -232,3 +233,13 @@ mesh_handles() ->
 
 handles({ok, Pool}, {ok, Realm}) -> {ok, Pool, Realm};
 handles(_MaculaClient, _Realm) -> {error, mesh_unavailable}.
+
+%% @doc Whether `NodeId' is an admitted member of `Org' in this service's realm,
+%% cached (`mcl_om_org_member'). macula verifies who signed a publication, not
+%% who may publish on a topic: a subscriber that must hear only an org's own
+%% nodes asks this about the delivery's `publisher'. `{error, {not_a_member,
+%% _}}' is the realm's refusal; `{error, {unavailable, _}}' means it could not
+%% find out, and is not a refusal.
+-spec org_member(binary(), <<_:256>>) -> mcl_om_org_member:answer().
+org_member(Org, NodeId) ->
+    mcl_om_org_member:org_member(Org, NodeId).

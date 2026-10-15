@@ -3,6 +3,19 @@
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [SemVer](https://semver.org/).
 
+## [0.41.0] - 2026-10-15
+
+### Added
+
+- **`mcl_om:org_member/2`: is the node that published this an admitted member of this org? (macula-services/mcl-agora#1).**
+  - macula verifies who signed a publication, not who may publish on a topic. Any node in the realm can publish on any topic, whatever org its name carries. A subscriber that must hear only an org's own nodes asks this about the delivery's `publisher`.
+  - The answer is the realm's own: `macula:org_member/4` (macula 14.11) reads the chain a Providers-desk admission publishes and a revocation tombstones.
+  - A member is cached until its chain expires (at most 30 minutes, the bound on how long a revoked node is still heard). A refusal is cached for one minute, so a stranger publishing in a loop does not become two DHT lookups per fact, and at most 10,000 entries are held. "Could not find out" (`{error, {unavailable, _}}`) is never cached and is not a refusal, so a station roll does not read as a revocation.
+
+### Changed
+
+- The macula floor is `~> 14.11`, the first release with `macula:org_member/4`.
+
 ## [0.40.0] - 2026-10-14
 
 ### Added
