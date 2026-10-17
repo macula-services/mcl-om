@@ -62,7 +62,8 @@ signed_records_test_() ->
            ?_test(decode_resolved_returns_verified_providers(Keys)),
            ?_test(decode_resolved_drops_tampered_and_foreign_records(Keys)),
            ?_test(discovery_key_org_matches_what_gets_published_under_it(Keys)),
-           ?_test(chain_window_is_the_record_that_ends_first(Keys))]
+           ?_test(chain_window_is_the_record_that_ends_first(Keys)),
+           ?_test(decode_resolved_yields_one_provider_per_serving_station(Keys))]
       end}}.
 
 key_pool() ->
@@ -79,11 +80,11 @@ build_advertisement_round_trips([Key | _]) ->
     Rec = mcl_om_capabilities:build_advertisement(Key, R, <<"acme">>,
                                                   cap(<<"svc.do">>), St),
     #{advertiser_node := Adv,
-      serving_station := Sta,
+      serving_stations := Stas,
       realm_id        := RealmId,
       procedure       := Proc} = macula_record:read_procedure_advertisement(Rec),
     ?assertEqual(node_id(Key), Adv),
-    ?assertEqual(St, Sta),
+    ?assertEqual([St], Stas),
     ?assertEqual(R, RealmId),
     ?assertEqual(<<"acme/svc.do">>, Proc),
     %% and the record verifies (it was signed by the advertiser)
@@ -103,6 +104,23 @@ decode_resolved_returns_verified_providers([KpA, KpB | _]) ->
                            serving_station => St1}, Got)),
     ?assert(lists:member(#{advertiser => node_id(KpB),
                            serving_station => St2}, Got)).
+
+%% Wire 1.0 (macula-station#55, K > 1): an advertisement names the 1 to 8
+%% stations its provider serves through. Another SDK may publish K > 1, so a
+%% reader yields one {advertiser, serving_station} per listed station: a
+%% caller then has every route, not only the first.
+decode_resolved_yields_one_provider_per_serving_station([Kp | _]) ->
+    R   = realm(),
+    St1 = station(),
+    St2 = station(),
+    Rec = macula_record:sign(
+            macula_record:procedure_advertisement(node_id(Kp), R, <<"acme/c">>,
+                                                  [St1, St2]),
+            Kp),
+    Got = mcl_om_capabilities:decode_resolved([Rec]),
+    ?assertEqual(lists:sort([#{advertiser => node_id(Kp), serving_station => St1},
+                             #{advertiser => node_id(Kp), serving_station => St2}]),
+                 lists:sort(Got)).
 
 decode_resolved_drops_tampered_and_foreign_records([Kp, NodeKp | _]) ->
     R   = realm(),

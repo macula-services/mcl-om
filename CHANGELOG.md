@@ -3,6 +3,15 @@
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [SemVer](https://semver.org/).
 
+## [1.0.0] - 2026-10-17
+
+### Changed
+
+- **mcl_om runs on macula 15, wire 1.0 (macula-io/macula#105, macula-io/macula-fleet#27).** The dependency moves from `~> 14.11` to `~> 15.6`. A wire 1.0 node neither reads a 14 node's frames nor completes a handshake with it, so this is a major release: every service pins `mcl_om ~> 0.x`, and none of them can float onto it. A service moves to wire 1.0 by pinning `~> 1.0` on purpose, on the flag day.
+- **An advertisement names its serving stations as a list (macula-io/macula-station#55).** Wire 1.0 carries the 1 to 8 stations a provider serves through, where 14.x carried one. `build_advertisement/5` publishes the one station this node serves through as a one-element list. `decode_resolved/1` and `lookup/1` return one `#{advertiser, serving_station}` per station the record names, so an advertisement another SDK publishes with several stations gives the caller every route. Without this, every advertise crashed and every resolve came back empty on macula 15.
+- `list_org_capabilities/1` returns each advertisement as macula reads it, so its station field is now `serving_stations`. Its documentation already named the wrong fields and now names the real ones.
+- The service template's `mcl_om` floor is `~> 1.0`, this release.
+
 ## [0.42.0] - 2026-10-15
 
 ### Changed
