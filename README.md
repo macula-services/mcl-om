@@ -1,8 +1,8 @@
 # mcl-om
 
 **Over-mesh substrate for the PQ fleet**: the shared library every
-`macula-services/mcl-X` service daemon stands on, built on macula 12
-(`{macula, "~> 12.0"}`), post-quantum only.
+`macula-services/mcl-X` service daemon stands on, built on macula 15, wire 1.0
+(`{macula, "~> 15.6"}`), post-quantum only.
 
 Services in this org are **edge-first**. A service runs wherever its
 operator puts it (a cooperative infrastructure node, a relay box, a lab
@@ -61,7 +61,7 @@ It **is not**:
   the library's facade.
 - A plugin host. Services are containerised.
 - A network library. Services talk to a PQ `macula-station` via the
-  macula 12 SDK like any other Macula client: **outbound only**. The
+  macula 15 SDK like any other Macula client: **outbound only**. The
   station does the peering, the DHT and the routing, which is what
   lets a service sit behind NAT at the edge and still be reachable.
 
@@ -360,7 +360,7 @@ pick or to collide.
 
 ## Status
 
-**Working library — 0.31.x, on macula 12.7.** The behaviour and all helpers are implemented
+**Working library — 1.0.x, on macula 15.6 (wire 1.0).** The 0.x line (main until the flag day, macula-io/macula-fleet#27) runs macula 14. The behaviour and all helpers are implemented
 (`mcl_om_identity`, `mcl_om_capabilities`, `mcl_om_health`), the boot path
 (`mcl_om:boot/1`)
 is exercised by a Common Test suite (`mcl_om_SUITE`), and `rebar3 new
