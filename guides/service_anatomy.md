@@ -15,7 +15,7 @@ README for how to install the template.
 ├── LICENSE
 ├── CHANGELOG.md
 ├── Containerfile                ← multi-stage Erlang build
-├── rebar.config                 ← deps incl. {mcl_om, "~> 0.26"}, relx release
+├── rebar.config                 ← deps incl. {mcl_om, "~> 1.0"}, relx release
 ├── apps/mcl_x/
 │   ├── src/
 │   │   ├── mcl_x.app.src        ← `applications: [mcl_om, …]`

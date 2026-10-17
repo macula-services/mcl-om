@@ -323,9 +323,10 @@ publish() ->
 lookup(CapName) when is_binary(CapName) ->
     gen_server:call(?MODULE, {lookup, CapName}, ?LOOKUP_CALL_TIMEOUT_MS).
 
-%% @doc Every capability `Org' has advertised — '{ok,
-%% [#{procedure_uri := binary(), advertiser := Pubkey, serving_station :=
-%% Pubkey}]}'. See moduledoc for why this is a client-side filter over
+%% @doc Every capability `Org' has advertised — '{ok, [Advertisement]}',
+%% each the record as macula_record:read_procedure_advertisement/1 reads
+%% it (realm_id, procedure, advertiser_node, serving_stations) plus the
+%% signed `record'. See moduledoc for why this is a client-side filter over
 %% `find_records_by_type', not a DHT-indexed query: a WARM-START view of
 %% whatever this pool''s connected station(s) locally hold, not an
 %% authoritative mesh-wide listing. Empty when nothing matches or the
@@ -1211,20 +1212,21 @@ tag_procedure(Providers, Procedure) ->
 resolve_full_records({ok, Records}) -> decode_resolved_full(Records).
 
 decode_resolved_full(Records) ->
-    lists:filtermap(fun decode_one_full/1, Records).
+    lists:flatmap(fun decode_one_full/1, Records).
 
 decode_one_full(Record) ->
     decode_verified_full(reverify(Record), Record).
 
 decode_verified_full({ok, _Payload}, Record) ->
     try macula_record:read_procedure_advertisement(Record) of
-        #{advertiser_node := Adv, serving_station := Sta} ->
-            {true, #{advertiser => Adv, serving_station => Sta, record => Record}}
+        #{advertiser_node := Adv, serving_stations := Stas} ->
+            [#{advertiser => Adv, serving_station => Sta, record => Record}
+             || Sta <- Stas]
     catch _:_ ->
-        false
+        []
     end;
 decode_verified_full({error, _}, _Record) ->
-    false.
+    [].
 
 %% Retries a fresh publish out of DHT-propagation lag. Matches
 %% macula_direct_dial''s own internal find_records_retry/3 budget (50 x
@@ -1419,29 +1421,30 @@ build_advertisement(Key, Realm, Org, #{name := Name}, Station) ->
     %% is the org-qualified string, no realm-hex prefix.
     Record = macula_record:procedure_advertisement(Advertiser, Realm,
                                                    org_procedure(Org, Name),
-                                                   Station),
+                                                   [Station]),
     macula_record:sign(Record, Key).
 
-%% Verify each record''s signature and project it to
-%% `{advertiser, serving_station}'. Non-procedure records and bad
-%% signatures are dropped. (Full trust-chain checking is Slice 7; this
+%% Verify each record''s signature and project it to one
+%% `{advertiser, serving_station}' per station the record names (wire 1.0
+%% lists 1 to 8, macula-station#55; this module publishes one, another SDK
+%% may publish more). Non-procedure records and bad signatures are dropped. (Full trust-chain checking is Slice 7; this
 %% is the authenticity floor.)
 -spec decode_resolved([map()]) -> [map()].
 decode_resolved(Records) ->
-    lists:filtermap(fun decode_one/1, Records).
+    lists:flatmap(fun decode_one/1, Records).
 
 decode_one(Record) ->
     decode_verified(reverify(Record), Record).
 
 decode_verified({ok, _Payload}, Record) ->
     try macula_record:read_procedure_advertisement(Record) of
-        #{advertiser_node := Adv, serving_station := Sta} ->
-            {true, #{advertiser => Adv, serving_station => Sta}}
+        #{advertiser_node := Adv, serving_stations := Stas} ->
+            [#{advertiser => Adv, serving_station => Sta} || Sta <- Stas]
     catch _:_ ->
-        false
+        []
     end;
 decode_verified({error, _}, _Record) ->
-    false.
+    [].
 
 %%% Timer
 
