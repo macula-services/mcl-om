@@ -16,6 +16,11 @@
 # pass. Nobody started the run, so nobody saw it. This workflow deploys
 # nothing; a docs-only push skips it through paths-ignore.
 #
+# IT ALSO GATES THE RELEASE. publish-hex.yml calls it (workflow_call) on the
+# tagged commit and publishes only when it is green. Before that the two ran
+# side by side on a tag, and 1.1.0 and 1.2.0 reached hex from commits whose
+# `rebar3 ct' had failed (mcl-om#34).
+#
 # THE TOOLCHAIN IS THE IMAGE, pinned by its dated tag AND digest rather than
 # :latest, so a rebuilt image cannot change this gate between two runs of the
 # same commit.
@@ -45,6 +50,7 @@ on:
     branches: [main]
     paths-ignore: ['**.md', 'guides/**', 'LICENSE']
   workflow_dispatch:
+  workflow_call:
 
 concurrency:
   group: lint-and-test-${{ github.ref }}

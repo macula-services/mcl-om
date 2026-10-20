@@ -2,6 +2,10 @@
 # the Containerfile's builder stage uses, so CI tests the toolchain that
 # ships: OTP 28.4.3 with ML-DSA, rebar3, Rust (macula's NIFs always build
 # from source) and a C toolchain, all from the image, none installed here.
+#
+# build-push.yml calls this workflow (workflow_call) on the commit it builds
+# and pushes no image until it is green: before that the two ran side by side,
+# and a push with red tests still published (mcl-om#34).
 
 name: lint-and-test
 
@@ -10,6 +14,7 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  workflow_call:
 
 jobs:
   check:

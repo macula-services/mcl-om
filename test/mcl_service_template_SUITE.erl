@@ -59,6 +59,7 @@
          closing_text_is_true_to_the_template/1,
          image_build_runs_on_docker_and_podman_alike/1,
          only_main_and_release_tags_publish/1,
+         image_publishes_only_after_the_tests_pass/1,
          house_images_are_signed_by_digest/1,
          generated_tests_guard_the_behaviour_attribute/1,
          storeless_scaffold_names_no_store/1,
@@ -124,6 +125,7 @@ all() ->
      closing_text_is_true_to_the_template,
      image_build_runs_on_docker_and_podman_alike,
      only_main_and_release_tags_publish,
+     image_publishes_only_after_the_tests_pass,
      house_images_are_signed_by_digest,
      generated_tests_guard_the_behaviour_attribute,
      storeless_scaffold_names_no_store,
@@ -994,6 +996,21 @@ only_main_and_release_tags_publish(Config) ->
     ?assertMatch({match, _}, re:run(Body, "^\\s+\\*\\) echo \"::error::.*\\$GITHUB_REF.*exit 1",
                                     [multiline])),
     ?assertEqual(nomatch, binary:match(Body, <<"else">>)).
+
+%% NOTHING PUBLISHES WHILE ITS OWN TESTS ARE RED. build-push used to run
+%% beside lint.yml, so a push whose tests failed still pushed its image, and a
+%% v* tag still published a version the fleet pins. The build now calls lint.yml
+%% (workflow_call) on the same commit and waits on it (mcl-om#34).
+image_publishes_only_after_the_tests_pass(Config) ->
+    Root = ?config(root, Config),
+    Build = read(filename:join(Root, ".github/workflows/build-push.yml")),
+    Lint = read(filename:join(Root, ".github/workflows/lint.yml")),
+    ?assertMatch({match, _}, re:run(Lint, "^  workflow_call:$", [multiline])),
+    ?assertMatch({match, _},
+                 re:run(Build, "^  test:\n(    #.*\n)*    uses: \./\.github/workflows/lint\.yml$",
+                        [multiline])),
+    ?assertMatch({match, _},
+                 re:run(Build, "^  build-and-push:\n    needs: test$", [multiline])).
 
 %% EVERY HOUSE IMAGE IS SIGNED BY DIGEST (M6). mcl-mail shipped unsigned
 %% because its build-push had no attest job, and the scaffold had none either.
