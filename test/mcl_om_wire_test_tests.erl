@@ -71,6 +71,28 @@ a_reply_with_a_raw_node_id_as_text_is_refused_test() ->
     ?assertError({bad_reply, {unsupported_payload_type, invalid_text, [<<"winner">>]}},
                  mcl_om_wire_test:reply(#{<<"winner">> => {text, ?CALLER_RAW}})).
 
+%% THE OTHER HALF OF THE SAME HAZARD, and the one that used to pass (mcl-om#32).
+%% A plain binary in a reply is a CBOR BYTE string, so a client reads a blob
+%% where the service meant a string, and `macula_frame:check_payload/1' accepts
+%% it. Reading it back as the same `Bin' as `{text, Bin}' let a responder
+%% regress a field to bytes and keep every test green, so the client view names
+%% it for what the client got.
+a_replys_byte_string_does_not_read_as_text_test() ->
+    ?assertEqual(#{<<"game_id">> => {bytes, ?GAME_ID}},
+                 mcl_om_wire_test:reply(#{<<"game_id">> => ?GAME_ID})),
+    ?assertEqual(#{<<"game_id">> => ?GAME_ID},
+                 mcl_om_wire_test:reply(#{<<"game_id">> => {text, ?GAME_ID}})),
+    %% The assertion a capability test writes is the text one, and it does not
+    %% hold for bytes: which is what makes it a test of the wire.
+    ?assertNotEqual(mcl_om_wire_test:reply(#{<<"game_id">> => {text, ?GAME_ID}}),
+                    mcl_om_wire_test:reply(#{<<"game_id">> => ?GAME_ID})).
+
+%% A byte string nested in a list and in a map reads as bytes too, because a
+%% client that got one there is just as unable to read it.
+a_nested_byte_string_is_named_as_bytes_test() ->
+    ?assertEqual(#{<<"moves">> => [{bytes, <<"e2e4">>}, <<"e7e5">>]},
+                 mcl_om_wire_test:reply(#{<<"moves">> => [<<"e2e4">>, {text, <<"e7e5">>}]})).
+
 %%====================================================================
 %% A handler refusing, and the context it runs in
 %%====================================================================

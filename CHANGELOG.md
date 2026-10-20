@@ -3,6 +3,12 @@
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [SemVer](https://semver.org/).
 
+## [1.2.1] - 2026-10-20
+
+### Fixed
+
+- **`mcl_om_wire_test`: a reply's CBOR byte string no longer reads as text** (mcl-om#32). `reply/1`, and `call/3` which ends in the same client view, ran the decoded reply through `mcl_om_wire:unwrap/1`, which maps `{text, Bin}` to `Bin` and passes a plain binary through unchanged. A reply carrying `{text, <<"x">>}` and one carrying `<<"x">>` therefore both read as `<<"x">>`, and `macula_frame:check_payload/1` accepts bytes, so a responder that regressed a field to a bare binary kept every test green and its clients got a blob where they expected a string. The strict decoder already tells the two apart (`{text, Bin}` for CBOR text, a plain `Bin` for CBOR bytes); the client view now keeps that apart too, naming a byte string `{bytes, Bin}` and unwrapping text as before. An existing assertion such as `?assertEqual(<<"checkmate">>, Field)` fails on a bytes field with no change to a consumer's tests. Found in the review of the mcl-chess responder tests moving onto the helper.
+
 ## [1.2.0] - 2026-10-20
 
 ### Added

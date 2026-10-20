@@ -26,8 +26,10 @@
 %%% 4. the reply is put through `macula_frame:check_payload/1', the same check a
 %%%    provider runs before answering, so a reply macula would refuse fails the
 %%%    TEST rather than the first real caller;
-%%% 5. the reply is encoded and decoded again, and unwrapped with
-%%%    `mcl_om_wire:unwrap/1', so assertions read the client's own view.
+%%% 5. the reply is encoded and decoded again and handed back as the client's
+%%%    own view: text unwraps to its `Bin', and a byte string stays named as
+%%%    one, `{bytes, Bin}', so an assertion that expects text fails on bytes
+%%%    rather than reading the two as the same value (mcl-om#32).
 %%%
 %%% WHAT IT DOES NOT DO. It does not sign, dial, or check the D25 grant: this is
 %%% the payload contract, not the mesh integration (mcl_om_SUITE is that). It
@@ -121,7 +123,9 @@ deliver(Request, Caller) when is_map(Request) ->
     with_caller(Payload, caller(Caller)).
 
 %% @doc The reply as a client receives it, after the check a provider runs
-%% before answering.
+%% before answering. Text arrives as its `Bin'; a CBOR byte string arrives as
+%% `{bytes, Bin}', because a client would get bytes and a test that read them as
+%% text could not tell a regression from a correct answer (mcl-om#32).
 -spec reply(term()) -> client_view().
 reply(Reply) ->
     ok = checked(Reply),
@@ -140,7 +144,8 @@ reply(Reply) ->
 %% keys become text, and A PLAIN BINARY STAYS A BYTE STRING. That last one is
 %% how a service can answer `game_id' as an opaque blob to every client while
 %% its own tests assert on the string, so this module reproduces it rather than
-%% smoothing it over.
+%% smoothing it over: which is why the client view names a byte string
+%% `{bytes, Bin}' instead of handing back a `Bin' no different from text.
 
 %% A test author writes atoms and strings; a JSON client sends text. A BOOLEAN
 %% IS REFUSED rather than translated: the mesh carries 1/0, and a helper that
@@ -216,10 +221,20 @@ unwrapped(Bytes) ->
     {ok, Value} = macula_record_cbor:decode_strict(Bytes),
     client_view(Value).
 
+%% TEXT AND BYTES DO NOT COME OUT THE SAME, which is the whole point of reading a
+%% reply here instead of in the reply's own terms (mcl-om#32). The strict decoder
+%% answers `{text, Bin}' for CBOR text and a PLAIN `Bin' for CBOR bytes, so a
+%% test can tell them apart only if this function keeps them apart: text unwraps
+%% to `Bin', and a bare binary is named for what the client got, `{bytes, Bin}'.
+%% Unwrapping both to `Bin' made a responder that regressed a field to bytes pass
+%% every test, which is the mirror of the fault this module was built for, and it
+%% is why the request side already authors a byte string as `{bytes, Bin}'.
 client_view(Map) when is_map(Map) ->
     maps:from_list([{client_key(Key), client_view(Value)} || {Key, Value} <- maps:to_list(Map)]);
 client_view(List) when is_list(List) ->
     [client_view(Element) || Element <- List];
+client_view(Bin) when is_binary(Bin) ->
+    {bytes, Bin};
 client_view(Value) ->
     mcl_om_wire:unwrap(Value).
 
