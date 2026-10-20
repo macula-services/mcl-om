@@ -68,6 +68,20 @@ health_is_green_test() ->
 %% An empty list is the correct answer for a service that does nothing yet. The
 %% assertion is here so that adding a capability breaks a test and makes someone
 %% write down what the service can now actually do.
+%%
+%% ⚠ WHEN YOU ADD ONE, TEST IT THROUGH `mcl_om_wire_test:call/3', NOT BY HAND.
+%% A capability test that builds its own request map tests the handler against
+%% the shape the handler expects, which is how a service passes every test and
+%% refuses every real caller (mcl-chess#10, and this helper is mcl-om#31):
+%%
+%%   View = mcl_om_wire_test:call(my_capability_handler,
+%%                                #{game_id => <<"game-abc">>},
+%%                                CallerNodeId),      % the RAW 32-byte id
+%%   ?assertEqual(<<"game-abc">>, maps:get(<<"game_id">>, View)),
+%%
+%% That call delivers the request as a station does (text keys, the caller merged
+%% in), refuses a reply macula would not put on the wire, and hands back the
+%% client's own view.
 announces_no_capability_yet_test() ->
     ?assertEqual([], ?SERVICE:capabilities()).
 

@@ -3,6 +3,12 @@
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [SemVer](https://semver.org/).
 
+## [1.2.0] - 2026-10-20
+
+### Added
+
+- **`mcl_om_wire_test`: a service's capability test sends its request in the shape the mesh delivers, and reads the reply as a client** (mcl-om#31). A test that builds the request map itself tests the handler against the shape the handler expects, which is how mcl-chess 0.7.1 passed 206 eunit tests and then refused every real caller on the live mesh (mcl-chess#10). The wire delivers text keys as `{text, Bin}` and the verified caller under the atom key as a raw 32-byte node id; on the way back a plain binary is a CBOR byte string, and a raw node id tagged as text is refused outright. `mcl_om_wire_test:call/3` closes that gap for any service's suite: it encodes the request with macula's own codec, decodes it through the provider's own `macula_frame:plain_payload/1` path, merges the caller the way `macula_station_link:with_caller/2` does (a peer that names itself is dropped), runs the handler, puts the reply through `macula_frame:check_payload/1` before anything else, and answers the client's view. The two directions convert differently on purpose: a request is authored by a JSON client, so strings are text, while a reply is the provider's terms, so a plain binary stays a byte string, because smoothing that over would hide the very fault the helper exists to catch. A boolean in a request is refused rather than translated to 1/0. The handler runs inside the request's caller context, as `macula_station_link` runs it, so a handler reading `macula_response:caller/0` is tested on the path a station gives it. A handler that refuses with the behaviour's own `{error, Reason, State}` comes back as the `{error, Detail}` its caller would see, rather than crashing the test. The service template's capability test now goes through it.
+
 ## [1.1.0] - 2026-10-20
 
 ### Added
