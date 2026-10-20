@@ -9,6 +9,7 @@ Versioning: [SemVer](https://semver.org/).
 
 - **A v* tag publishes to hex only when its tests are green** (mcl-om#34). `publish-hex.yml` now calls `lint-and-test.yml` (`workflow_call`) on the tagged commit as its `test` job, and `publish` needs `[verify, test]`. Before this the two ran side by side on a tag, and 1.1.0 and 1.2.0 reached hex from commits whose `rebar3 ct` had failed. A red suite now leaves the tag with no package. A manual dispatch is still a dry run of `verify` and skips `test`.
 - **A generated service pushes no image while its tests are red** (mcl-om#34). The scaffold's `build-push.yml` calls its own `lint.yml` (now also `workflow_call`) as a `test` job, and `build-and-push` needs it, on main and on a v* tag alike. `mcl_service_template_SUITE:image_publishes_only_after_the_tests_pass` holds the shape.
+- **A generated house service publishes no image for a release tag the guard refuses** (macula-codebase-checks#3). The house scaffold's `build-push.yml` gets a `guard` job calling macula-ci-images' `release-guard.yml` on the build's runner, and `build-and-push` needs `[guard, test]`: a v* tag off main, or whose version is not the release's, now stops before anything is pushed, instead of leaving an unsigned `:<semver>` image behind. The attest call moves from 601c719, which predates the guard, to the same commit (b4c41ab). The stranger's scaffold is unchanged.
 
 ## [1.2.2] - 2026-10-20
 

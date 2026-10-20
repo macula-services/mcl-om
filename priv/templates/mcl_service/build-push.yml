@@ -47,9 +47,28 @@ jobs:
   # run builds, and the build waits on it (mcl-om#34).
   test:
     uses: ./.github/workflows/lint.yml
+<%#attest%>
+
+  # REFUSED BEFORE ANYTHING IS PUSHED: a v* tag off the default branch (or off its
+  # line's release-<major>.<minor> branch), or whose version is not the one this
+  # repository publishes, stops here, so a refused tag leaves no image on the
+  # registry. Any other ref passes. attest-image checks the same again before it
+  # signs. Pinned by full commit sha, as the attest call is.
+  guard:
+    permissions:
+      contents: read
+    uses: macula-io/macula-ci-images/.github/workflows/release-guard.yml@b4c41abb404c32215a2823b7f19ac65b732e1dfe
+    with:
+      runs-on: '<%runs_on%>'
+<%/attest%>
 
   build-and-push:
+<%#attest%>
+    needs: [guard, test]
+<%/attest%>
+<%^attest%>
     needs: test
+<%/attest%>
     runs-on: <%runs_on%>
     permissions:
       contents: read
@@ -178,7 +197,7 @@ jobs:
       contents: read
       packages: write
       id-token: write
-    uses: macula-io/macula-ci-images/.github/workflows/attest-image.yml@601c719b7cfbd8ed15852281d87c652d776a6ae7
+    uses: macula-io/macula-ci-images/.github/workflows/attest-image.yml@b4c41abb404c32215a2823b7f19ac65b732e1dfe
     with:
       image: ghcr.io/<%org%>/<%repo%>
       digest: ${{ needs.build-and-push.outputs.digest }}

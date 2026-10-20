@@ -1010,7 +1010,12 @@ image_publishes_only_after_the_tests_pass(Config) ->
                  re:run(Build, "^  test:\n(    #.*\n)*    uses: \./\.github/workflows/lint\.yml$",
                         [multiline])),
     ?assertMatch({match, _},
-                 re:run(Build, "^  build-and-push:\n    needs: test$", [multiline])).
+                 re:run(Build, "^  build-and-push:\n    needs: test$", [multiline])),
+    %% The house scaffold's build also waits on the release guard, so a refused
+    %% tag publishes no image (macula-codebase-checks#3).
+    House = read(filename:join(?config(house_root, Config), ".github/workflows/build-push.yml")),
+    ?assertMatch({match, _},
+                 re:run(House, "^  build-and-push:\n    needs: \\[guard, test\\]$", [multiline])).
 
 %% EVERY HOUSE IMAGE IS SIGNED BY DIGEST (M6). mcl-mail shipped unsigned
 %% because its build-push had no attest job, and the scaffold had none either.
@@ -1051,14 +1056,19 @@ house_images_are_signed_by_digest(Config) ->
     %% The attest job's comment names no one fleet: not every service is
     %% deployed by macula-fleet.
     ?assertEqual(nomatch, binary:match(House, <<"macula-fleet's reconciler">>)),
-    %% The attest workflow at the commit that installs cosign per job: the
-    %% earlier one raced concurrent jobs on one $HOME/.cosign
-    %% (macula-ci-images#2).
+    %% The attest workflow at the commit that carries the release guard (and,
+    %% before it, cosign per job: macula-ci-images#2), and the same guard as its
+    %% own job ahead of the push, on the build's runner (macula-codebase-checks#3).
     ?assertMatch({match, _},
-                 re:run(House, "attest-image\\.yml@601c719b7cfbd8ed15852281d87c652d776a6ae7$",
+                 re:run(House, "attest-image\\.yml@b4c41abb404c32215a2823b7f19ac65b732e1dfe$",
                         [multiline])),
+    ?assertMatch({match, _},
+                 re:run(House, "^  guard:\n(    .*\n)*    uses: macula-io/macula-ci-images/\\.github/workflows/"
+                               "release-guard\\.yml@b4c41abb404c32215a2823b7f19ac65b732e1dfe\n    with:\n"
+                               "      runs-on: '\\[\"self-hosted\", \"msi00\", \"pq\"\\]'$", [multiline])),
     Stranger = read(filename:join(?config(root, Config), ".github/workflows/build-push.yml")),
-    ?assertEqual(nomatch, binary:match(Stranger, <<"attest">>)).
+    ?assertEqual(nomatch, binary:match(Stranger, <<"attest">>)),
+    ?assertEqual(nomatch, binary:match(Stranger, <<"release-guard">>)).
 
 %% THE GENERATED SUITE GUARDS THE ATTRIBUTE, as the generated README and
 %% service module say it does. The export check survives the attribute being
