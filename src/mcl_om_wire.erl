@@ -53,7 +53,17 @@
 
 -export([field/2, field/3, unwrap/1]).
 -export([retryable/1]).
--export([caller/1]).
+-export([caller/1, caller_hex/1]).
+
+%% The wire shape of a caller: the raw 32-byte node id, exactly as macula
+%% injects it. A payload built in process (a test, an internal dispatch) can
+%% carry any binary, so the specs below name the wire shape without
+%% pretending the readers validate it. `caller_hex/1' does validate, because
+%% it produces the form another node will look an identity up by.
+-type caller_id() :: <<_:256>>.
+
+%% 64 characters, lowercase: the text form a reply can carry.
+-type caller_hex_id() :: <<_:512>>.
 
 %% @equiv field(Key, Payload, undefined)
 -spec field(atom() | binary(), map()) -> term().
@@ -110,13 +120,45 @@ unwrap(Other) -> Other.
 %% arrive via an RPC path at all (a pubsub event's caller-equivalent is
 %% `publisher', delivered via a separate Meta argument, not the payload).
 %%
+%% THIS IS THE RAW 32-BYTE NODE ID, NOT TEXT. macula_station_link injects
+%% the caller as node-id bytes; 32 random bytes are not valid UTF-8, so a
+%% service that stores this value and sends it back as CBOR text has its
+%% reply refused by macula's reply check, and the caller sees
+%% `unknown_error' instead of an answer (mcl-chess#10, caught in review
+%% before it shipped). For anything that is stored, logged, compared with
+%% another node's id or sent back on the wire, use `caller_hex/1': it is
+%% the same identity in the one shape a reply can carry.
+%%
 %% Just `field(caller, Payload)' under a name every desk that wants
 %% provenance can reach for instead of re-deciding the field name --
 %% the same reasoning `field/2,3''s own moduledoc gives for existing as
 %% a shared helper rather than N per-desk reimplementations.
--spec caller(map()) -> binary() | undefined.
+-spec caller(map()) -> caller_id() | binary() | undefined.
 caller(Payload) ->
     field(caller, Payload).
+
+%% @doc `caller/1' as lowercase 64-character hex, or `undefined'.
+%%
+%% The form a service STORES and ANSWERS WITH (mcl-om#30): a reply's
+%% caller field travels as text, and the raw node id is not text. The case
+%% is fixed here rather than left to each caller, because two services that
+%% disagree about case for the same node cannot match each other's stored
+%% ids -- mcl-rag encodes uppercase today and mcl-graph, mcl-sec-guard and
+%% mcl_om_guard encode lowercase, each by hand.
+%%
+%% `undefined' covers the same cases as `caller/1', and also a value that
+%% is not a 32-byte node id at all (a payload built in process): hex of
+%% something that was never a node id is not a caller, and returning one
+%% would hand the service a plausible-looking id no node on the mesh
+%% answers to. macula has injected the caller as raw bytes since 10.15.0,
+%% the first version to inject one at all, so no other shape reaches this
+%% module from the mesh.
+-spec caller_hex(map()) -> caller_hex_id() | undefined.
+caller_hex(Payload) ->
+    hex_of_caller(caller(Payload)).
+
+hex_of_caller(<<_:256>> = NodeId) -> binary:encode_hex(NodeId, lowercase);
+hex_of_caller(_) -> undefined.
 
 %% `binary_to_existing_atom/2' raises for a binary with no atom form
 %% anywhere in the VM yet. `Key' is a literal the calling handler wrote,

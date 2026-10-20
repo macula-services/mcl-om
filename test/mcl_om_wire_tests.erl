@@ -130,6 +130,37 @@ caller_reads_the_field_test() ->
 caller_is_undefined_when_absent_test() ->
     ?assertEqual(undefined, mcl_om_wire:caller(#{})).
 
+%%% caller_hex/1 -- the form a service STORES and ANSWERS WITH (mcl-om#30).
+%%%
+%%% macula injects the caller as the raw 32-byte node id. Stored and sent
+%%% back as CBOR text it fails macula's reply check (32 random bytes are not
+%%% valid UTF-8), so every service that needs it as text needs the same
+%%% conversion. These lock the conversion, and lock it to lowercase so two
+%%% services cannot disagree about case for the same node.
+
+-define(NODE_ID, <<16#AB, 16#CD, 16#EF, 16#01,
+                   16#23, 16#45, 16#67, 16#89,
+                   16#BA, 16#DC, 16#FE, 16#10,
+                   16#32, 16#54, 16#76, 16#98,
+                   16#0A, 16#1B, 16#2C, 16#3D,
+                   16#4E, 16#5F, 16#60, 16#71,
+                   16#82, 16#93, 16#A4, 16#B5,
+                   16#C6, 16#D7, 16#E8, 16#F9>>).
+
+caller_hex_renders_a_node_id_as_lowercase_hex_test() ->
+    ?assertEqual(
+       <<"abcdef0123456789badcfe10325476980a1b2c3d4e5f60718293a4b5c6d7e8f9">>,
+       mcl_om_wire:caller_hex(#{caller => ?NODE_ID})).
+
+caller_hex_is_undefined_when_absent_test() ->
+    ?assertEqual(undefined, mcl_om_wire:caller_hex(#{})).
+
+%% A payload built in process is not a node id: hex of it would be a
+%% plausible-looking id for something that is not one. macula itself has
+%% injected raw bytes since 10.15.0, so this is the hand-built case only.
+caller_hex_is_undefined_for_a_value_that_is_not_a_node_id_test() ->
+    ?assertEqual(undefined, mcl_om_wire:caller_hex(#{caller => <<"twelve bytes">>})).
+
 unwrap_scalar_test() ->
     ?assertEqual(<<"x">>, mcl_om_wire:unwrap({text, <<"x">>})),
     ?assertEqual(undefined, mcl_om_wire:unwrap(null)),

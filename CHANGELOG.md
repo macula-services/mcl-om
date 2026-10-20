@@ -3,6 +3,16 @@
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [SemVer](https://semver.org/).
 
+## [1.1.0] - 2026-10-20
+
+### Added
+
+- **`mcl_om_wire:caller_hex/1`: the verified caller as lowercase 64-character hex, or `undefined`** (mcl-om#30). `caller/1` returns the caller exactly as macula injects it, the raw 32-byte node id, and a service that stores that value and sends it back as CBOR text has its reply refused by macula's reply check — 32 random bytes are not valid UTF-8, so the caller sees `unknown_error` instead of an answer (mcl-chess#10, caught in review). Every service needing the text form had written its own conversion, and not all of them agreed: mcl-rag encoded uppercase, mcl-graph, mcl-sec-guard and `mcl_om_guard` lowercase. `caller_hex/1` is the one form: lowercase, and `undefined` for the same cases as `caller/1` plus any value that is not a 32-byte node id.
+
+### Changed
+
+- `mcl_om_wire:caller/1`'s documentation and spec name the wire shape: the raw 32-byte node id, not text. The spec still admits any binary, because a payload built in process can carry one and the reader does not validate; the doc says which shape the mesh actually injects and points at `caller_hex/1` for anything stored, compared or sent back.
+
 ## [1.0.0] - 2026-10-17
 
 ### Changed
