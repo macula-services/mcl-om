@@ -3,6 +3,12 @@
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [SemVer](https://semver.org/).
 
+## [1.2.2] - 2026-10-20
+
+### Fixed
+
+- **The generated service floor follows the release again** (mcl-om#33). `priv/templates/mcl_service/rebar.config` still emitted `{mcl_om, "~> 1.0"}`, while `mcl_service_template_SUITE` derives the expected floor from mcl_om's own version, so `rebar3 ct` has been red on main since 1.1.0: at 1.1.0 and again at 1.2.0 the job failed with `expected: "~> 1.2", got: "~> 1.0"` and hex published anyway, because the publish workflow does not depend on the test job. The template now emits `~> 1.2`. A generated service is unaffected in practice, since `~> 1.0` also resolves the newest release, but the floor is meant to name the release a scaffold came from, and it now does. Whether a tag should be able to publish while that job is red is a separate decision, noted on #33.
+
 ## [1.2.1] - 2026-10-20
 
 ### Fixed
