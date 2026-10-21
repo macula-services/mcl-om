@@ -29,6 +29,21 @@ that same builder image, and the service's tests fail if the two drift apart.
 
     podman build -t <%repo%> -f Containerfile .
 
+## The model
+
+`architecture/README.md` is this service's C4 model: what it talks to and what it
+is made of. The service owes its readers the two diagrams that page shows, a
+context one and a component one in `assets/`, and draws them from its own code
+rather than from a template.
+<%#c4%>
+The `c4-model` job in `.github/workflows/build-push.yml` fails until they are
+drawn, on purpose. Nothing waits on it, so this service can publish its first
+image while it still owes its readers a model.
+<%/c4%>
+<%^c4%>
+Nothing checks that they are there in this scaffold.
+<%/c4%>
+
 ## Configuration
 
 | Variable | Default | Meaning |

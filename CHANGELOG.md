@@ -5,6 +5,22 @@ Versioning: [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- The scaffolded service carries its C4 model (macula-codebase-checks#10):
+  `architecture/README.md` is generated from the service's own name and
+  description, stating what the scaffold talks to and what it is made of, and
+  the house scaffold's `.github/workflows/build-push.yml` gains the shared
+  `c4-model` job, pinned to a full commit sha. The scaffold draws neither
+  diagram: a diagram generated from a template is a placeholder, so the job is
+  red until the service draws its own. IT IS NOT IN THE IMAGE'S PATH: nothing
+  needs it, so the service publishes its first image while it still owes its
+  readers a model. It sits at the workflow's level rather than in lint.yml
+  because build-and-push's test job IS lint.yml, and every job there is part of
+  what the image waits for. A scaffold outside our orgs gets the page and no
+  job, as with `attest`: the check is ours and pinning it to a stranger's CI
+  names us.
+
 ### Fixed
 
 - The guides' Erlang examples compile against the package and call only what

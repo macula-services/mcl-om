@@ -25,6 +25,7 @@
 
 -export([all/0, init_per_suite/1, end_per_suite/1]).
 -export([generates_every_expected_file/1,
+         the_c4_model_is_asked_for_and_not_faked/1,
          health_script_is_executable/1,
          health_is_a_unix_socket_not_a_port/1,
          sys_config_configures_a_stable_identity/1,
@@ -91,6 +92,7 @@
 
 all() ->
     [generates_every_expected_file,
+     the_c4_model_is_asked_for_and_not_faked,
      health_script_is_executable,
      health_is_a_unix_socket_not_a_port,
      sys_config_configures_a_stable_identity,
@@ -327,6 +329,7 @@ generates_every_expected_file(Config) ->
     Expected =
         ["rebar.config", ".gitignore", "README.md", "CHANGELOG.md", "LICENSE",
          "Containerfile",
+         "architecture/README.md",
          ".github/workflows/build-push.yml",
          ".github/workflows/lint.yml",
          "config/sys.config.src", "config/vm.args.src",
@@ -341,6 +344,44 @@ generates_every_expected_file(Config) ->
     Missing = [P || P <- Expected,
                     not filelib:is_regular(filename:join(Root, P))],
     ?assertEqual([], Missing).
+
+%% THE SERVICE OWES ITS READERS A MODEL, AND THE TEMPLATE HANDS IT THE GATE
+%% (macula-codebase-checks#10). The architecture README names this service and
+%% the two diagrams the gate asks for, and lint.yml calls the shared check
+%% pinned by a full commit sha. The scaffold draws neither diagram: a diagram
+%% generated from a template is a placeholder with a nicer shape, so the job
+%% is red until the service draws its own.
+the_c4_model_is_asked_for_and_not_faked(Config) ->
+    Root = ?config(root, Config),
+    Architecture = read(filename:join(Root, "architecture/README.md")),
+    ?assertNotEqual(nomatch, binary:match(Architecture, <<?APP>>)),
+    ?assertNotEqual(nomatch, binary:match(Architecture, <<"assets/c4-context.svg">>)),
+    ?assertNotEqual(nomatch, binary:match(Architecture, <<"assets/c4-components.svg">>)),
+    %% Neither diagram is drawn for the service: a diagram from a template is a
+    %% placeholder, and the gate is what says so.
+    ?assertEqual([], filelib:wildcard(filename:join(Root, "assets/*.svg"))),
+    %% The house holds its services to the model, so its scaffold carries the
+    %% check, pinned by a full commit sha...
+    House = read(filename:join([?config(house_root, Config), ".github", "workflows",
+                                "build-push.yml"])),
+    ?assertMatch({match, _},
+                 re:run(House, "uses: macula-io/macula-ci-images/\\.github/workflows/"
+                               "c4-model\\.yml@[0-9a-f]{40}", [])),
+    %% ...and a stranger's does not: the check is ours, and naming us in their
+    %% CI is what leaks_no_house_specifics refuses.
+    %% A stranger's scaffold has no such job at all.
+    ?assertEqual(nomatch, binary:match(
+                            read(filename:join(Root, ".github/workflows/build-push.yml")),
+                            <<"c4-model">>)),
+    %% And the image does not wait on it: nothing needs it, and lint.yml (the
+    %% build's test job) does not hold it either.
+    ?assertEqual(nomatch, binary:match(
+                            read(filename:join([?config(house_root, Config), ".github",
+                                                "workflows", "lint.yml"])),
+                            <<"c4-model">>)),
+    %% No needs: line anywhere in build-push.yml mentions c4-model, whether it
+    %% stands alone or sits in a list.
+    ?assertEqual(nomatch, re:run(House, "^[ \\t]+needs:.*c4-model", [multiline])).
 
 %% Forgetting the chmod entry produces a script that looks right and cannot run,
 %% and it is a recorded recurring mistake in this estate.

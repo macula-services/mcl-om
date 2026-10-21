@@ -55,6 +55,10 @@
      "EMPTY FOR APACHE-2.0, 1 FOR PROPRIETARY. A private service carries a proprietary notice in LICENSE and {licenses, [\"Proprietary\"]} in its app.src; a public one is Apache-2.0 in both. scripts/scaffold-service.sh sets it from MCL_VISIBILITY. Like `store', EXACTLY ONE CHARACTER."},
     {runs_on, "[\"ubuntu-latest\"]",
      "The runner CI jobs run on, as a JSON array (valid YAML after `runs-on:', and what attest-image.yml's runs-on input takes), e.g. [\"self-hosted\", \"msi00\", \"pq\"]. NEVER a self-hosted runner for a public repository: a pull request from anyone would run its code on that machine. scripts/scaffold-service.sh picks it from the org and MCL_VISIBILITY."},
+    {c4, "",
+     "EMPTY BY DEFAULT, 1 FOR THE HOUSE. Adds the c4-model job to lint.yml: the shared C4 check, which fails the service's CI until assets/ holds a context and a component diagram, each shown by README.md or architecture/README.md (macula-codebase-checks#10). Off for a scaffold outside our orgs, because the check is ours and pinning it to a stranger's CI names us. EXACTLY ONE CHARACTER, like `store` and `attest`: rebar3 passes template variables as strings and mustache iterates a string as a list, so a longer value repeats the job once per character. scripts/scaffold-service.sh sets it from the org."},
+    {c4_gate, "",
+     "The shared C4 check c4-model calls, as its `uses:` value, PINNED BY FULL COMMIT SHA. Named here rather than in the workflow so moving the fleet's pin is one edit, as the two images are. Only read when `c4` is set."},
     {attest, "",
      "EMPTY BY DEFAULT, 1 FOR THE HOUSE. Signs every pushed image by digest (keyless, SBOM and provenance attested) with macula-ci-images' attest-image.yml, pinned by full commit sha. That workflow is macula-io's, so only scripts/scaffold-service.sh sets this, for the macula-services, macula-internal and macula-io orgs. EXACTLY ONE CHARACTER, like `store'."},
     {store, "",
@@ -96,6 +100,11 @@
 {chmod,                                         "{{repo}}/scripts/health.sh", 8#755}.
 {template, "mcl_service/is_image_push.sh",    "{{repo}}/scripts/is_image_push.sh"}.
 {chmod,                                         "{{repo}}/scripts/is_image_push.sh", 8#755}.
+
+%% The service's own architecture: the C4 model the gate in lint.yml asks for.
+%% The scaffold writes what is true of a service that does nothing yet, and
+%% draws neither diagram: a diagram generated from a template is a placeholder.
+{template, "mcl_service/architecture/README.md", "{{repo}}/architecture/README.md"}.
 
 %% Documentation
 {template, "mcl_service/README.md",          "{{repo}}/README.md"}.

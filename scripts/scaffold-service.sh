@@ -98,9 +98,20 @@ fi
 
 # THE HOUSE SIGNS EVERY IMAGE IT PUSHES (M6), with macula-ci-images'
 # attest-image.yml; anyone else's scaffold has no such job.
+#
+# THE HOUSE ALSO HOLDS EVERY SERVICE TO A C4 MODEL (macula-codebase-checks#10),
+# with macula-ci-images' c4-model.yml: a context and a component diagram in
+# assets/, shown by a README. Same condition and same reason as attest: the
+# check is ours, pinned to our commit, and a stranger's scaffold names neither.
 case "${ORG}" in
-    macula-services|macula-internal|macula-io) ATTEST=1 ;;
-    *)                                         ATTEST= ;;
+    macula-services|macula-internal|macula-io)
+        ATTEST=1
+        C4=1
+        C4_GATE="macula-io/macula-ci-images/.github/workflows/c4-model.yml@40c349dfdd8063321f6d8de571d6fc6ee165729d" ;;
+    *)
+        ATTEST=
+        C4=
+        C4_GATE= ;;
 esac
 
 HOLDER_ARGS=()
@@ -145,6 +156,8 @@ rebar3 new mcl_service \
     proprietary="${PROPRIETARY}" \
     runs_on="${RUNS_ON}" \
     attest="${ATTEST}" \
+    c4="${C4}" \
+    c4_gate="${C4_GATE}" \
     ${HOLDER_ARGS[@]+"${HOLDER_ARGS[@]}"} \
     ${IMAGE_ARGS[@]+"${IMAGE_ARGS[@]}"}
 

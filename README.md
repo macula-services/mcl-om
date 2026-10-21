@@ -228,6 +228,14 @@ A public repository never runs on a self-hosted runner, because a pull request
 from anyone would run its code on that machine. `MCL_RUNS_ON` overrides the
 runner and `MCL_HOLDER` the copyright holder.
 
+A service in one of our orgs also starts with its C4 page and the gate that
+keeps it true: `architecture/README.md` says what the scaffold talks to and what
+it is made of, and `lint.yml` calls the shared `c4-model` check, red until the
+service draws its own two diagrams in `assets/` (macula-codebase-checks#10).
+The scaffold draws neither, because a diagram generated from a template is a
+placeholder with a nicer shape. A scaffold outside our orgs gets the page and
+no job, as with the attest call: the check is ours.
+
 That is a thin wrapper over `rebar3 new mcl_service`, and it exists so you
 **say the name once**. A service has two names: the repository, the container
 image and the name it answers to on the mesh are kebab-case, while the OTP

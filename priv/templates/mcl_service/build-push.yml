@@ -47,6 +47,28 @@ jobs:
   # run builds, and the build waits on it (mcl-om#34).
   test:
     uses: ./.github/workflows/lint.yml
+<%#c4%>
+
+  # THE SERVICE'S C4 MODEL: what it talks to, and what it is made of
+  # (macula-codebase-checks#10). Two diagrams in assets/, a context one and a
+  # component one, each shown by README.md or architecture/README.md, and this
+  # job red until they are there. architecture/README.md says what goes in them,
+  # and the scaffold does not draw them, because a diagram generated from a
+  # template is a placeholder with a nicer shape.
+  #
+  # IT IS NOT IN THE IMAGE'S PATH, ON PURPOSE: nothing `needs' it and it needs
+  # nothing, so a service publishes its first image while it still owes its
+  # readers a model. Red here is the report, not a deploy block. It is at this
+  # level rather than in lint.yml because build-and-push's test job IS lint.yml,
+  # and every job in a called workflow is part of what the image waits for.
+  #
+  # The check is the house's and is pinned by full commit sha, like the release
+  # guard and the attest call below.
+  c4-model:
+    permissions:
+      contents: read
+    uses: <%c4_gate%>
+<%/c4%>
 <%#attest%>
 
   # REFUSED BEFORE ANYTHING IS PUSHED: a v* tag off the default branch (or off its
