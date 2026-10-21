@@ -59,6 +59,12 @@ jobs:
   # workflow is pinned by full commit; its scan reads the rebar.lock this
   # build resolves, since a rebar3 project commits none.
   #
+  # A new service starts with no .github/advisories-waivers.txt, so it goes red
+  # on the first advisory it inherits and stays red until the advisory is fixed
+  # or a dated, owned row is added. That is the point: the gate has no baselines.
+  # A row is five fields, '# advisory | package | why | owner | expires'; copy
+  # the shape from mcl_om's own file.
+  #
   # INSIDE THE HOUSE BLOCK because that workflow is macula-ci-images', the same
   # reason the release guard and the attest call in build-push.yml are: a
   # scaffold for another org carries no macula-io path at all.

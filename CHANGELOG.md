@@ -3,7 +3,20 @@
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [SemVer](https://semver.org/).
 
-## [Unreleased]
+## [1.3.0] - 2026-10-21
+
+### Changed
+
+- **Cowboy is past its four, and the package ends two cowboy minors of the pack**
+  (macula-codebase-checks#11). The requirement moves from `~> 2.12.0` to `~> 2.18`,
+  which resolves to cowboy 2.20.0 and cowlib 2.21.0. What that buys: GHSA-32p9-57cr-4x65
+  (8.7, uncontrolled resource consumption in `cow_http_te`), GHSA-84f2-rp86-235p (8.2,
+  decompression bomb in `cow_spdy`), GHSA-hv23-4qp7-8c8r (6.3, CRLF injection in SSE)
+  and GHSA-g2wm-735q-3f56 (3.2, cookie header injection) are all gone. This is the base
+  dependency of every generated service, so it is a minor release rather than a patch.
+  One advisory has no released fix yet, EEF-CVE-2026-43966 in cowlib's
+  `cow_http_struct_hd:escape_string/2`: it is waived, dated and owned, in
+  `.github/advisories-waivers.txt`.
 
 ### Added
 
