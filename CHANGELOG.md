@@ -3,6 +3,20 @@
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [SemVer](https://semver.org/).
 
+## [1.4.0] - 2026-10-22
+
+### Changed
+
+- **The base library is macula 16** (macula-codebase-checks#4). The requirement
+  moves from `~> 15.6` to `~> 16.0`, which resolves 16.0.0. 16.0 keeps wire 1.0,
+  so a node on this release still speaks to every wire 1.0 box; what it brings is
+  the revocation bound from macula#118: a realm endorsement admits its holder for
+  at most 24 hours, and a gated overlay context must pass `member_standing` or it
+  admits nobody. mcl_om gates no overlay context and issues no endorsement, so
+  nothing here changes for it; a service that does is fixed in that service.
+  Minor rather than patch for the same reason the cowboy move was: this is the
+  base dependency of every generated service.
+
 ## [1.3.0] - 2026-10-21
 
 ### Changed
