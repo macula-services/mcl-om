@@ -51,3 +51,22 @@ jobs:
       - run: rebar3 lint
       - run: rebar3 eunit
       - run: rebar3 dialyzer
+
+<%#attest%>
+  # A dependency the service ships with a published advisory fails its CI, and
+  # build-push.yml waits on this workflow before it pushes an image, so the
+  # image is not published either (macula-codebase-checks#11). The shared
+  # workflow is pinned by full commit; its scan reads the rebar.lock this
+  # build resolves, since a rebar3 project commits none.
+  #
+  # INSIDE THE HOUSE BLOCK because that workflow is macula-ci-images', the same
+  # reason the release guard and the attest call in build-push.yml are: a
+  # scaffold for another org carries no macula-io path at all.
+  advisories:
+    name: Dependency advisories
+    permissions:
+      contents: read
+    uses: macula-io/macula-ci-images/.github/workflows/dependency-advisories.yml@dbc9533eb409c2118f45110613160060cc582f5d
+    with:
+      ecosystem: erlang
+<%/attest%>

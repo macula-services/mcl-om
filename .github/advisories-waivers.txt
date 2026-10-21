@@ -1,0 +1,9 @@
+# advisory | package | why it cannot be fixed yet | owner | expires YYYY-MM-DD
+#
+# cowlib 2.21.0 is the newest release and the fix for this one is upstream in
+# 4401b858f2229abb3ea115c60924f6c77e5f8aa3 only, so there is no version to move
+# to yet. It is an escape_string/2 issue in cow_http_struct_hd, reachable from
+# anything that lets a caller influence a header value; mcl_om builds the
+# headers it sends. Replace this row with the bump on the cowlib release that
+# carries the fix, and no later than the date below.
+EEF-CVE-2026-43966 | cowlib | no released version carries the fix yet; upstream 4401b85, bump on the next cowlib release | ceres | 2026-11-20

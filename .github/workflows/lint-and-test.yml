@@ -132,3 +132,16 @@ jobs:
       - name: The house image pair is published
         run: |
           scripts/is_image_published.sh $(sed -n 's/^FROM \([^ ]*\).*/\1/p' "$RUNNER_TEMP/house/mcl-house-probe/Containerfile")
+
+  # A dependency this package ships with a published advisory fails the build
+  # (macula-codebase-checks#11). A rebar3 project commits no lock, so the scan
+  # reads the rebar.lock this build resolves. publish-hex.yml calls this
+  # workflow on the tagged commit and publishes only when it is green, so the
+  # release waits on the scan as well.
+  advisories:
+    name: Dependency advisories
+    permissions:
+      contents: read
+    uses: macula-io/macula-ci-images/.github/workflows/dependency-advisories.yml@dbc9533eb409c2118f45110613160060cc582f5d
+    with:
+      ecosystem: erlang
