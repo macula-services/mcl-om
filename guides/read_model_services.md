@@ -21,7 +21,7 @@ A read-model service that goes straight from a `subscriptions/0` handler to a da
 write has nowhere to put the "should this actually be written" decision — which is
 exactly the bug the earlier stations service shipped with. Split it into three:
 
-```
+```text
 subscriptions/0 (Listener)  →  a Policy module (pure function)  →  a Projection module (the store)
 ```
 
@@ -42,7 +42,8 @@ subscriptions() ->
 init(Args) -> {ok, Args}.
 
 handle_event(_Topic, Record, _Meta, State) ->
-    case macula_record:verify(Record) of
+    {ok, Profile} = macula_crypto_profile:configured(),
+    case macula_record:verify(Record, Profile) of
         {ok, Verified} -> on_capability_fact_maybe_admit:handle(Verified);
         {error, _}     -> ok
     end,
@@ -107,7 +108,7 @@ needed for this part.
 %% capability_read_model.erl
 upsert(Fields, ExpiresAt) ->
     Doc = existing_or_new(storage_key(Fields)),
-    put(Doc#{<<"expires_at">> => ExpiresAt, ...}).
+    put(Doc#{<<"expires_at">> => ExpiresAt}).
 
 fold(Fun, Acc) ->
     Now = erlang:system_time(millisecond),

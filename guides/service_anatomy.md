@@ -9,7 +9,7 @@ README for how to install the template.
 
 ## Repository layout
 
-```
+```text
 <org>/mcl-X/
 ├── README.md
 ├── LICENSE
@@ -41,7 +41,7 @@ A service that grows vertical slices adds them as further apps under
 
 ## Lifecycle
 
-```
+```text
 the container runtime pulls <registry>/<org>/mcl-X:latest
    ↓
 Erlang VM boots → application:start(mcl_x)
@@ -70,6 +70,7 @@ Service is live.
 
 Six callbacks. See `mcl_om_service` for the full type spec.
 
+<!-- doc_snippets: skip the head of a module, naming the six callbacks mcl_om_service defines -->
 ```erlang
 -module(mcl_X_service).
 -behaviour(mcl_om_service).
@@ -97,7 +98,7 @@ application and opens nothing (mcl-om#10). An event-sourced service:
 
 `rebar3 new mcl_service store=1` generates all four. Boot order with a store:
 
-```
+```text
 mcl_X_app:start/2
    ├── open_store(): reckon_db_sup:start_store(#store_config{indexes = ...}),
    │   wait until reckon_db_sup:which_stores/0 lists it,
@@ -124,7 +125,7 @@ barrel's system database does not land in a relative `data/`.
 A service may host its own CMD / PRJ / QRY tier internally. Same
 vertical-slicing rules as user-domain apps. Example for `mcl-rag`:
 
-```
+```text
 apps/
 ├── embed_corpus/        CMD
 │   ├── ingest_document/

@@ -24,7 +24,7 @@ which a realm's guardian reads and retunes through `get_limits` /
 `set_limits`; see
 [`docs/design/GUARDIAN_CONTROL_SURFACE.md`](https://github.com/macula-services/mcl-om/blob/main/docs/design/GUARDIAN_CONTROL_SURFACE.md).
 
-```
+```text
                          mcl-om
                             │
         ┌──────────┬────────┼─────────┐
@@ -67,7 +67,7 @@ It **is not**:
 
 ## Layering position
 
-```
+```text
 Layer 4 — apps        user-facing apps
 
 Layer 3 — session     per-identity sessions and UI

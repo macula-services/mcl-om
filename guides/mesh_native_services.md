@@ -48,7 +48,7 @@ the pool + realm pair every wrapper in this guide resolves internally
 before doing real work:
 
 ```erlang
--spec mesh_handles() -> {ok, pool(), Realm :: binary()} | {error, mesh_unavailable}.
+-spec mesh_handles() -> {ok, Pool :: term(), Realm :: binary()} | {error, mesh_unavailable}.
 ```
 
 You will rarely call this directly — every function in chapters 2–5
