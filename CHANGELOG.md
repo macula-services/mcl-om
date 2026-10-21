@@ -17,6 +17,11 @@ Versioning: [SemVer](https://semver.org/).
   Minor rather than patch for the same reason the cowboy move was: this is the
   base dependency of every generated service.
 
+- The service template's `mcl_om` floor moves with the release, `~> 1.3` to
+  `~> 1.4`, which is what `generated_service_floor_is_this_release` exists to
+  enforce: a service generated from this release declares the minor it came
+  from.
+
 ## [1.3.0] - 2026-10-21
 
 ### Changed
