@@ -61,7 +61,7 @@ It **is not**:
   the library's facade.
 - A plugin host. Services are containerised.
 - A network library. Services talk to a PQ `macula-station` via the
-  macula 15 SDK like any other Macula client: **outbound only**. The
+  macula 16 SDK like any other Macula client: **outbound only**. The
   station does the peering, the DHT and the routing, which is what
   lets a service sit behind NAT at the edge and still be reachable.
 
@@ -368,7 +368,7 @@ pick or to collide.
 
 ## Status
 
-**Working library — 1.0.x, on macula 16.0 (wire 1.0).** The 0.x line (main until the flag day, macula-io/macula-fleet#27) runs macula 14. The behaviour and all helpers are implemented
+**Working library: 1.x, on macula 16.0 (wire 1.0).** The 0.x line (main until the flag day, macula-io/macula-fleet#27) runs macula 14. The behaviour and all helpers are implemented
 (`mcl_om_identity`, `mcl_om_capabilities`, `mcl_om_health`), the boot path
 (`mcl_om:boot/1`)
 is exercised by a Common Test suite (`mcl_om_SUITE`), and `rebar3 new
