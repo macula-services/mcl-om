@@ -6,8 +6,8 @@
 %%% and never turns a key into an atom. Every text key arrives as
 %%% `{text, Bin}' (macula encodes every map key as CBOR text), and a
 %%% byte-string key is refused at decode as `bad_key'. The only atom key a
-%%% handler sees is `caller', which macula_station_link's own `with_caller/2`
-%%% merges in after decode (from macula 12.11.1 it also removes a
+%%% handler sees is `caller', which `with_caller/2' in the macula_station_link
+%%% module merges in after decode (from macula 12.11.1 it also removes a
 %%% caller-sent text "caller"). A map handed over in process, however, may
 %%% carry atom or binary keys, so a lookup must cope with all three. Before
 %%% macula 12 the decoder also atomised keys the receiving VM happened to
