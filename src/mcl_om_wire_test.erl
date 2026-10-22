@@ -17,8 +17,9 @@
 %%% 1. the request is encoded with `macula_record_cbor:encode/1' and decoded
 %%%    with `macula_frame:plain_payload/1', which is the provider's own path,
 %%%    so the handler sees exactly what a station hands it;
-%%% 2. the verified caller is merged the way `macula_station_link:with_caller/2'
-%%%    merges it, including dropping a caller-sent text `caller' (a peer that
+%%% 2. the verified caller is merged the way macula_station_link's own
+%%%    `with_caller/2' merges it, including dropping a caller-sent text
+%%%    `caller' (a peer that
 %%%    names itself is not read);
 %%% 3. the handler runs inside the request's caller context, the way
 %%%    `macula_station_link' runs it, so a handler reading
