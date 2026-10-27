@@ -67,6 +67,17 @@ ok_body_encodes_a_wait_the_service_names_test() ->
     ?assertEqual(#{<<"waiting_on">> => [<<"MCL_ORG_KEY_ID">>], <<"attempts">> => 3},
                  maps:get(<<"setup">>, Decoded)).
 
+%% R2's failure mode, at the level it happens. The merge is a MAP merge,
+%% so a binary `<<"status">>' key survives beside the atom one and jsx
+%% writes the key twice; a parser keeps the last, which is the service's
+%% value, and the node's verdict is gone without a word. That is why boot
+%% refuses the key (mcl_om_SUITE) instead of the body normalising it away,
+%% and why the check is on the JSON and not on the map: the map looks fine.
+a_binary_key_rides_beside_the_verdict_in_the_json_test() ->
+    Json = jsx:encode(#{status => <<"ok">>, <<"status">> => <<"degraded">>}),
+    ?assertEqual(2, length(binary:matches(Json, <<"\"status\"">>))),
+    ?assertEqual(<<"degraded">>, maps:get(<<"status">>, jsx:decode(Json, [return_maps]))).
+
 degraded_body_carries_the_reason_and_the_grants_test() ->
     ?assertEqual(#{status => <<"degraded">>, reason => <<"slow">>,
                    provider_grants => ?REPORT, advertise_liveness => ?ADVERTISE,
