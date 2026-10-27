@@ -28,7 +28,22 @@ in the service's own `<name>_app`, reading the store's settings from
 %% is behaving correctly (mcl-distributor#5, macula-services/mcl-om#36).
 %% Nothing added here reaches the `<org>/info' reply, which keeps its own
 %% fixed shape.
--type info()           :: #{name := binary(), version := binary(), description := binary(), _ => _}.
+%%
+%% A value here must be what `jsx' encodes, and the type says so: a tuple,
+%% pid, reference or fun raises `badarg' inside the `/health' handler, which
+%% answers 500 -- the canary failure this whole key exists to avoid. A key
+%% whose name, atom or binary, is one of `status', `provider_grants',
+%% `advertise_liveness', `claim' or `failed_publishes' is refused at boot
+%% (`mcl_om:boot/2'), because the body sets those itself and a second key of
+%% the same name would let a reader silently replace the verdict.
+-type info()           :: #{name := binary(), version := binary(), description := binary(),
+                            _ => json_value()}.
+
+%% What `jsx' encodes and nothing else. Atom map keys included: `jsx'
+%% writes them as strings, so the nested map's own keys are constrained too.
+-type json_value()     :: binary() | atom() | number()
+                        | [json_value()]
+                        | #{binary() | atom() => json_value()}.
 -type health()         :: ok | {degraded, term()} | {down, term()}.
 %% `kind' selects which macula provider module 'mcl_om_capabilities'
 %% advertises `handler' through: 'response' (default,
@@ -45,13 +60,16 @@ in the service's own `<name>_app`, reading the store's settings from
 -type capability()     :: #{name := binary(), version := pos_integer(),
                             handler => {module(), term()},
                             %% `handler_authorizes' (macula 17, macula#129)
-                            %% runs no gate at the link and hands the
-                            %% handler the call's `ucan_token' and `proofs'
-                            %% beside `caller', a payload's own fields of
-                            %% those names dropped first: the handler makes
-                            %% the check itself, which is the only place it
-                            %% can when what decides access travels inside a
-                            %% sealed payload. Unary procedures only.
+                            %% runs no gate at the link -- it verifies
+                            %% nothing -- and hands the handler the call's
+                            %% `ucan_token' and `proofs' beside `caller', a
+                            %% payload's own fields of those names dropped
+                            %% first. The token is UNVERIFIED and `<<>>'
+                            %% when the caller sent none; the handler makes
+                            %% the check itself (`macula_ucan:authorize/3'),
+                            %% which is the only place it can when what
+                            %% decides access travels inside a sealed
+                            %% payload. Unary procedures only.
                             auth => open
                                   | handler_authorizes
                                   | {ucan_required, <<_:256>>}
@@ -82,9 +100,12 @@ in the service's own `<name>_app`, reading the store's settings from
                             resources := [binary()],
                             ttl_days := pos_integer()}.
 
--export_type([info/0, health/0, capability/0, identity_spec/0]).
+-export_type([info/0, json_value/0, health/0, capability/0, identity_spec/0]).
 
--doc "Static metadata about the service. Reported on /health.".
+-doc "Static metadata about the service. Reported on /health. A key of "
+     "the service's own rides in the `ok' body verbatim; its value must "
+     "be JSON-encodable (`json_value()') and its name may not be one "
+     "`/health' sets itself -- `mcl_om:boot/2' refuses a key that does.".
 -callback info() -> info().
 
 -doc "Start the service's supervision tree. Called once on boot.".

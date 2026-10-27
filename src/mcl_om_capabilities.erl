@@ -73,11 +73,16 @@
 %%% `macula_station_link''s 'authorize_policy/2'.
 %%%
 %%% `handler_authorizes' is the one policy this module cannot check for
-%%% you: the link runs no gate, so `macula' hands the handler the caller
-%%% signed token and proofs and the handler decides. Use it where what
-%%% admits a call is not visible to a gate — a group prefix inside a
-%%% sealed payload, say — and remember that a handler which then trusts
-%%% the token alone loses every check a gate used to make after it.
+%%% you, and the one where the new terms are easy to misread: the link
+%%% runs no gate, so `macula' checks NOTHING and hands the handler the
+%%% call's `ucan_token' -- the token the caller put on the request,
+%%% UNVERIFIED, and `<<>>' when it carried none -- beside `proofs' and the
+%%% wire-authenticated `caller'. The handler must make the check itself,
+%%% `macula_ucan:authorize/3' being what does it; a handler that trusts
+%%% the token, or the caller, without that check serves everybody. Use it
+%%% where what admits a call is not visible to a gate — a group prefix
+%%% inside a sealed payload, say — and remember that a handler which then
+%%% trusts the token alone loses every check a gate used to make after it.
 %%%
 %%% `{ucan_required, IssuerPubkey}' is a direct-signature check against
 %%% ONE pre-known issuer, not a delegation-chain walk — it fits "only

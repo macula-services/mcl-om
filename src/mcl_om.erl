@@ -44,6 +44,7 @@ boot(ServiceMod) ->
 boot(ServiceMod, Opts) when is_atom(ServiceMod), is_map(Opts) ->
     persistent_term:put(?SERVICE_MODULE_KEY, ServiceMod),
     ok = org_configured(mcl_om_identity:org()),
+    ok = info_names_no_health_key(ServiceMod),
     _ = warn_leftover_store(ServiceMod),
     ok = mcl_om_health:register(ServiceMod),
     %% ADVERTISE ONLY AFTER A SUCCESSFUL START. A procedure is announced
@@ -94,6 +95,33 @@ org_verdict({error, _}, Org) ->
            #{got => Org,
              setting => <<"the mcl_om `org' app env, e.g. {org, <<\"${MCL_ORG}\">>} in "
                           "sys.config with MCL_ORG set, or the repository name as a literal">>}}).
+
+%% @private The keys `/health' sets itself, as the body's JSON spells
+%% them. `mcl_om_health_handler:body/6' merges the service's info() into
+%% its own map with ATOM keys, so a service key of the same name in binary
+%% form survives the merge as a second JSON key beside the library's and
+%% a reader that keeps the last one silently replaces the verdict
+%% (mcl-om#36, Mars's R2). Refused at boot rather than dropped: a service
+%% that thought it was reporting `status' has a bug, and answering 200
+%% with the library's status instead hides it.
+-define(HEALTH_BODY_KEYS, [<<"status">>, <<"provider_grants">>, <<"advertise_liveness">>,
+                           <<"claim">>, <<"failed_publishes">>]).
+
+info_names_no_health_key(ServiceMod) ->
+    Keys = [key_text(Key) || Key <- maps:keys(ServiceMod:info())],
+    case lists:sort([Key || Key <- Keys, lists:member(Key, ?HEALTH_BODY_KEYS)]) of
+        [] ->
+            ok;
+        Shadowed ->
+            error({mcl_om_info_key_is_a_health_key,
+                   #{keys => Shadowed,
+                     setting => <<"rename the key: /health sets these itself, and a "
+                                  "second key of the same name lets a reader replace "
+                                  "the verdict">>}})
+    end.
+
+key_text(Key) when is_atom(Key)   -> atom_to_binary(Key, utf8);
+key_text(Key) when is_binary(Key) -> Key.
 
 %% @private When the service module exports subscriptions/0, wire each
 %% declared {Topic, HandlerMod, Args} into a supervised macula_subscriber

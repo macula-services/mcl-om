@@ -167,7 +167,12 @@ gets without writing it:
   belongs: a service waiting on a value its operator has not given it yet
   answers `ok` and names the wait there, rather than degrade a node that is
   behaving correctly (and fail a canary for it). Nothing added there reaches
-  `Org/info`, which keeps its fixed shape.
+  `Org/info`, which keeps its fixed shape. A value must be what `jsx` encodes
+  (`mcl_om_service:json_value()` says which: binaries, atoms, numbers, lists
+  and maps), and a key the body sets itself — `status`, `provider_grants`,
+  `advertise_liveness`, `claim`, `failed_publishes`, atom or binary — refuses
+  the boot, because a second key of that name in the JSON lets a reader
+  replace the verdict.
 - **`handler_timeout_ms`** on a capability, 1 to 600000: how long macula waits
   for the handler before answering the caller `temporary_relay_failure`
   (default 30000). Response capabilities only.

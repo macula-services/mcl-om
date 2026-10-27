@@ -9,17 +9,23 @@ Versioning: [SemVer](https://semver.org/).
 
 - **`auth => handler_authorizes`** (macula 17, macula-io/macula#129) is named
   by `mcl_om_service:capability()` and documented in `mcl_om_capabilities`. The
-  link runs no gate for such a procedure and hands the handler the call's
-  `ucan_token` and `proofs` beside `caller`, a payload's own fields of those
-  names dropped first, so the handler makes the check where no gate can see
-  what decides it (a group prefix inside a sealed payload, say). The option was
+  link runs no gate for such a procedure and checks nothing: it hands the
+  handler the call's `ucan_token` — the token the caller put on the request,
+  unverified, and `<<>>` when it carried none — and `proofs` beside `caller`, a
+  payload's own fields of those names dropped first, so the handler makes the
+  check where no gate can see what decides it (a group prefix inside a sealed
+  payload, say), with `macula_ucan:authorize/3`. The option was
   already forwarded untouched; the type and the boot warning's list of
   policies now name it.
 - **`info()` may carry keys of the service's own**, reported verbatim in the
   `/health` body while the verdict is `ok`. A normal setup wait — an org key id
   its operator has not filled yet, say — is named there while the node stays
   healthy, so the wait is visible without failing a canary for a state that is
-  not a fault (mcl-distributor#5). `Org/info` keeps its fixed shape.
+  not a fault (mcl-distributor#5). `Org/info` keeps its fixed shape. A value
+  must be what `jsx` encodes (`json_value()` says which), and a key whose name
+  is one `/health` sets itself — `status`, `provider_grants`,
+  `advertise_liveness`, `claim`, `failed_publishes`, atom or binary — refuses
+  the boot rather than ride beside the verdict as a second JSON key.
 
 ### Changed
 

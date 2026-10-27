@@ -8,13 +8,15 @@
 -export([behaviour_attributes/1, boot_dummy_service/1, health_snapshot/1,
          a_booted_service_answers_info/1,
          boot_refuses_a_service_and_advertises_nothing/1,
-         boot_refuses_a_service_without_an_org/1]).
+         boot_refuses_a_service_without_an_org/1,
+         boot_refuses_an_info_key_that_shadows_health/1]).
 
 all() ->
     [behaviour_attributes, boot_dummy_service, health_snapshot,
      a_booted_service_answers_info,
      boot_refuses_a_service_and_advertises_nothing,
-     boot_refuses_a_service_without_an_org].
+     boot_refuses_a_service_without_an_org,
+     boot_refuses_an_info_key_that_shadows_health].
 
 init_per_suite(Config) ->
     %% Bind the /health listener on an OS-assigned ephemeral port so the
@@ -96,6 +98,20 @@ boot_refuses_a_service_without_an_org(_Config) ->
         ok = application:set_env(mcl_om, org, <<"dummy">>),
         {ok, _} = application:ensure_all_started(mcl_om)
     end.
+
+%% `/health' merges the service's info() into its own body, setting
+%% `status', `provider_grants', `advertise_liveness', `claim' and
+%% `failed_publishes' itself. A service key of the same name in BINARY form
+%% survives that merge (it overrides atom keys only), so the JSON carries
+%% the key twice and a reader that keeps the last one reports the service's
+%% value as the node's health — silently. Refused at boot instead, before
+%% start/1 runs (the fixture's start/1 raises, so reaching it would show up
+%% as a different error), so nothing is advertised either (mcl-om#36,
+%% Mars's R2).
+boot_refuses_an_info_key_that_shadows_health(_Config) ->
+    ?assertError({mcl_om_info_key_is_a_health_key,
+                  #{keys := [<<"provider_grants">>, <<"status">>]}},
+                 mcl_om:boot(shadowing_service, #{})).
 
 %% The info handler on a booted service: its own name and org, the verdict
 %% mcl_om_health holds, and the Org/Name of everything it advertises.

@@ -50,6 +50,23 @@ ok_body_carries_a_wait_the_service_names_test() ->
                  mcl_om_health_handler:body(ok, #{name => <<"svc">>, org_key_id => unknown},
                                             ?REPORT, ?ADVERTISE, ?CLAIM, 0)).
 
+%% The canary reads the body through `jsx:encode', so what it encodes is
+%% the contract: a value jsx cannot write raises inside the handler and
+%% /health answers 500 — the failure the service key exists to avoid
+%% (mcl-om#36, Mars's R1). Comparing maps cannot see that, so this test
+%% encodes. A nested map and a list ride through, keys as strings.
+ok_body_encodes_a_wait_the_service_names_test() ->
+    Body = mcl_om_health_handler:body(ok,
+                                      #{name => <<"svc">>, org_key_id => unknown,
+                                        setup => #{waiting_on => [<<"MCL_ORG_KEY_ID">>],
+                                                   attempts => 3}},
+                                      ?REPORT, ?ADVERTISE, ?CLAIM, 0),
+    Decoded = jsx:decode(jsx:encode(Body), [return_maps]),
+    ?assertEqual(<<"ok">>, maps:get(<<"status">>, Decoded)),
+    ?assertEqual(<<"unknown">>, maps:get(<<"org_key_id">>, Decoded)),
+    ?assertEqual(#{<<"waiting_on">> => [<<"MCL_ORG_KEY_ID">>], <<"attempts">> => 3},
+                 maps:get(<<"setup">>, Decoded)).
+
 degraded_body_carries_the_reason_and_the_grants_test() ->
     ?assertEqual(#{status => <<"degraded">>, reason => <<"slow">>,
                    provider_grants => ?REPORT, advertise_liveness => ?ADVERTISE,
