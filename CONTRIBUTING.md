@@ -17,7 +17,7 @@ rebar3 dialyzer
 - Erlang: `warnings_as_errors`, dialyzer clean
 - Vertical slicing — no `services/`, no `helpers/`
 - Every `macula-services/mcl-X` service depends on this library via
-  `{mcl_om, "~> 1.4"}`, the floor the scaffold writes, and implements the
+  `{mcl_om, "~> 1.5"}`, the floor the scaffold writes, and implements the
   `mcl_om_service` behaviour.
   Scaffold one with `scripts/scaffold-service.sh`. Don't write a new
   "service runner": extend this one.
