@@ -20,7 +20,15 @@ in the service's own `<name>_app`, reading the store's settings from
 `mcl_om:boot/1` warns, naming them.
 """.
 
--type info()           :: #{name := binary(), version := binary(), description := binary()}.
+%% `name', `version' and `description' are the service's identity; any
+%% further key a service adds is reported verbatim in the `/health' body's
+%% `ok' verdict, which is where a normal setup wait belongs -- a service
+%% that is waiting on the operator (an id it has not been given yet, say)
+%% answers `ok' and names the wait here, rather than degrade a node that
+%% is behaving correctly (mcl-distributor#5, macula-services/mcl-om#36).
+%% Nothing added here reaches the `<org>/info' reply, which keeps its own
+%% fixed shape.
+-type info()           :: #{name := binary(), version := binary(), description := binary(), _ => _}.
 -type health()         :: ok | {degraded, term()} | {down, term()}.
 %% `kind' selects which macula provider module 'mcl_om_capabilities'
 %% advertises `handler' through: 'response' (default,
@@ -36,7 +44,16 @@ in the service's own `<name>_app`, reading the store's settings from
 %% which module gets called, nothing else about advertisement.
 -type capability()     :: #{name := binary(), version := pos_integer(),
                             handler => {module(), term()},
+                            %% `handler_authorizes' (macula 17, macula#129)
+                            %% runs no gate at the link and hands the
+                            %% handler the call's `ucan_token' and `proofs'
+                            %% beside `caller', a payload's own fields of
+                            %% those names dropped first: the handler makes
+                            %% the check itself, which is the only place it
+                            %% can when what decides access travels inside a
+                            %% sealed payload. Unary procedures only.
                             auth => open
+                                  | handler_authorizes
                                   | {ucan_required, <<_:256>>}
                                   | {realm_member_required, <<_:256>>, binary()},
                             kind => response | streamer,

@@ -64,11 +64,20 @@
 %%%
 %%% A handler-bearing capability may also carry an `auth' policy —
 %%% `open' (default, and every existing caller''s behavior before this
-%%% key existed), `{ucan_required, IssuerPubkey}', or
+%%% key existed), `handler_authorizes' (macula 17: no gate at the link,
+%%% the handler checks the call''s own token and proofs),
+%%% `{ucan_required, IssuerPubkey}', or
 %%% `{realm_member_required, RealmDid, RequiredCan}' — forwarded via
 %%% `auth_opts/1' into BOTH 'advertise_direct' calls' `Opts', through to
 %%% `macula:advertise/5' and enforced on every inbound call by
 %%% `macula_station_link''s 'authorize_policy/2'.
+%%%
+%%% `handler_authorizes' is the one policy this module cannot check for
+%%% you: the link runs no gate, so `macula' hands the handler the caller
+%%% signed token and proofs and the handler decides. Use it where what
+%%% admits a call is not visible to a gate — a group prefix inside a
+%%% sealed payload, say — and remember that a handler which then trusts
+%%% the token alone loses every check a gate used to make after it.
 %%%
 %%% `{ucan_required, IssuerPubkey}' is a direct-signature check against
 %%% ONE pre-known issuer, not a delegation-chain walk — it fits "only
@@ -549,8 +558,10 @@ log_unguarded(Caps) ->
               "explicit auth policy, defaulting to open: ~p -- set "
               "auth => open to confirm that''s intended, auth => "
               "{ucan_required, IssuerPubkey} to gate it to one exact "
-              "identity, or auth => {realm_member_required, RealmDid, "
-              "RequiredCan} to gate it to a realm membership tier",
+              "identity, auth => {realm_member_required, RealmDid, "
+              "RequiredCan} to gate it to a realm membership tier, or "
+              "auth => handler_authorizes to have the handler check the "
+              "call''s own token where no gate can",
               [length(Unguarded), plural_suffix(Unguarded), Unguarded])
     end.
 
@@ -649,10 +660,11 @@ has_handler(#{handler := _}) -> true;
 has_handler(_) -> false.
 
 %% @doc The `auth' entry to merge into 'advertise_direct''s `Opts', from
-%% a capability''s own optional `auth' key ('open' | `{ucan_required,
-%% Issuer}' | `{realm_member_required, RealmDid, RequiredCan}',
-%% forwarded all the way to `macula_station_link''s inbound call
-%% authorization — see moduledoc). Absent when the capability doesn''t
+%% a capability''s own optional `auth' key ('open' |
+%% `handler_authorizes' | `{ucan_required, Issuer}' |
+%% `{realm_member_required, RealmDid, RequiredCan}', forwarded all the
+%% way to `macula_station_link''s inbound call authorization — see
+%% moduledoc). Absent when the capability doesn''t
 %% set one, matching `macula:advertise/5''s own default: open. A
 %% service opts a specific capability into gating by adding the
 %% appropriate `auth' value to that capability''s map; every other

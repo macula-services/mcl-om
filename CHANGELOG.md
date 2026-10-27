@@ -3,6 +3,34 @@
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [SemVer](https://semver.org/).
 
+## [1.5.0] - 2026-10-27
+
+### Added
+
+- **`auth => handler_authorizes`** (macula 17, macula-io/macula#129) is named
+  by `mcl_om_service:capability()` and documented in `mcl_om_capabilities`. The
+  link runs no gate for such a procedure and hands the handler the call's
+  `ucan_token` and `proofs` beside `caller`, a payload's own fields of those
+  names dropped first, so the handler makes the check where no gate can see
+  what decides it (a group prefix inside a sealed payload, say). The option was
+  already forwarded untouched; the type and the boot warning's list of
+  policies now name it.
+- **`info()` may carry keys of the service's own**, reported verbatim in the
+  `/health` body while the verdict is `ok`. A normal setup wait — an org key id
+  its operator has not filled yet, say — is named there while the node stays
+  healthy, so the wait is visible without failing a canary for a state that is
+  not a fault (mcl-distributor#5). `Org/info` keeps its fixed shape.
+
+### Changed
+
+- **The base library is macula 17** (mcl-om#36). The requirement moves from
+  `~> 16.0` to `~> 17.0`, which resolves 17.1.0. 17 keeps wire 1.0, so a node
+  on this release still speaks to every wire 1.0 box; what it brings is group
+  read control (macula#129) and the realm rights of macula#128, both of which a
+  service opts into — nothing here changes for a service that gates its
+  procedures as it did before. Minor rather than patch for the same reason the
+  cowboy move was: this is the base dependency of every generated service.
+
 ## [1.4.0] - 2026-10-22
 
 ### Changed

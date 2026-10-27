@@ -300,6 +300,16 @@ auth_opts_carries_a_ucan_required_policy_test() ->
                      handler => {my_mod, []},
                      auth => {ucan_required, Issuer}})).
 
+%% macula 17's policy (macula#129): no gate at the link, the handler checks
+%% the call's own token. Forwarded like every other one -- this module is
+%% policy-agnostic on purpose -- so a service on macula 17 needs no change
+%% here to use it.
+auth_opts_carries_handler_authorizes_test() ->
+    ?assertEqual(#{auth => handler_authorizes},
+                 mcl_om_capabilities:auth_opts(
+                   #{name => <<"group_keys_v1">>, version => 1,
+                     handler => {my_mod, []}, auth => handler_authorizes})).
+
 auth_opts_carries_a_realm_member_required_policy_test() ->
     RealmDid = <<0:256>>,
     RequiredCan = <<"member/email-verified">>,

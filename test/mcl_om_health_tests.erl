@@ -38,6 +38,18 @@ ok_body_carries_the_service_info_and_the_grants_test() ->
                  mcl_om_health_handler:body(ok, #{name => <<"svc">>}, ?REPORT,
                                             ?ADVERTISE, ?CLAIM, 0)).
 
+%% A service may name a normal setup wait in its own info(), and it rides
+%% in the ok body verbatim: a node waiting on the operator (an id it has
+%% not been given yet, say) stays healthy, so it fails no canary, while
+%% the wait is still there for whoever reads /health
+%% (mcl-distributor#5, mcl-om#36).
+ok_body_carries_a_wait_the_service_names_test() ->
+    ?assertEqual(#{name => <<"svc">>, org_key_id => unknown, status => <<"ok">>,
+                   provider_grants => ?REPORT, advertise_liveness => ?ADVERTISE,
+                   claim => ?CLAIM, failed_publishes => 0},
+                 mcl_om_health_handler:body(ok, #{name => <<"svc">>, org_key_id => unknown},
+                                            ?REPORT, ?ADVERTISE, ?CLAIM, 0)).
+
 degraded_body_carries_the_reason_and_the_grants_test() ->
     ?assertEqual(#{status => <<"degraded">>, reason => <<"slow">>,
                    provider_grants => ?REPORT, advertise_liveness => ?ADVERTISE,
