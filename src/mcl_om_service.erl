@@ -37,7 +37,7 @@ in the service's own `<name>_app`, reading the store's settings from
 %% (`mcl_om:boot/2'), because the body sets those itself and a second key of
 %% the same name would let a reader silently replace the verdict.
 -type info()           :: #{name := binary(), version := binary(), description := binary(),
-                            _ => json_value()}.
+                            binary() | atom() => json_value()}.
 
 %% What `jsx' encodes and nothing else. Atom map keys included: `jsx'
 %% writes them as strings, so the nested map's own keys are constrained too.
