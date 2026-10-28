@@ -90,6 +90,10 @@ jobs:
           restore-keys: rebar3-hex-
 
       - run: rebar3 lint
+      # A call to a function that does not exist fails here rather than at runtime.
+      # `xref_checks` stays at its default: `exports_not_used` would fail on the
+      # exports a supervisor spec names (macula-services/mcl-om#39).
+      - run: rebar3 xref
       - run: rebar3 eunit
       # mcl_service_template_SUITE shells out to `rebar3 new', so rebar3 must
       # be on PATH (the image installs it to /usr/local/bin).
