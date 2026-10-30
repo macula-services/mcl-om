@@ -20,7 +20,11 @@
 %%% 2. the verified caller is merged the way macula_station_link's own
 %%%    `with_caller/2' merges it, including dropping a caller-sent text
 %%%    `caller' (a peer that
-%%%    names itself is not read);
+%%%    names itself is not read); and, for a `handler_authorizes' capability,
+%%%    the call's `ucan_token' and `proofs' are merged the way macula 18's
+%%%    `with_call_token/3' merges them (`deliver/3', `call/4') — a text-keyed
+%%%    pair of those names is dropped first, and the token is what the caller
+%%%    presented, UNVERIFIED;
 %%% 3. the handler runs inside the request's caller context, the way
 %%%    `macula_station_link' runs it, so a handler reading
 %%%    `macula_response:caller/0' is tested on the path a station gives it;
@@ -46,7 +50,14 @@
 
 -include_lib("macula/include/macula_caller.hrl").
 
--export([call/3, deliver/2, reply/1]).
+-export([call/3, call/4, deliver/2, deliver/3, reply/1]).
+
+%% What a `handler_authorizes' request carries beside its fields (macula 18,
+%% macula#129): the token the caller signed into the request, `<<>>' when it
+%% carried none, and the proofs of its chain, each as it travelled
+%% (`macula_realm_rights:presented/0'). Both are BYTES and both are UNVERIFIED —
+%% the handler makes the check itself, which is the whole point of the policy.
+-type call_token() :: #{ucan_token => binary(), proofs => [binary()]}.
 
 %% How a test author writes a request: atom or binary keys, strings as
 %% binaries, numbers as numbers. `{text, Bin}' and `{bytes, Bin}' are passed
@@ -82,9 +93,20 @@
 %% A reply macula would not put on the wire raises `bad_reply'.
 -spec call(module(), authored(), binary()) -> call_outcome().
 call(Handler, Request, Caller) ->
+    call(Handler, Request, Caller, none).
+
+%% @doc `call/3' for a `handler_authorizes' capability: `CallToken' says what
+%% the request carried (`#{ucan_token => Bin, proofs => List}', either key
+%% omitted for none), and the handler is handed it the way macula 18 hands it
+%% over — merged under the atom keys, after a text-keyed pair of those names is
+%% dropped. A capability under any other policy must use `call/3': the link
+%% merges nothing there, and a helper that merged anyway would test a payload
+%% no station delivers.
+-spec call(module(), authored(), binary(), call_token() | none) -> call_outcome().
+call(Handler, Request, Caller, CallToken) ->
     {ok, State} = Handler:init([]),
     Raw = caller(Caller),
-    Payload = deliver(Request, Raw),
+    Payload = with_call_token(deliver(Request, Raw), CallToken),
     answered(in_caller_context(Raw, fun() -> Handler:handle_request(Payload, State) end)).
 
 answered({reply, Reply, _State}) -> reply(Reply);
@@ -117,11 +139,20 @@ handler_error(Reason) ->
 
 %% @doc The payload the handler is handed for this request: what a station
 %% delivers, caller merged in. Use it only to assert on the shape itself; a test
-%% that wants an answer calls `call/3'.
+%% that wants an answer calls `call/3', or `call/4' for a `handler_authorizes'
+%% capability, whose handler is handed the call's token as well (`deliver/3').
 -spec deliver(authored(), binary()) -> map().
 deliver(Request, Caller) when is_map(Request) ->
     Payload = decoded(encoded(on_the_wire(Request))),
     with_caller(Payload, caller(Caller)).
+
+%% @doc `deliver/2' for a `handler_authorizes' capability: what a station hands
+%% a handler that must check the call's own token, which is `CallToken' merged
+%% in under the atom keys of `call_token()' — or `none' for a capability under
+%% any other policy, in which case this is `deliver/2'.
+-spec deliver(authored(), binary(), call_token() | none) -> map().
+deliver(Request, Caller, CallToken) when is_map(Request) ->
+    with_call_token(deliver(Request, Caller), CallToken).
 
 %% @doc The reply as a client receives it, after the check a provider runs
 %% before answering. Text arrives as its `Bin'; a CBOR byte string arrives as
@@ -256,3 +287,34 @@ caller(Caller) ->
 %% handler reads as `caller' must be the verified identity and never a claim.
 with_caller(Payload, Caller) when is_map(Payload) ->
     (maps:remove({text, <<"caller">>}, Payload))#{caller => Caller}.
+
+%% Copied from macula_station_link:with_call_token/3's `handler_authorizes'
+%% clause on purpose, as with_caller/2 above is: a text-keyed pair of those
+%% names is dropped, and the request's own token and proofs are written under
+%% the atom keys — `<<>>' and `[]' when the request carried none, never absent.
+%% `none' is a capability under another policy, where the link merges nothing.
+with_call_token(Payload, none) ->
+    Payload;
+with_call_token(Payload, CallToken) when is_map(Payload) ->
+    #{ucan_token := Token, proofs := Proofs} = call_token(CallToken),
+    (maps:without([{text, <<"ucan_token">>}, {text, <<"proofs">>}], Payload))#{
+        ucan_token => Token, proofs => Proofs}.
+
+%% macula refuses a token or proofs of the wrong shape before it dials, so a
+%% test that passed them would be describing a call no client can make.
+call_token(CallToken) when is_map(CallToken) ->
+    #{ucan_token => token(maps:get(ucan_token, CallToken, <<>>)),
+      proofs => proofs(maps:get(proofs, CallToken, []))};
+call_token(Other) ->
+    erlang:error({call_token_must_be_a_map, Other}).
+
+token(Token) when is_binary(Token) -> Token;
+token(Token) -> erlang:error({ucan_token_must_be_bytes, Token}).
+
+proofs(Proofs) when is_list(Proofs) ->
+    all_bytes(lists:all(fun is_binary/1, Proofs), Proofs);
+proofs(Proofs) ->
+    erlang:error({proofs_must_be_a_list, Proofs}).
+
+all_bytes(true, Proofs) -> Proofs;
+all_bytes(false, Proofs) -> erlang:error({proofs_must_be_bytes, Proofs}).

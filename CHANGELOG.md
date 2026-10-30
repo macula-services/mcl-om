@@ -40,6 +40,17 @@ it does.
   not start now degrades the verdict instead of hiding behind `ok` — the facts
   that subscriber exists to react to are not arriving. The failure is logged
   once at `warning` and cleared when the same topic next starts.
+- **`mcl_om_wire_test:deliver/3` and `call/4`** deliver a `handler_authorizes`
+  capability's request with the call's `ucan_token` and `proofs` beside its
+  fields, the way macula 18's `macula_station_link:with_call_token/3` delivers
+  them: under the atom keys, a payload's own text-keyed pair of those names
+  dropped first, and `<<>>` / `[]` when the request carried none — never an
+  absent key. Without this the helper handed such a handler no token at all, so
+  a test of the check that is the only gate on that policy could not pass, and
+  a handler that trusted a token it never received agreed with its test and
+  refused every live caller (the mcl-chess#10 fault this module exists to
+  catch). A capability under any other policy is delivered exactly as before,
+  with neither key: that is what a station sends.
 - **A whole declaration is reconciled, not just its topic.** The running set is
   read back from `supervisor:get_childspec/2`, so changing one subscription's
   `sources`, `module` or `args` restarts that subscriber and no other, and a

@@ -127,6 +127,68 @@ a_tagged_byte_string_inside_a_list_stays_bytes_test() ->
     ?assertEqual([<<1, 2, 3>>], maps:get({text, <<"chunks">>}, Payload)).
 
 %%====================================================================
+%% A `handler_authorizes' capability's own token and proofs
+%%====================================================================
+
+%% The link runs no gate for this policy; it hands the handler the request's
+%% token and proofs under the ATOM keys, `<<>>' and `[]' when the request carried
+%% none, and drops a payload's text-keyed pair of those names first (macula 18,
+%% macula_station_link:with_call_token/3). A helper that delivered them only when
+%% the caller sent some would pass a handler whose check trusts an absent key.
+a_handler_authorizes_request_carries_the_call_token_test() ->
+    Payload = mcl_om_wire_test:deliver(#{game_id => ?GAME_ID}, ?CALLER_RAW,
+                                       #{ucan_token => <<"grant">>, proofs => [<<1, 2, 3>>]}),
+    ?assertEqual(<<"grant">>, maps:get(ucan_token, Payload)),
+    ?assertEqual([<<1, 2, 3>>], maps:get(proofs, Payload)),
+    ?assertEqual(error, maps:find({text, <<"ucan_token">>}, Payload)).
+
+%% Both keys are ALWAYS there for this policy, as the link writes them: a
+%% request that carried nothing gets `<<>>' and `[]', never an absent key.
+a_handler_authorizes_request_with_no_token_still_carries_both_keys_test() ->
+    Payload = mcl_om_wire_test:deliver(#{game_id => ?GAME_ID}, ?CALLER_RAW, #{}),
+    ?assertEqual(<<>>, maps:get(ucan_token, Payload)),
+    ?assertEqual([], maps:get(proofs, Payload)).
+
+%% A payload that names its own token does not survive delivery, for the same
+%% reason a caller-sent `caller' does not: what the handler reads must be what
+%% the request carried, not what the fields claim.
+a_payload_sent_token_is_dropped_test() ->
+    Payload = mcl_om_wire_test:deliver(#{ucan_token => <<"a claim">>, proofs => [<<"claimed">>]},
+                                       ?CALLER_RAW, #{ucan_token => <<"grant">>}),
+    ?assertEqual(<<"grant">>, maps:get(ucan_token, Payload)),
+    ?assertEqual([], maps:get(proofs, Payload)),
+    %% the claim is gone, not merely shadowed: a handler reading the text key
+    %% must find nothing there rather than a value it would trust
+    ?assertEqual(error, maps:find({text, <<"ucan_token">>}, Payload)),
+    ?assertEqual(error, maps:find({text, <<"proofs">>}, Payload)).
+
+%% Any OTHER policy is delivered without them, because that is what a station
+%% does: a helper that merged them everywhere would test a shape no link sends.
+another_policy_merges_no_call_token_test() ->
+    Payload = mcl_om_wire_test:deliver(#{game_id => ?GAME_ID}, ?CALLER_RAW),
+    ?assertEqual(error, maps:find(ucan_token, Payload)),
+    ?assertEqual(error, maps:find(proofs, Payload)).
+
+%% The killing power, for this policy: the handler's own check is the only gate,
+%% so a helper that hands it no token refuses everybody. `call/3' is the helper
+%% that did, and `call/4' is the one that reaches the admitted path.
+a_handler_checking_the_token_is_refused_without_it_and_admitted_with_it_test() ->
+    Request = #{game_id => ?GAME_ID},
+    ?assertEqual(#{<<"admitted">> => <<"no">>, <<"proof_count">> => -1},
+                 mcl_om_wire_test:call(token_checking_handler, Request, ?CALLER_RAW)),
+    ?assertEqual(#{<<"admitted">> => <<"yes">>, <<"proof_count">> => 2},
+                 mcl_om_wire_test:call(token_checking_handler, Request, ?CALLER_RAW,
+                                       #{ucan_token => <<"the token the operator granted">>,
+                                         proofs => [<<1>>, <<2>>]})).
+
+%% macula refuses a non-binary `ucan_token' opt before it dials, so a test that
+%% passed one would be describing a call no client can make.
+a_non_binary_token_is_refused_test() ->
+    ?assertError({ucan_token_must_be_bytes, 42},
+                 mcl_om_wire_test:deliver(#{game_id => ?GAME_ID}, ?CALLER_RAW,
+                                          #{ucan_token => 42})).
+
+%%====================================================================
 %% The killing power: mcl-chess 0.7.0's handler
 %%====================================================================
 
