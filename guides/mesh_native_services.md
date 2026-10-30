@@ -368,7 +368,10 @@ register() ->
     {ok, Pool, Realm} = mcl_om:mesh_handles(),
     {ok, NodeKey}     = mcl_om:identity_key(),
     macula_upload:advertise_direct(Pool, Realm, <<"my_x.receive_report">>,
-                                   ?MODULE, [], NodeKey).
+                                   ?MODULE, [], NodeKey,
+                                   %% who may upload to it: no default
+                                   %% (macula 18, macula#147).
+                                   #{auth => {callers, members}}).
 ```
 
 ```erlang
@@ -379,7 +382,7 @@ register() ->
                                             <<"my_x.receive_report">>, Bytes).
 ```
 
-`macula_pusher:start_link/5,6` and `macula_upload:advertise_direct/6,7`
+`macula_pusher:start_link/5,6,7` and `macula_upload:advertise_direct/7`
 are the same kind of supervised, callback-driven primitive as every
 other call in this guide — `mcl_om` just hasn't grown a
 `mesh_handles`-resolving facade over this specific pair yet.
@@ -437,9 +440,9 @@ spawning a dedicated sender process from inside `handle_open/2` itself
 (as `mcl-tube` does), not sending inline.
 
 Registering this as callable — the supervised call, not a hand-rolled
-wire-level ADVERTISE — is `macula_streamer:advertise_direct/6,7`, the
+wire-level ADVERTISE — is `macula_streamer:advertise_direct/7`, the
 same shape chapter 2's `macula_response:advertise_direct/7` uses for
-plain RPC handlers:
+plain RPC handlers, calling the `auth` policy too:
 
 ```erlang
 {ok, Pool, Realm} = mcl_om:mesh_handles(),
@@ -447,7 +450,8 @@ plain RPC handlers:
 {ok, _Sup} = macula_streamer:advertise_direct(Pool, Realm,
                                               <<"my_x.watch_clip">>,
                                               stream_video_clip_by_id, [],
-                                              NodeKey).
+                                              NodeKey,
+                                              #{auth => {callers, members}}).
 ```
 
 Re-advertise this periodically (a station's wire-level registration
