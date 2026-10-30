@@ -43,7 +43,9 @@ handle_call(snapshot, _From, #state{service_module = undefined} = S) ->
     {reply, S#state.last_health, S};
 handle_call(snapshot, _From, #state{service_module = Mod} = S) ->
     Health = combined(safely(fun() -> Mod:health() end),
-                      combined(grant_verdict(), advertise_verdict())),
+                      combined(grant_verdict(),
+                               combined(advertise_verdict(),
+                                        subscription_verdict()))),
     {reply, Health, S#state{last_health = Health}};
 handle_call(last, _From, S) ->
     {reply, S#state.last_health, S};
@@ -55,15 +57,16 @@ handle_info(_Msg, S) -> {noreply, S}.
 terminate(_Reason, _State) -> ok.
 
 %% @doc The service's own health, degraded by a provider grant that is
-%% past waiting or an advertise loop that has gone stale. The service's
-%% verdict wins when it is not ok: it knows more about its own failure
-%% than the grant table does; the grant verdict wins over the
-%% advertise-liveness verdict (a provider that was never granted is
-%% degraded with the operator-actionable cause, whatever its loop did).
--spec combined(mcl_om_service:health(),
-               ok | {degraded, #{provider_grants := [map()]}}) ->
+%% past waiting, an advertise loop that has gone stale, or a subscription
+%% that will not start. The service's verdict wins when it is not ok: it
+%% knows more about its own failure than the tables do. Otherwise the
+%% grant verdict wins over the advertise-liveness one (a provider that was
+%% never granted is degraded with the operator-actionable cause, whatever
+%% its loop did), and both over a subscription (a procedure nobody may call
+%% is a bigger hole than one topic nobody may publish to).
+-spec combined(mcl_om_service:health(), mcl_om_service:health()) ->
     mcl_om_service:health().
-combined(ok, GrantVerdict) -> GrantVerdict;
+combined(ok, OtherVerdict) -> OtherVerdict;
 combined(NotOk, _Verdict)  -> NotOk.
 
 grant_verdict() ->
@@ -79,6 +82,13 @@ advertise_verdict() ->
     mcl_om_advertise_liveness:verdict(mcl_om_capabilities:advertise_liveness(),
                                       erlang:monotonic_time(millisecond),
                                       mcl_om_advertise_liveness:stale_after_ms()).
+
+%% The subscription set's verdict: a topic that will not start means the
+%% facts it exists to react to are not arriving, so the node is degraded
+%% until that topic starts (mcl-om#41). A service that declares no
+%% subscription, or whose reconciler reports no failure, adds nothing.
+subscription_verdict() ->
+    mcl_om_pubsub_subscriptions:verdict(mcl_om_pubsub_subscriptions:report()).
 
 safely(Fun) ->
     try Fun()

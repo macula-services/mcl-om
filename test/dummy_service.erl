@@ -34,7 +34,7 @@ capabilities() ->
     %% Only answerable once start/1 has run: a boot that registers before
     %% start sees no worker and this list is empty.
     case worker_alive() of
-        true -> [#{name => <<"dummy.do_thing">>, version => 1}];
+        true -> [#{name => <<"dummy.do_thing">>, version => 1, auth => open}];
         false -> []
     end.
 

@@ -20,7 +20,7 @@ stop(_State) -> ok.
 health() -> ok.
 
 capabilities() ->
-    [#{name => <<"refusing.never_answered">>, version => 1}].
+    [#{name => <<"refusing.never_answered">>, version => 1, auth => open}].
 
 identity_spec() ->
     #{

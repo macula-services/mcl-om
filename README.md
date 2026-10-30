@@ -123,6 +123,11 @@ health() ->
 %% Other services / plugins find you by these.
 capabilities() ->
     [
+        %% No handler: discovery records only. A capability that names a
+        %% handler must also name `auth` (who may call it: `open`,
+        %% `{callers, members | role | {nodes, Ids}}`, `handler_authorizes`
+        %% or a token-gated policy) -- macula 18 has no open-by-default
+        %% (macula#147) and mcl_om refuses to register one that omits it.
         #{name => <<"my_service.do_thing">>, version => 1},
         #{name => <<"my_service.list_things">>, version => 1}
     ].
@@ -170,9 +175,9 @@ gets without writing it:
   `Org/info`, which keeps its fixed shape. A value must be what `jsx` encodes
   (`mcl_om_service:json_value()` says which: binaries, atoms, numbers, lists
   and maps), and a key the body sets itself — `status`, `provider_grants`,
-  `advertise_liveness`, `claim`, `failed_publishes`, atom or binary — refuses
-  the boot, because a second key of that name in the JSON lets a reader
-  replace the verdict.
+  `advertise_liveness`, `subscriptions`, `claim`, `failed_publishes`, atom or
+  binary — refuses the boot, because a second key of that name in the JSON
+  lets a reader replace the verdict.
 - **`handler_timeout_ms`** on a capability, 1 to 600000: how long macula waits
   for the handler before answering the caller `temporary_relay_failure`
   (default 30000). Response capabilities only.
@@ -198,6 +203,11 @@ gets without writing it:
 - **`failed_publishes`** on /health: publishes whose publisher exited before
   resolving. `mcl_om_pubsub` runs each publisher under a watcher, so such an
   exit is counted and logged instead of killing the process that published.
+- **`subscriptions`** on /health: the declared topics, the ones actually
+  running, and the last start failure per topic. A subscription that will not
+  start — a refused `sources`, a pool that is not there — degrades the
+  verdict rather than hiding behind `ok`, because the facts that subscriber
+  exists to react to are not arriving.
 
 ## Persistence is the service's own
 

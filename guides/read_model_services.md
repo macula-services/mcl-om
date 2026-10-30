@@ -30,7 +30,12 @@ subscriptions/0 (Listener)  →  a Policy module (pure function)  →  a Project
 ```erlang
 %% my_x_service.erl
 subscriptions() ->
-    [{<<"_dht.records.6.stored">>, ingest_capability_listener, []}].
+    [#{topic => <<"_dht.records.6.stored">>,
+       module => ingest_capability_listener,
+       args => [],
+       %% Who may deliver to this subscription (macula 18, macula#147):
+       %% required, no default. `members' is any realm member.
+       sources => members}].
 ```
 
 ```erlang

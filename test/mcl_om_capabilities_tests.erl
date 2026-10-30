@@ -275,16 +275,17 @@ reuse_sup_opts_carries_a_known_sup_and_nothing_else_test() ->
     ?assertEqual(#{reuse_sup => Sup},
                  mcl_om_capabilities:reuse_sup_opts(Sup)).
 
-%%% CHANGELOG 0.24.0: a capability may opt into gating
-%%% via its own `auth' key, forwarded into advertise_direct's Opts.
-%%% Absence must merge nothing -- an explicit #{auth => open} would work
-%%% too (macula:advertise/5 treats them identically) but silently
-%%% differs from every existing capability map already in the wild.
+%%% macula 18 (macula#147): there is no open-by-default. A capability
+%%% that names no policy is refused at registration, naming itself, so
+%%% nothing here ever reaches an advertise the SDK would refuse.
+%%% `auth_opts/1' has no clause for that map at all -- the refusal happens
+%%% earlier, in `auth_verdict/1'.
 
-auth_opts_is_absent_when_the_capability_sets_none_test() ->
-    ?assertEqual(#{}, mcl_om_capabilities:auth_opts(
-                         #{name => <<"svc.do">>, version => 1,
-                           handler => {my_mod, []}})).
+auth_opts_is_a_hard_error_when_the_capability_sets_none_test() ->
+    ?assertError(function_clause,
+                 mcl_om_capabilities:auth_opts(
+                   #{name => <<"svc.do">>, version => 1,
+                     handler => {my_mod, []}})).
 
 auth_opts_carries_an_explicit_open_policy_test() ->
     ?assertEqual(#{auth => open},
@@ -319,21 +320,22 @@ auth_opts_carries_a_realm_member_required_policy_test() ->
                      handler => {my_mod, []},
                      auth => {realm_member_required, RealmDid, RequiredCan}})).
 
-%%% unguarded_capabilities/1: which of a service's own declared
-%%% capabilities have no explicit auth key at all -- register/1 logs
-%%% exactly this list at boot.
+%%% auth_verdict/1: which of a service's own declared capabilities name
+%%% no auth policy at all -- register/1 refuses the boot with exactly this
+%%% list (macula 18, macula#147), naming the capabilities, rather than
+%%% leaving macula to refuse each advertise.
 
-unguarded_capabilities_is_empty_when_every_capability_sets_auth_test() ->
-    ?assertEqual([],
-                 mcl_om_capabilities:unguarded_capabilities(
+auth_verdict_is_ok_when_every_capability_sets_auth_test() ->
+    ?assertEqual(ok,
+                 mcl_om_capabilities:auth_verdict(
                    [#{name => <<"svc.read">>, version => 1,
                       handler => {my_mod, []}, auth => open},
                     #{name => <<"svc.prune">>, version => 1,
                       handler => {my_mod, []}, auth => {ucan_required, <<0:256>>}}])).
 
-unguarded_capabilities_names_every_capability_with_no_auth_key_test() ->
-    ?assertEqual([<<"svc.read">>, <<"svc.prune">>],
-                 mcl_om_capabilities:unguarded_capabilities(
+auth_verdict_names_every_capability_with_no_auth_key_test() ->
+    ?assertEqual({error, {auth_required, [<<"svc.read">>, <<"svc.prune">>]}},
+                 mcl_om_capabilities:auth_verdict(
                    [#{name => <<"svc.read">>, version => 1,
                       handler => {my_mod, []}},
                     #{name => <<"svc.prune">>, version => 1,
@@ -341,14 +343,28 @@ unguarded_capabilities_names_every_capability_with_no_auth_key_test() ->
                     #{name => <<"svc.reviewed">>, version => 1,
                       handler => {my_mod, []}, auth => open}])).
 
-unguarded_capabilities_treats_explicit_open_as_reviewed_not_unguarded_test() ->
-    %% auth => open and no auth key at all advertise identically
-    %% (macula:advertise/5 treats them the same), but only the latter
-    %% is a decision nobody actually made yet.
-    ?assertEqual([],
-                 mcl_om_capabilities:unguarded_capabilities(
+auth_verdict_treats_explicit_open_as_a_decision_someone_made_test() ->
+    %% An explicit `auth => open' is the opt-out macula 18 asks for: the
+    %% point is that somebody wrote it down, not that the policy is narrow.
+    ?assertEqual(ok,
+                 mcl_om_capabilities:auth_verdict(
                    [#{name => <<"svc.read">>, version => 1,
                       handler => {my_mod, []}, auth => open}])).
+
+%% A capability may name macula 18's call class (macula#147): who may call
+%% it, resolved against the realm key the pool pinned.
+auth_opts_carries_a_callers_class_test() ->
+    Nodes = [<<0:256>>, <<1:256>>],
+    ?assertEqual(#{auth => {callers, members}},
+                 mcl_om_capabilities:auth_opts(
+                   #{name => <<"svc.read">>, version => 1,
+                     handler => {my_mod, []}, auth => {callers, members}})),
+    ?assertEqual(ok,
+                 mcl_om_capabilities:auth_verdict(
+                   [#{name => <<"svc.read">>, version => 1,
+                      handler => {my_mod, []}, auth => {callers, role}},
+                    #{name => <<"svc.write">>, version => 1,
+                      handler => {my_mod, []}, auth => {callers, {nodes, Nodes}}}])).
 
 %%% A capability opts into being advertised via macula_streamer instead
 %%% of macula_response with `kind => streamer' -- absent (every
@@ -415,7 +431,7 @@ gen_server_degrades_without_mesh_test_() ->
         %% way — advertise_direct is never even reached with no
         %% pool/keypair/realm, same as the legacy put_record path.
         HandlerCap = #{name => <<"svc.answer">>, version => 1,
-                       handler => {?MODULE, []}},
+                       auth => open, handler => {?MODULE, []}},
         [
          %% register + publish must not crash when there is no pool /
          %% node key / realm — they no-op and the timer retries later.
@@ -463,7 +479,7 @@ live_pool_handler_capability_test_() ->
      {setup, fun start_live/0, fun stop_live/1,
       fun(_) ->
          Cap = #{name => <<"svc.answer">>, version => 1,
-                handler => {?MODULE, []}},
+                auth => open, handler => {?MODULE, []}},
          [
           {"register with a handler-bearing capability reaches the SDK "
            "boundary and degrades cleanly with no healthy station",
@@ -490,7 +506,7 @@ live_pool_records_the_provider_grant_test_() ->
      {setup, fun start_live/0, fun stop_live/1,
       fun(_) ->
          Cap = #{name => <<"svc.answer">>, version => 1,
-                 handler => {?MODULE, []}},
+                 auth => open, handler => {?MODULE, []}},
          [fun() ->
              ?assertEqual(#{}, mcl_om_capabilities:provider_grants()),
              ok = registered([Cap]),
@@ -523,7 +539,7 @@ unset_org_advertises_nothing_and_says_so_test_() ->
       end,
       fun(Live) -> meck:unload(macula_response), stop_live(Live) end,
       fun(_) ->
-         Cap = #{name => <<"svc.answer">>, version => 1, handler => {?MODULE, []}},
+         Cap = #{name => <<"svc.answer">>, version => 1, auth => open, handler => {?MODULE, []}},
          [fun() ->
              ok = registered([Cap]),
              ok = wait_until(fun() ->
@@ -552,7 +568,7 @@ live_pool_streamer_capability_test_() ->
      {setup, fun start_live/0, fun stop_live/1,
       fun(_) ->
          Cap = #{name => <<"svc.watch">>, version => 1,
-                handler => {?MODULE, []}, kind => streamer},
+                auth => open, handler => {?MODULE, []}, kind => streamer},
          [
           {"register with a streamer-kind capability reaches macula_streamer's "
            "advertise_direct and degrades cleanly with no healthy station",
@@ -586,8 +602,8 @@ advertise_one_timeout_test_() ->
     {timeout, 15,
      {setup, fun start_live/0, fun stop_live/1,
       fun(_) ->
-         Ok   = #{name => <<"svc.answer">>, version => 1, handler => {?MODULE, []}},
-         Boom = #{name => <<"svc.ingest">>, version => 1, handler => {?MODULE, []}},
+         Ok   = #{name => <<"svc.answer">>, version => 1, auth => open, handler => {?MODULE, []}},
+         Boom = #{name => <<"svc.ingest">>, version => 1, auth => open, handler => {?MODULE, []}},
          [
           {"a capability whose advertise_direct call raises does not "
            "crash the registration process or block its siblings",
@@ -644,7 +660,7 @@ register_does_not_wait_for_the_network_test_() ->
                                   {ok, spawn(fun() -> receive stop -> ok end end)}
                               end),
              Caps = [#{name => <<"svc.slow", (integer_to_binary(I))/binary>>, version => 1,
-                       handler => {?MODULE, []}} || I <- lists:seq(1, 3)],
+                       auth => open, handler => {?MODULE, []}} || I <- lists:seq(1, 3)],
              {Us, Result} = timer:tc(fun() -> mcl_om_capabilities:register(Caps) end),
              ?assertEqual(ok, Result),
              ?assert(Us < 1_000_000),
@@ -666,7 +682,7 @@ publish_does_not_wait_for_the_network_test_() ->
       fun(_) ->
          [{timeout, 30, fun() ->
              Caps = [#{name => <<"svc.pub", (integer_to_binary(I))/binary>>, version => 1,
-                       handler => {?MODULE, []}} || I <- lists:seq(1, 3)],
+                       auth => open, handler => {?MODULE, []}} || I <- lists:seq(1, 3)],
              ok = registered(Caps),
              %% The initial three finish first, so the slow stub below
              %% governs only the publish tick's three.
@@ -713,8 +729,8 @@ advertising_does_not_block_other_calls_test_() ->
                                   timer:sleep(3_000),
                                   {ok, spawn(fun() -> receive stop -> ok end end)}
                               end),
-             Caps = [#{name => <<"svc.slow.a">>, version => 1, handler => {?MODULE, []}},
-                     #{name => <<"svc.slow.b">>, version => 1, handler => {?MODULE, []}}],
+             Caps = [#{name => <<"svc.slow.a">>, version => 1, auth => open, handler => {?MODULE, []}},
+                     #{name => <<"svc.slow.b">>, version => 1, auth => open, handler => {?MODULE, []}}],
              ok = mcl_om_capabilities:register(Caps),
              %% The worker is inside the FIRST of the two 3 s calls.
              receive advertise_started -> ok
@@ -753,7 +769,7 @@ a_trigger_during_a_run_is_coalesced_test_() ->
                                   timer:sleep(1_000),
                                   {ok, spawn(fun() -> receive stop -> ok end end)}
                               end),
-             Cap = #{name => <<"svc.one">>, version => 1, handler => {?MODULE, []}},
+             Cap = #{name => <<"svc.one">>, version => 1, auth => open, handler => {?MODULE, []}},
              ok = mcl_om_capabilities:register([Cap]),
              receive advertise_started -> ok
              after 5_000 -> error(advertise_never_started)
@@ -947,8 +963,8 @@ registration_names_only_the_serving_station_test_() ->
       fun stop_live_with_links/1,
       fun({_Ctx, NodeId}) ->
          Chosen = mcl_om_capabilities:choose_serving_station(NodeId, [<<11:256>>, <<12:256>>]),
-         Resp   = #{name => <<"svc.answer">>, version => 1, handler => {?MODULE, []}},
-         Stream = #{name => <<"svc.watch">>, version => 1, handler => {?MODULE, []},
+         Resp   = #{name => <<"svc.answer">>, version => 1, auth => open, handler => {?MODULE, []}},
+         Stream = #{name => <<"svc.watch">>, version => 1, auth => open, handler => {?MODULE, []},
                     kind => streamer},
          [?_test(begin
                      ?assertEqual(ok, registered([Resp, Stream])),
@@ -970,7 +986,7 @@ no_serving_station_advertises_nothing_test_() ->
     {timeout, 15,
      {setup, fun() -> start_live_with_links([]) end, fun stop_live_with_links/1,
       fun(_) ->
-         Resp = #{name => <<"svc.answer">>, version => 1, handler => {?MODULE, []}},
+         Resp = #{name => <<"svc.answer">>, version => 1, auth => open, handler => {?MODULE, []}},
          [?_test(begin
                      ?assertEqual(ok, registered([Resp])),
                      %% The run records the no-station failure before the
@@ -1131,7 +1147,7 @@ register_refuses_required_without_kem_advertise_at_boot_test() ->
         ?assertError({mcl_om_confidential_required_without_kem_advertise,
                       #{capabilities := [<<"a">>]}},
                      mcl_om_capabilities:register(
-                       [#{name => <<"a">>, version => 1, handler => {my_mod, []},
+                       [#{name => <<"a">>, version => 1, auth => open, handler => {my_mod, []},
                           confidential => required}]))
     after
         restore_env(macula, kem_advertise, Prev)
@@ -1141,7 +1157,7 @@ register_refuses_a_misspelled_mode_at_boot_test() ->
     ?assertError({mcl_om_confidential_not_a_provider_mode,
                   #{capabilities := [{<<"a">>, requried}]}},
                  mcl_om_capabilities:register(
-                   [#{name => <<"a">>, version => 1, handler => {my_mod, []},
+                   [#{name => <<"a">>, version => 1, auth => open, handler => {my_mod, []},
                       confidential => requried}])).
 
 restore_env(App, Key, undefined)   -> application:unset_env(App, Key);

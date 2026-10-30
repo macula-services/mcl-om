@@ -68,7 +68,7 @@ boot_dummy_service(_Config) ->
     %% see an empty list here and fail red.
     [GetLimits | _] = mcl_om_guard_control:with_caps([]),
     ?assertEqual([GetLimits, mcl_om_info:capability(),
-                  #{name => <<"dummy.do_thing">>, version => 1}], Caps).
+                  #{name => <<"dummy.do_thing">>, version => 1, auth => open}], Caps).
 
 %% A service whose start/1 refuses must leave NO advertisement behind:
 %% boot returns the refusal, and the refused service's procedures are
@@ -76,7 +76,7 @@ boot_dummy_service(_Config) ->
 boot_refuses_a_service_and_advertises_nothing(_Config) ->
     ?assertEqual({error, refused}, mcl_om:boot(refusing_service, #{})),
     ?assertEqual(false,
-                 lists:member(#{name => <<"refusing.never_answered">>, version => 1},
+                 lists:member(#{name => <<"refusing.never_answered">>, version => 1, auth => open},
                               mcl_om_capabilities:list())).
 
 health_snapshot(_Config) ->

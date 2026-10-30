@@ -3,6 +3,70 @@
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [SemVer](https://semver.org/).
 
+## [1.6.0] - 2026-10-30
+
+Serving openly stops being the default here too (macula-io/macula#147,
+mcl-om#41): a capability that names a handler must name who may call it, and a
+subscription must name who may deliver to it. Both are refused by mcl_om,
+naming what is missing, rather than by the SDK later. This is why the minor
+moves and not the patch — a service that declares neither will not boot until
+it does.
+
+### Added
+
+- **`{callers, members | role | {nodes, [NodeId]}}`** (macula 18): the call
+  class a capability's `auth` may name, resolved against the realm key the pool
+  pinned. `members` admits any realm member, `role` only a caller whose realm
+  role names the procedure, and `{nodes, Ids}` exactly those identities with no
+  lookup at all. Named by `mcl_om_service:capability()` and forwarded untouched
+  by `mcl_om_capabilities:auth_opts/1`.
+- **`mcl_om_service:sources()` and the subscription map** (macula 18,
+  macula#147): `subscriptions/0` now returns
+  `#{topic := Topic, module := Mod, args => Args, sources := Sources}`, where
+  `sources` is `members`, `{org, Organisation}`, `{nodes, [NodeId]}`, or
+  `{open, Reason}`. The subscriber's own SDK enforces it on every fact before
+  the handler runs; `{open, Reason}` is the opt-out mcl_om requires be written
+  down, in the same spirit as `guard => none`.
+- **`mcl_om_pubsub_subscriptions:validate/1`**, pure, and called by
+  `mcl_om:boot/2` BEFORE the service's own `start/1`: a declaration mcl_om
+  cannot wire — no `sources`, an unknown source class, an `open` with no reason
+  or an empty one, an empty or malformed `{nodes, _}` / `{org, _}`, a non-binary
+  topic, a non-atom module, one topic declared twice — raises
+  `{mcl_om_subscription_invalid, #{topic, reason}}` naming the topic, and no
+  half-built supervision tree is left behind.
+- **`mcl_om_pubsub_subscriptions:report/0` and `verdict/1`**, and a
+  `subscriptions` key on `/health` in every state: the declared topics, the
+  running ones, and the last start failure per topic. A subscription that will
+  not start now degrades the verdict instead of hiding behind `ok` — the facts
+  that subscriber exists to react to are not arriving. The failure is logged
+  once at `warning` and cleared when the same topic next starts.
+- **A whole declaration is reconciled, not just its topic.** The running set is
+  read back from `supervisor:get_childspec/2`, so changing one subscription's
+  `sources`, `module` or `args` restarts that subscriber and no other, and a
+  child under the subscription supervisor that mcl_om did not start is stopped
+  rather than kept.
+
+### Changed
+
+- **The base library is macula 18** (`~> 17.0` → `~> 18.0`, mcl-om#41).
+- **A handler-bearing capability must name `auth`.** `register/1` refuses the
+  set as `{error, {auth_required, [Name]}}`, naming every capability that
+  omitted it, instead of letting each advertise be refused by the SDK. A
+  capability with no `handler` is a discovery record only, which macula does
+  not gate, and is not asked: requiring a policy for something nothing can call
+  would refuse a boot over nothing. The synthetic `<service>.describe_capabilities`
+  capability names `auth => open`, which is a decision, not a default.
+- **`auth_opts/1` has no default.** It has no clause for a capability without
+  `auth`; the refusal happens earlier, in `auth_verdict/1`.
+
+### Removed
+
+- **`mcl_om_capabilities:unguarded_capabilities/1`** and the boot warning it
+  fed. Both existed to say "this will be served open, and nobody decided that";
+  macula 18 makes that unrepresentable, and the refusal takes its place.
+- **`mcl_om_health_handler:body/6`**: the body gained the subscription report,
+  so it is `body/7`.
+
 ## [1.5.0] - 2026-10-27
 
 ### Added

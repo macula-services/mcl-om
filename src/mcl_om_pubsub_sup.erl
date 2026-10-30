@@ -2,8 +2,9 @@
 %%% children (piece D, guides/mesh_native_services.md).
 %%%
 %%% Starts empty; `mcl_om_pubsub_subscriptions' adds/removes one
-%%% child per declared `{Topic, HandlerMod, Args}', keyed by `Topic' so
-%%% it can be looked up and torn down individually. `restart =>
+%%% child per declared subscription, keyed by `Topic' so it can be
+%%% looked up, read back (`supervisor:get_childspec/2') and torn down
+%%% individually. `restart =>
 %%% transient': a genuine subscription loss (`macula_subscriber' turns
 %%% `{macula_event_gone, ...}' into `{stop, Reason, State}') gets an
 %%% ordinary supervisor restart -- "let it crash" is the whole

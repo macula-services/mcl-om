@@ -33,7 +33,8 @@ in the service's own `<name>_app`, reading the store's settings from
 %% pid, reference or fun raises `badarg' inside the `/health' handler, which
 %% answers 500 -- the canary failure this whole key exists to avoid. A key
 %% whose name, atom or binary, is one of `status', `provider_grants',
-%% `advertise_liveness', `claim' or `failed_publishes' is refused at boot
+%% `advertise_liveness', `subscriptions', `claim' or `failed_publishes' is
+%% refused at boot
 %% (`mcl_om:boot/2'), because the body sets those itself and a second key of
 %% the same name would let a reader silently replace the verdict.
 -type info()           :: #{name := binary(), version := binary(), description := binary(),
@@ -59,6 +60,17 @@ in the service's own `<name>_app`, reading the store's settings from
 %% which module gets called, nothing else about advertisement.
 -type capability()     :: #{name := binary(), version := pos_integer(),
                             handler => {module(), term()},
+                            %% WHO MAY CALL THIS, and there is no default
+                            %% (macula 18, macula#147). A capability that names
+                            %% a `handler' and no policy refuses to register,
+                            %% naming itself, because the alternative is a
+                            %% procedure served to anyone who can reach it
+                            %% without anyone having decided that. `open' is
+                            %% the decision to serve anyone, taken explicitly.
+                            %% `{callers, Class}' is macula 18's call class:
+                            %% `members' (any realm member), `role' (a caller
+                            %% whose realm role names this procedure), or
+                            %% `{nodes, [NodeId]}' (exactly those identities).
                             %% `handler_authorizes' (macula 17, macula#129)
                             %% runs no gate at the link -- it verifies
                             %% nothing -- and hands the handler the call's
@@ -70,7 +82,14 @@ in the service's own `<name>_app`, reading the store's settings from
                             %% which is the only place it can when what
                             %% decides access travels inside a sealed
                             %% payload. Unary procedures only.
+                            %%
+                            %% A capability with NO `handler' is a discovery
+                            %% record only (`mcl_om_capabilities' writes it
+                            %% with `put_record', never `macula:advertise/5'),
+                            %% so nothing can call it and no policy is asked
+                            %% of it; naming one there is allowed and unused.
                             auth => open
+                                  | {callers, members | role | {nodes, [binary()]}}
                                   | handler_authorizes
                                   | {ucan_required, <<_:256>>}
                                   | {realm_member_required, <<_:256>>, binary()},
@@ -100,7 +119,21 @@ in the service's own `<name>_app`, reading the store's settings from
                             resources := [binary()],
                             ttl_days := pos_integer()}.
 
--export_type([info/0, json_value/0, health/0, capability/0, identity_spec/0]).
+%% WHO MAY DELIVER TO A SUBSCRIPTION (macula 18, macula#147). `open' is
+%% spelled `{open, Reason}' here on purpose: mcl_om refuses an opt-out with
+%% no written reason, so the decision is visible in the service's own source
+%% rather than inferred from a missing key.
+-type sources() :: members
+                 | {org, binary()}
+                 | {nodes, [binary()]}
+                 | {open, binary()}.
+-type subscription() :: #{topic := binary(),
+                          module := module(),
+                          args => term(),
+                          sources := sources()}.
+
+-export_type([info/0, json_value/0, health/0, capability/0, identity_spec/0,
+              subscription/0, sources/0]).
 
 -doc "Static metadata about the service. Reported on /health. A key of "
      "the service's own rides in the `ok' body verbatim; its value must "
@@ -122,9 +155,13 @@ in the service's own `<name>_app`, reading the store's settings from
      "map includes `handler => {HandlerModule, Args}` (HandlerModule "
      "implementing the `macula_response` behaviour) is advertised via "
      "`macula_response:advertise_direct/7` -- discoverable AND directly "
-     "callable. A capability with no `handler` key is written as a "
-     "bare discovery record only (today's behavior, kept for services "
-     "that advertise a capability another mechanism serves).".
+     "callable, and it must also name `auth`, who may call it (there is "
+     "no default: macula 18 refuses an advertise that names none, and "
+     "mcl_om refuses the registration first, naming the capability). A "
+     "capability with no `handler` key is written as a bare discovery "
+     "record only (kept for services that advertise a capability another "
+     "mechanism serves); nothing can call it, so it is not asked for a "
+     "policy.".
 -callback capabilities() -> [capability()].
 
 -doc "UCAN this service wants minted by the realm at boot. "
@@ -132,15 +169,26 @@ in the service's own `<name>_app`, reading the store's settings from
 -callback identity_spec() -> identity_spec().
 
 -doc "OPTIONAL. Topics this service subscribes to at boot: a list of "
-     "{Topic, HandlerModule, Args} triples, HandlerModule implementing "
-     "the `macula_subscriber` behaviour. mcl_om:boot/1 wires each "
-     "into a supervised macula_subscriber under mcl_om_pubsub_sup "
-     "before the service module's own start/1 runs. Call "
-     "mcl_om_pubsub:ensure_subscriptions/1 again whenever the "
+     "subscriptions, each a map naming the `topic', the `module' "
+     "implementing the `macula_subscriber' behaviour, the `args' it is "
+     "started with (default `[]'), and `sources' -- WHO MAY DELIVER TO IT, "
+     "which is required and has no default (macula 18, macula#147): "
+     "`members' (any publisher the realm admitted), `{org, Organisation}' "
+     "(a node that organisation delegated), `{nodes, [NodeId]}' (exactly "
+     "those publishers, no lookup), or `{open, Reason}' -- `open' as an "
+     "explicit opt-out, refused unless a non-empty reason says why anyone "
+     "may deliver, the way `guard => none' already reads. The subscriber's "
+     "own SDK enforces it on every fact before the handler runs. A "
+     "declaration mcl_om cannot wire -- no `sources' above all -- refuses "
+     "the boot naming the topic, before the service's own `start/1' runs. "
+     "mcl_om:boot/1 wires each into a supervised macula_subscriber under "
+     "mcl_om_pubsub_sup once the service module's start/1 has returned. "
+     "Call mcl_om_pubsub:ensure_subscriptions/1 again whenever the "
      "desired set changes at runtime (e.g. a new topic per newly-"
      "registered entity) -- it diffs against what's currently running "
-     "and starts/stops only the delta.".
--callback subscriptions() -> [{binary(), module(), term()}].
+     "and starts/stops only the delta, restarting exactly the "
+     "subscription whose declaration changed.".
+-callback subscriptions() -> [subscription()].
 
 %% Human-facing, NOT dispatch-wiring: `capability()' (above) is exactly
 %% enough for `mcl_om_capabilities' to advertise and route a call,

@@ -46,6 +46,10 @@ boot(ServiceMod, Opts) when is_atom(ServiceMod), is_map(Opts) ->
     ok = org_configured(mcl_om_identity:org()),
     ok = info_names_no_health_key(ServiceMod),
     _ = warn_leftover_store(ServiceMod),
+    %% BEFORE start/1, for the same reason the org and the info keys are
+    %% checked there: a `subscriptions/0' mcl_om cannot wire leaves no
+    %% half-built supervision tree behind, and the refusal names the topic.
+    ok = subscriptions_wireable(ServiceMod),
     ok = mcl_om_health:register(ServiceMod),
     %% ADVERTISE ONLY AFTER A SUCCESSFUL START. A procedure is announced
     %% only once the service can answer it, and a service that refuses to
@@ -105,7 +109,7 @@ org_verdict({error, _}, Org) ->
 %% that thought it was reporting `status' has a bug, and answering 200
 %% with the library's status instead hides it.
 -define(HEALTH_BODY_KEYS, [<<"status">>, <<"provider_grants">>, <<"advertise_liveness">>,
-                           <<"claim">>, <<"failed_publishes">>]).
+                           <<"subscriptions">>, <<"claim">>, <<"failed_publishes">>]).
 
 info_names_no_health_key(ServiceMod) ->
     Keys = [key_text(Key) || Key <- maps:keys(ServiceMod:info())],
@@ -124,9 +128,9 @@ key_text(Key) when is_atom(Key)   -> atom_to_binary(Key, utf8);
 key_text(Key) when is_binary(Key) -> Key.
 
 %% @private When the service module exports subscriptions/0, wire each
-%% declared {Topic, HandlerMod, Args} into a supervised macula_subscriber
-%% before the service's own start/1 runs. Producer-only / consumer-only
-%% services that omit the callback pay nothing.
+%% declared subscription into a supervised macula_subscriber once the
+%% service itself is up. Producer-only / consumer-only services that omit
+%% the callback pay nothing.
 maybe_wire_subscriptions(ServiceMod) ->
     _ = code:ensure_loaded(ServiceMod),
     Has = erlang:function_exported(ServiceMod, subscriptions, 0),
@@ -136,6 +140,27 @@ wire_subscriptions(false, _ServiceMod) ->
     ok;
 wire_subscriptions(true, ServiceMod) ->
     mcl_om_pubsub:ensure_subscriptions(ServiceMod:subscriptions()).
+
+%% @private Is the declared subscription set one mcl_om can wire? Asked
+%% before the service starts, so nothing of the service's tree exists when
+%% the declaration is refused. The check is pure
+%% (`mcl_om_pubsub_subscriptions:validate/1') and raises
+%% `{mcl_om_subscription_invalid, #{topic, reason}}', the same shape the
+%% reconcile path raises.
+subscriptions_wireable(ServiceMod) ->
+    _ = code:ensure_loaded(ServiceMod),
+    declared_subscriptions(erlang:function_exported(ServiceMod, subscriptions, 0),
+                           ServiceMod).
+
+declared_subscriptions(false, _ServiceMod) ->
+    ok;
+declared_subscriptions(true, ServiceMod) ->
+    ok = refuse_unless_ok(mcl_om_pubsub_subscriptions:validate(ServiceMod:subscriptions())).
+
+refuse_unless_ok(ok) ->
+    ok;
+refuse_unless_ok({error, Reason}) ->
+    error(Reason).
 
 %% @doc The store callbacks `ServiceMod' still exports from the contract before
 %% 0.35.0, when `boot/1' opened a reckon-db store for a service exporting

@@ -15,7 +15,7 @@ capability_for_test_() ->
     [fun capability_for_is_undefined_when_neither_callback_is_exported/0,
      fun capability_for_is_present_when_only_rpc_is_exported/0,
      fun capability_for_is_present_when_both_are_exported/0,
-     fun capability_for_has_no_auth_key_by_default/0].
+     fun capability_for_names_open_callers_test/0].
 
 describe_test_() ->
     {foreach, fun set_none/0, fun clear_service_module/1,
@@ -35,9 +35,13 @@ capability_for_is_present_when_both_are_exported() ->
     ?assertMatch(#{name := <<"other-svc.describe_capabilities">>},
                  mcl_om_describe:capability_for(mcl_om_describe_fake_full, <<"other-svc">>)).
 
-capability_for_has_no_auth_key_by_default() ->
+%% macula 18 has no open-by-default (macula#147): the synthetic
+%% describe capability names its callers, and `open' is the decision --
+%% pure metadata about what a service exposes is not sensitive -- rather
+%% than something macula used to assume.
+capability_for_names_open_callers_test() ->
     Cap = mcl_om_describe:capability_for(mcl_om_describe_fake_full, <<"svc">>),
-    ?assertNot(maps:is_key(auth, Cap)).
+    ?assertEqual(open, maps:get(auth, Cap)).
 
 set_none() ->
     persistent_term:put(?SERVICE_MODULE_KEY, mcl_om_describe_fake_none).

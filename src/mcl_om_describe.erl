@@ -46,11 +46,12 @@ result_or_empty(false, _ServiceMod, _Fun) -> [].
 %% @doc The synthetic `<ServiceName>.describe_capabilities' capability
 %% map for `ServiceMod', or `undefined' when it exports neither
 %% `describe_rpc_capabilities/0' nor `describe_pubsub_capabilities/0'
-%% -- nothing to advertise, so nothing is. Left with no explicit `auth'
-%% key (defaults to `open'): pure metadata about what a service exposes
-%% is not sensitive, matching this codebase's own existing precedent
-%% for other discovery-shaped capabilities (an LLM service's
-%% `list_available' / `check_health').
+%% -- nothing to advertise, so nothing is. `auth => open' is stated, not
+%% defaulted: macula 18 refuses an advertise that names no policy
+%% (macula#147), and `open' is the decision here because pure metadata
+%% about what a service exposes is not sensitive, matching this
+%% codebase's own precedent for other discovery-shaped capabilities (an
+%% LLM service's `list_available' / `check_health').
 -spec capability_for(module(), binary()) -> mcl_om_service:capability() | undefined.
 capability_for(ServiceMod, ServiceName)
   when is_atom(ServiceMod), is_binary(ServiceName) ->
@@ -64,4 +65,5 @@ capability_if_any(false, _ServiceName) ->
 capability_if_any(true, ServiceName) ->
     #{name    => <<ServiceName/binary, ".describe_capabilities">>,
       version => 1,
+      auth    => open,
       handler => {mcl_om_simple_handler, {?MODULE, describe}}}.

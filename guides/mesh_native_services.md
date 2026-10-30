@@ -80,7 +80,14 @@ Add `handler => {HandlerModule, Args}` to a capability in your
 %% my_x_service.erl
 capabilities() ->
     [#{name => <<"my_x.echo">>, version => 1,
-       handler => {my_x_echo_handler, []}}].
+       handler => {my_x_echo_handler, []},
+       %% WHO MAY CALL IT. Required for a handler-bearing capability, and
+       %% there is no default (macula 18, macula#147): `open' (any
+       %% identified caller), `{callers, members}', `{callers, role}',
+       %% `{callers, {nodes, [NodeId]}}', `handler_authorizes', or one of
+       %% the token-gated policies. mcl_om refuses to register this
+       %% capability without it, naming it.
+       auth => {callers, members}}].
 ```
 
 ```erlang
@@ -107,7 +114,9 @@ before `advertise_direct` existed).
 
 A capability with no `handler` key still gets the legacy
 discoverable-but-not-callable path — for a capability another
-mechanism serves.
+mechanism serves. It is written as a DHT record, never through
+`macula:advertise/5`, so nothing can call it and no `auth` policy is
+asked of it.
 
 ### Calling another service's RPC (pre-existing, piece B's consumer side)
 
@@ -190,13 +199,23 @@ pool).
 
 Declare the desired set in your service module's optional
 `subscriptions/0` callback — `mcl_om:boot/1` wires each one into a
-supervised `macula_subscriber` before your own `start/1` runs:
+supervised `macula_subscriber` once your own `start/1` has returned:
 
 ```erlang
 %% my_x_service.erl
 subscriptions() ->
-    [{<<"other.thing_happened">>, my_x_event_handler, []}].
+    [#{topic => <<"other.thing_happened">>,
+       module => my_x_event_handler,
+       args => [],
+       %% WHO MAY DELIVER TO THIS. Required, and there is no default
+       %% (macula 18, macula#147): `members', `{org, Org}',
+       %% `{nodes, [NodeId]}', or `{open, <<"why anyone may publish">>}'.
+       sources => {org, <<"acme">>}}].
 ```
+
+`args` is what your `init/1` receives (default `[]`). A declaration
+mcl_om cannot wire — no `sources` above all — is refused at boot, naming
+the topic, before your `start/1` runs.
 
 ```erlang
 %% my_x_event_handler.erl
@@ -219,8 +238,12 @@ starts/stops only the delta, leaving everything else untouched:
 
 ```erlang
 mcl_om_pubsub:ensure_subscriptions(
-    [{Topic, my_x_event_handler, EntityId} || EntityId <- my_entities()]).
+    [#{topic => Topic, module => my_x_event_handler, args => EntityId,
+       sources => {org, <<"acme">>}} || EntityId <- my_entities()]).
 ```
+
+A change to any part of one entry — the topic, the handler, the args or
+`sources` — restarts exactly that subscriber and no other.
 
 You do not need to handle reconnect yourself. An ordinary link respawn
 (a station blip) is invisible to a subscription — macula's pool
@@ -231,11 +254,20 @@ boot is retried automatically.
 
 ### Hearing only an org's own nodes
 
-macula verifies who **signed** a publication (`Meta`'s `publisher`,
-with `publisher_verified`), not who may **publish** on a topic. Any node
-in the realm can publish on any topic, whatever org its name carries.
-When your handler must only act on facts from a particular org's nodes
-(the news sensor, the speakers in a square), ask the realm:
+Declare it, and the SDK enforces it before your handler runs: macula 18
+takes `sources` on every subscription (macula#147) and drops a fact
+whose publisher is not one of the declared sources — counted and
+visible in the pool's own status, never handed to your handler.
+`sources => {org, <<"mcl-news">>}` admits only nodes that organisation
+delegated; `{nodes, [NodeId]}` names exactly the publishers you mean.
+`members` admits any realm member, and `{open, Reason}` is the written
+opt-out.
+
+`sources` decides **delivery**. A handler that must decide per fact
+(one square's speakers out of an org's many) still asks the realm
+itself, because macula verifies who **signed** a publication (`Meta`'s
+`publisher`, with `publisher_verified`), not who may **publish** on a
+topic:
 
 ```erlang
 handle_event(_Topic, Payload, #{publisher := Publisher, publisher_verified := true}, State) ->

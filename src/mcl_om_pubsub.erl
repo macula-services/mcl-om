@@ -277,18 +277,25 @@ do_start_publisher({error, mesh_unavailable} = Err, _Module, _Topic, _Payload,
     Err.
 
 %% @doc Declare the desired subscription set: one supervised
-%% `macula_subscriber' per `{Topic, HandlerMod, Args}' not already
-%% running (`HandlerMod' implementing the `macula_subscriber'
-%% behaviour); any running one no longer in the set is stopped. Safe to
-%% call repeatedly whenever the desired set changes at runtime — e.g. a
+%% `macula_subscriber' per declared subscription not already running as
+%% declared (`module' implementing the `macula_subscriber' behaviour, and
+%% `sources' naming who may deliver to it); any running one whose
+%% declaration no longer matches is stopped. Safe to call repeatedly
+%% whenever the desired set changes at runtime — e.g. a
 %% `federation_inbox'-shaped service adding one topic per newly-
 %% registered entity — diffs against what's currently running and
-%% touches only the delta. Self-heals on a 30s reconcile tick
-%% independent of any caller: a topic that couldn't start because the
-%% mesh wasn't attached yet, or whose child exhausted its own restart
-%% budget after a full pool replacement, is retried automatically. See
+%% touches only the delta, restarting exactly the subscription whose
+%% declaration changed. Self-heals on a 30s reconcile tick independent of
+%% any caller: a topic that couldn't start because the mesh wasn't
+%% attached yet, or whose child exhausted its own restart budget after a
+%% full pool replacement, is retried automatically, and a failure that
+%% persists is on `/health' rather than in a log nobody reads.
+%%
+%% A declaration mcl_om cannot wire — a missing `sources' above all — raises
+%% `{mcl_om_subscription_invalid, #{topic, reason}}' in the caller, in the
+%% same shape as `mcl_om_service:subscription()'s own doc. See
 %% `mcl_om_pubsub_subscriptions' for the mechanism.
--spec ensure_subscriptions([{binary(), module(), term()}]) -> ok.
+-spec ensure_subscriptions([mcl_om_service:subscription()]) -> ok.
 ensure_subscriptions(Desired) ->
     mcl_om_pubsub_subscriptions:ensure(Desired).
 

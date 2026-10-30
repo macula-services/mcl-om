@@ -30,13 +30,18 @@ a_degraded_service_keeps_its_own_reason_test() ->
 %% The boot claim's state, in every body: a claim the realm holds as pending
 %% is the operator's to admit, and it must be visible without reading logs.
 -define(CLAIM, #{state => <<"pending">>, org => <<"acme">>, since_ms => 5000}).
+%% The subscription set's report, in every body: what is declared, what is
+%% running, and the last start failure per topic, so a subscriber that will
+%% not start is visible without reading a log (mcl-om#41).
+-define(SUBS, #{desired => [<<"acme.orders">>], running => [<<"acme.orders">>],
+                failed => []}).
 
 ok_body_carries_the_service_info_and_the_grants_test() ->
     ?assertEqual(#{name => <<"svc">>, status => <<"ok">>, provider_grants => ?REPORT,
-                   advertise_liveness => ?ADVERTISE, claim => ?CLAIM,
-                   failed_publishes => 0},
+                   advertise_liveness => ?ADVERTISE, subscriptions => ?SUBS,
+                   claim => ?CLAIM, failed_publishes => 0},
                  mcl_om_health_handler:body(ok, #{name => <<"svc">>}, ?REPORT,
-                                            ?ADVERTISE, ?CLAIM, 0)).
+                                            ?ADVERTISE, ?SUBS, ?CLAIM, 0)).
 
 %% A service may name a normal setup wait in its own info(), and it rides
 %% in the ok body verbatim: a node waiting on the operator (an id it has
@@ -46,9 +51,9 @@ ok_body_carries_the_service_info_and_the_grants_test() ->
 ok_body_carries_a_wait_the_service_names_test() ->
     ?assertEqual(#{name => <<"svc">>, org_key_id => unknown, status => <<"ok">>,
                    provider_grants => ?REPORT, advertise_liveness => ?ADVERTISE,
-                   claim => ?CLAIM, failed_publishes => 0},
+                   subscriptions => ?SUBS, claim => ?CLAIM, failed_publishes => 0},
                  mcl_om_health_handler:body(ok, #{name => <<"svc">>, org_key_id => unknown},
-                                            ?REPORT, ?ADVERTISE, ?CLAIM, 0)).
+                                            ?REPORT, ?ADVERTISE, ?SUBS, ?CLAIM, 0)).
 
 %% The canary reads the body through `jsx:encode', so what it encodes is
 %% the contract: a value jsx cannot write raises inside the handler and
@@ -60,7 +65,7 @@ ok_body_encodes_a_wait_the_service_names_test() ->
                                       #{name => <<"svc">>, org_key_id => unknown,
                                         setup => #{waiting_on => [<<"MCL_ORG_KEY_ID">>],
                                                    attempts => 3}},
-                                      ?REPORT, ?ADVERTISE, ?CLAIM, 0),
+                                      ?REPORT, ?ADVERTISE, ?SUBS, ?CLAIM, 0),
     Decoded = jsx:decode(jsx:encode(Body), [return_maps]),
     ?assertEqual(<<"ok">>, maps:get(<<"status">>, Decoded)),
     ?assertEqual(<<"unknown">>, maps:get(<<"org_key_id">>, Decoded)),
@@ -81,12 +86,12 @@ a_binary_key_rides_beside_the_verdict_in_the_json_test() ->
 degraded_body_carries_the_reason_and_the_grants_test() ->
     ?assertEqual(#{status => <<"degraded">>, reason => <<"slow">>,
                    provider_grants => ?REPORT, advertise_liveness => ?ADVERTISE,
-                   claim => ?CLAIM, failed_publishes => 3},
+                   subscriptions => ?SUBS, claim => ?CLAIM, failed_publishes => 3},
                  mcl_om_health_handler:body({degraded, slow}, #{}, ?REPORT,
-                                            ?ADVERTISE, ?CLAIM, 3)).
+                                            ?ADVERTISE, ?SUBS, ?CLAIM, 3)).
 
 down_body_carries_the_reason_and_the_grants_test() ->
     ?assertEqual(#{status => <<"down">>, reason => <<"crashed">>,
                    provider_grants => [], advertise_liveness => [],
-                   claim => ?CLAIM, failed_publishes => 0},
-                 mcl_om_health_handler:body({down, crashed}, #{}, [], [], ?CLAIM, 0)).
+                   subscriptions => ?SUBS, claim => ?CLAIM, failed_publishes => 0},
+                 mcl_om_health_handler:body({down, crashed}, #{}, [], [], ?SUBS, ?CLAIM, 0)).

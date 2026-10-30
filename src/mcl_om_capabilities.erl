@@ -62,15 +62,20 @@
 %%% callable via `call_capability', kept for a capability another
 %%% mechanism serves.
 %%%
-%%% A handler-bearing capability may also carry an `auth' policy —
-%%% `open' (default, and every existing caller''s behavior before this
-%%% key existed), `handler_authorizes' (macula 17: no gate at the link,
+%%% A HANDLER-BEARING capability must carry an `auth' policy (macula 18,
+%%% macula#147: there is no default, and `register/1' refuses a capability
+%%% that names a handler and no policy, naming it) — `open' (serve any
+%%% identified caller: stated, never assumed), `{callers, members | role |
+%%% {nodes, Ids}}' (macula 18's call class, resolved against the realm key
+%%% the pool pinned), `handler_authorizes' (macula 17: no gate at the link,
 %%% the handler checks the call''s own token and proofs),
 %%% `{ucan_required, IssuerPubkey}', or
 %%% `{realm_member_required, RealmDid, RequiredCan}' — forwarded via
 %%% `auth_opts/1' into BOTH 'advertise_direct' calls' `Opts', through to
 %%% `macula:advertise/5' and enforced on every inbound call by
-%%% `macula_station_link''s 'authorize_policy/2'.
+%%% `macula_station_link''s 'authorize_policy/2'. A capability with no
+%%% `handler' is a discovery record only, which the SDK does not gate, and
+%%% is not asked for a policy.
 %%%
 %%% `handler_authorizes' is the one policy this module cannot check for
 %%% you, and the one where the new terms are easy to misread: the link
@@ -181,7 +186,7 @@
 %% logic, kept side-effect-free so it is unit-testable without a live
 %% mesh.
 -export([org_procedure/2, build_advertisement/5, decode_resolved/1,
-         station_url/2, has_handler/1, auth_opts/1, unguarded_capabilities/1,
+         station_url/2, has_handler/1, auth_opts/1, auth_verdict/1,
          reuse_sup_opts/1, advertise_opts/0,
          provider_module/1, stream_opts/1, handler_timeout_opts/1,
          confidentiality_opts/1, confidentiality_verdict/2,
@@ -289,11 +294,39 @@ start_link() ->
 register(Caps) when is_list(Caps) ->
     %% Checked in the CALLER, before the call: a misconfigured service fails
     %% its own boot with a named reason, and this server keeps running.
+    ok = refuse_unless_ok(auth_verdict(Caps)),
     ok = refuse_unless_ok(confidentiality_verdict(Caps, macula_kem_advertise())),
     gen_server:call(?MODULE, {register, Caps}).
 
 refuse_unless_ok(ok)               -> ok;
 refuse_unless_ok({error, Reason})  -> error(Reason).
+
+%% @doc The names of every capability in `Caps' that names a handler but no
+%% `auth' policy. macula 18 refuses an advertise that names none
+%% (`{error, {auth, required}}', macula#147): a procedure served to
+%% whoever can reach it is a decision, and an omission is not one. So such
+%% a capability fails the registration here, naming itself, rather than
+%% reaching the SDK and being refused procedure by procedure on a timer.
+%%
+%% Only a HANDLER-BEARING capability is asked: a capability with no
+%% `handler' is written as a bare discovery record
+%% (`build_advertisement/5' + `put_record'), which the SDK does not gate,
+%% so requiring a policy for it would refuse a boot over something nothing
+%% can call. `open' is one of the policies a service may name, and the
+%% point of asking is that somebody wrote it down.
+-spec auth_verdict([mcl_om_service:capability()]) ->
+    ok | {error, {auth_required, [binary()]}}.
+auth_verdict(Caps) ->
+    required([Name || #{name := Name} = Cap <- Caps,
+                      has_handler(Cap), not has_auth(Cap)]).
+
+required([]) ->
+    ok;
+required(Names) ->
+    {error, {auth_required, Names}}.
+
+has_auth(#{auth := _}) -> true;
+has_auth(_)            -> false.
 
 macula_kem_advertise() ->
     application:get_env(macula, kem_advertise, disabled).
@@ -405,7 +438,6 @@ init([]) ->
     {ok, arm_timer(#state{})}.
 
 handle_call({register, Caps}, _From, S) ->
-    log_unguarded(Caps),
     %% A new capability set: a procedure no longer advertised must not keep
     %% degrading /health -- neither as a stale grant nor as a stale
     %% advertise loop. The clear happens when the NEXT RUN starts
@@ -549,30 +581,6 @@ ensure_worker({Pid, Ref}) ->
 
 %%% Internals — advertise (write records / register handlers)
 
-%% Logged once per `register/1' call (boot, or an explicit
-%% re-registration — never on a republish timer tick, `publish/0'/
-%% `handle_info(republish, ...)' both reuse the already-registered
-%% `Caps' without calling this again) — see 'unguarded_capabilities/1'
-%% for exactly what this can and can''t see.
-log_unguarded(Caps) ->
-    case unguarded_capabilities(Caps) of
-        []        -> ok;
-        Unguarded ->
-            logger:warning(
-              "mcl_om_capabilities: ~p capabilit~s registered with no "
-              "explicit auth policy, defaulting to open: ~p -- set "
-              "auth => open to confirm that''s intended, auth => "
-              "{ucan_required, IssuerPubkey} to gate it to one exact "
-              "identity, auth => {realm_member_required, RealmDid, "
-              "RequiredCan} to gate it to a realm membership tier, or "
-              "auth => handler_authorizes to have the handler check the "
-              "call''s own token where no gate can",
-              [length(Unguarded), plural_suffix(Unguarded), Unguarded])
-    end.
-
-plural_suffix([_]) -> "y was";
-plural_suffix(_)   -> "ies were".
-
 do_advertise(Caps, Sups) ->
     advertise_with(mcl_om_identity:macula_client(),
                    mcl_om_identity:identity_key(),
@@ -665,46 +673,23 @@ has_handler(#{handler := _}) -> true;
 has_handler(_) -> false.
 
 %% @doc The `auth' entry to merge into 'advertise_direct''s `Opts', from
-%% a capability''s own optional `auth' key ('open' |
-%% `handler_authorizes' | `{ucan_required, Issuer}' |
-%% `{realm_member_required, RealmDid, RequiredCan}', forwarded all the
-%% way to `macula_station_link''s inbound call authorization — see
-%% moduledoc). Absent when the capability doesn''t
-%% set one, matching `macula:advertise/5''s own default: open. A
-%% service opts a specific capability into gating by adding the
-%% appropriate `auth' value to that capability''s map; every other
-%% capability advertised through this module is unaffected. This
-%% function is deliberately policy-agnostic — it forwards whatever
-%% value `auth' holds without inspecting which variant it is, so a
-%% future policy `macula' adds needs no change here, only to the
-%% {@link mcl_om_service:capability()} type.
--spec auth_opts(mcl_om_service:capability()) -> map().
-auth_opts(#{auth := Policy}) -> #{auth => Policy};
-auth_opts(_)                 -> #{}.
-
-%% @doc The names of every capability in `Caps' with no explicit 'auth'
-%% key -- i.e. every one that will silently advertise `open' via
-%% `auth_opts/1''s own default, whether that policy was actually
-%% decided or simply never set. Pure and unit-testable without a live
-%% mesh, matching this module''s other pure helpers.
+%% a handler-bearing capability''s own `auth' key (`open' |
+%% `{callers, members | role | {nodes, Ids}}' | `handler_authorizes' |
+%% `{ucan_required, Issuer}' | `{realm_member_required, RealmDid,
+%% RequiredCan}'), forwarded all the way to `macula_station_link''s inbound
+%% call authorization — see moduledoc.
 %%
-%% This can only see what a service''s own `capabilities/0' reports --
-%% `register/1' warns about exactly this list on every registration
-%% (see `log_unguarded_once/1'), giving free, per-boot visibility to
-%% every service that routes through this module. It cannot see a
-%% capability a service advertises out-of-band via its own direct
-%% `macula:advertise/5'/'macula_response:advertise_direct/7' call
-%% instead of declaring it here -- `capabilities/0' under-reporting is
-%% the pre-migration RAG service pattern this module''s own moduledoc
-%% already documents fixing for one service, not yet audited fleet-wide.
-%% See `scripts/audit-fleet-ucan-adoption.sh' for that separate,
-%% source-scan half of the check.
--spec unguarded_capabilities([mcl_om_service:capability()]) -> [binary()].
-unguarded_capabilities(Caps) ->
-    [Name || #{name := Name} = Cap <- Caps, not has_auth(Cap)].
-
-has_auth(#{auth := _}) -> true;
-has_auth(_)            -> false.
+%% THERE IS NO DEFAULT (macula 18, macula#147): `macula:advertise/5' refuses
+%% an advertise that names no policy, so a handler-bearing capability
+%% without `auth' never gets this far — `register/1' refuses it first,
+%% naming the capability (`auth_verdict/1'). This function has no clause
+%% for a map without the key: the omission is a boot failure, not a silent
+%% `open'. It is deliberately policy-agnostic — it forwards whatever value
+%% `auth' holds without inspecting which variant it is, so a future policy
+%% `macula' adds needs no change here, only to the
+%% {@link mcl_om_service:capability()} type.
+-spec auth_opts(mcl_om_service:capability()) -> #{auth := term()}.
+auth_opts(#{auth := Policy}) -> #{auth => Policy}.
 
 %% @doc Which macula provider module advertises `Cap''s handler --
 %% `macula_streamer' only when the capability opts in with 'kind =>
