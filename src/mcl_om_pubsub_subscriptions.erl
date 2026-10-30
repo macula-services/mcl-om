@@ -22,6 +22,14 @@
 %%% change that reached the running child by any other route is undone on
 %%% the next tick rather than silently kept.
 %%%
+%%% A CHILD THAT STOPPED IS NOT A CHILD THAT IS RUNNING. The children are
+%%% `transient': a subscription that ends normally (`macula_subscriber'
+%%% passes a handler's `{stop, normal, State}' straight through) keeps its
+%%% child spec and no process, and OTP never restarts it -- so the next tick
+%%% deletes that spec and starts the subscriber again, `/health' never lists
+%%% it as running, and `diff/2' is not fooled by a spec that still reads
+%%% back as the declaration it was made from.
+%%%
 %%% A SUBSCRIPTION THAT CANNOT START IS NOT FORGOTTEN. The reason is logged
 %%% once at `warning' and kept per topic, `/health' reports it, and the
 %%% verdict is `degraded' until the same topic starts -- the facts that
@@ -49,7 +57,8 @@
 %% the failure bookkeeping are unit-testable without a live mesh (same
 %% convention as `mcl_om_capabilities.erl' / `mcl_om_pubsub.erl').
 -export([diff/2, declaration/2, validate/1, start_failure/1,
-         recorded/3, failures/1]).
+         recorded/3, failures/1,
+         children/0, running_topics/1, dead_specs/1, coming_back/1]).
 
 %% The report /health reads, written by this server on every reconcile.
 -define(REPORT, mcl_om_pubsub_subscriptions_report).
@@ -156,8 +165,15 @@ reconcile(Desired, Failures) ->
     prune(reconcile_with(mcl_om:mesh_handles(), Desired, Failures), Desired).
 
 reconcile_with({ok, Pool, Realm}, Desired, Failures) ->
-    {ToStart, ToStop} = diff(Desired, current_declarations()),
-    _ = [stop_subscriber(Topic) || Topic <- ToStop],
+    Children = children(),
+    {ToStart, ToStop} = diff(Desired, current_declarations(Children)),
+    %% `dead_specs' as well as `ToStop': a `transient' child that stopped
+    %% NORMALLY leaves its spec behind with no process (OTP deletes no such
+    %% spec and never restarts it), and `supervisor:start_child/2' answers
+    %% `{error, already_present}' against a spec that is still there. Left
+    %% alone, that topic is never subscribed again and `start_child' keeps
+    %% refusing it -- so the spec goes, and the start below makes a new one.
+    _ = [stop_subscriber(Topic) || Topic <- ToStop ++ dead_specs(Children)],
     lists:foldl(fun(Sub, F) -> start_subscriber(Pool, Realm, Sub, F) end,
                 Failures, ToStart);
 %% Missing pool / realm: cannot subscribe yet. No-op; the timer retries once
@@ -216,8 +232,41 @@ same_declaration(_A, _B) ->
 wire_sources({open, _Reason}) -> open;
 wire_sources(Sources)         -> Sources.
 
-current_declarations() ->
-    [declaration(Topic, childspec(Topic)) || Topic <- current_topics()].
+%% @doc The subscription supervisor's children, as `{Topic, Pid}': `Pid' is
+%% a pid while the child runs, `restarting' while the supervisor is bringing
+%% it back, and `undefined' when only its spec is left. That third state is
+%% the one worth knowing about: a `transient' child that stops NORMALLY --
+%% a handler answering `{stop, normal, State}' to an event, say -- is left
+%% with its spec and no process, and is never restarted.
+-spec children() -> [{binary(), pid() | restarting | undefined}].
+children() ->
+    [{Id, Pid} || {Id, Pid, worker, _Mods} <- supervisor:which_children(mcl_om_pubsub_sup)].
+
+%% @doc The topics with a process behind them. A spec with no process is not
+%% running, whatever it declares.
+-spec running_topics([{binary(), term()}]) -> [binary()].
+running_topics(Children) ->
+    [Id || {Id, Pid} <- Children, is_pid(Pid)].
+
+%% @doc The topics whose child is gone and whose spec is still there: not
+%% running, and not restartable in place.
+-spec dead_specs([{binary(), term()}]) -> [binary()].
+dead_specs(Children) ->
+    [Id || {Id, Pid} <- Children, Pid =:= undefined].
+
+%% @doc The topics the supervisor is restarting right now. Neither running
+%% nor dead: the next tick sees how it ended.
+-spec coming_back([{binary(), term()}]) -> [binary()].
+coming_back(Children) ->
+    [Id || {Id, Pid} <- Children, Pid =:= restarting].
+
+%% What is running, plus what the supervisor is bringing back, as the
+%% declarations they were started with: a `restarting' child is not
+%% restarted AGAIN from here (its spec is intact and the supervisor owns the
+%% retry), and a dead one is not counted at all, so the diff asks for it.
+current_declarations(Children) ->
+    [declaration(Topic, childspec(Topic))
+     || Topic <- running_topics(Children) ++ coming_back(Children)].
 
 childspec(Topic) ->
     case supervisor:get_childspec(mcl_om_pubsub_sup, Topic) of
@@ -289,9 +338,6 @@ stop_subscriber(Topic) ->
     _ = supervisor:delete_child(mcl_om_pubsub_sup, Topic),
     ok.
 
-current_topics() ->
-    [Id || {Id, _Pid, worker, _Mods} <- supervisor:which_children(mcl_om_pubsub_sup)].
-
 %% @doc The `failed' list a report carries: one `#{topic, reason}' per topic
 %% with a recorded failure, the reason printed so the body stays
 %% JSON-encodable.
@@ -301,17 +347,19 @@ failures(Failures) ->
 
 build_report(Desired, Failures) ->
     #{desired => [Topic || #{topic := Topic} <- Desired],
-      running => running_topics(),
+      running => running_now(),
       failed  => failures(Failures)}.
 
 publish_report(Desired, Failures) ->
     true = ets:insert(?REPORT, {report, build_report(Desired, Failures)}),
     ok.
 
-%% The reconciler answering while its supervisor is gone would otherwise take
-%% /health down with it, so the empty report is answered rather than an exit.
-running_topics() ->
-    try current_topics() catch exit:_ -> [] end.
+%% A child that stopped normally is not running, so it is not listed: the
+%% report says what IS subscribed, never what was once declared. The
+%% reconciler answering while its supervisor is gone would otherwise take
+%% /health down with it, so nothing is answered rather than an exit.
+running_now() ->
+    try running_topics(children()) catch exit:_ -> [] end.
 
 %% The body is JSON and a reason is anything the SDK or the start raised, so
 %% it is printed rather than encoded.
@@ -395,8 +443,8 @@ validate_open_reason(Topic, Reason) ->
 
 %% Walked by pattern rather than `lists:all/2': an improper list raises there,
 %% and this runs inside a service's boot.
-validate_nodes(_Topic, []) ->
-    invalid(none, {sources, {nodes, empty}});
+validate_nodes(Topic, []) ->
+    invalid(Topic, {sources, {nodes, empty}});
 validate_nodes(Topic, [_ | _] = NodeIds) ->
     validate_node_ids(Topic, NodeIds);
 validate_nodes(Topic, Other) ->

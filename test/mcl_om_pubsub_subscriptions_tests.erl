@@ -213,7 +213,7 @@ validate_refuses_a_non_binary_open_reason_test() ->
 
 validate_refuses_an_empty_or_malformed_nodes_class_test() ->
     ?assertMatch({error, {mcl_om_subscription_invalid,
-                          #{reason := {sources, {nodes, empty}}}}},
+                          #{topic := <<"t">>, reason := {sources, {nodes, empty}}}}},
                  mcl_om_pubsub_subscriptions:validate([sub(<<"t">>, {nodes, []})])),
     ?assertMatch({error, {mcl_om_subscription_invalid,
                           #{reason := {sources, {nodes, not_node_ids}, short}}}},
@@ -265,6 +265,131 @@ validate_refuses_things_that_are_not_subscriptions_at_all_test() ->
     ?assertMatch({error, {mcl_om_subscription_invalid,
                           #{reason := {subscription, not_a_map, nope}}}},
                  mcl_om_pubsub_subscriptions:validate([nope])).
+
+%%%===================================================================
+%%% A child that stopped is not a child that is running (Uranus R1).
+%%%
+%%% The children are `transient', and `macula_subscriber' passes a
+%%% handler's `{stop, normal, State}' straight through: OTP leaves the
+%%% spec behind with NO process and never restarts it. Read as "running",
+%%% that topic is never subscribed again, `/health' says it is fine, and
+%%% `supervisor:start_child/2' keeps answering `already_present'.
+%%%===================================================================
+
+%% The three states `supervisor:which_children/1' reports, told apart.
+children_states_are_read_apart_test() ->
+    Children = [{<<"a">>, self()}, {<<"b">>, undefined}, {<<"c">>, restarting}],
+    ?assertEqual([<<"a">>], mcl_om_pubsub_subscriptions:running_topics(Children)),
+    ?assertEqual([<<"b">>], mcl_om_pubsub_subscriptions:dead_specs(Children)),
+    ?assertEqual([<<"c">>], mcl_om_pubsub_subscriptions:coming_back(Children)),
+    ?assertEqual([], mcl_om_pubsub_subscriptions:running_topics([])).
+
+%% END TO END, through `ensure/1' and the real supervisor: the subscriber
+%% child is made to stop NORMALLY (a handler answering `{stop, normal, _}'),
+%% and the next reconcile puts it back. The pool and the SDK's subscriber
+%% are stood in for by meck here, so nothing touches a mesh.
+a_child_that_stopped_normally_is_started_again_test_() ->
+    {setup, fun start_reconciler_with_a_fake_mesh/0, fun stop_fake_mesh/1,
+     fun(_) ->
+        Topic = <<"svc.events">>,
+        Decl = #{topic => Topic, module => handler, sources => members},
+        [ ?_assertEqual(ok, mcl_om_pubsub:ensure_subscriptions([Decl])),
+          ?_assertEqual([Topic], running_topics_with_declarations()),
+          ?_assertMatch({ok, _}, kill_the_child(Topic)),
+          ?_assertEqual(ok, await_dead_spec(Topic, 200)),
+          %% Not running, and its spec is what stands in the way of a restart.
+          ?_assertEqual([], running_topics_with_declarations()),
+          ?_assert(lists:member(Topic, mcl_om_pubsub_subscriptions:dead_specs(children()))),
+          %% One more reconcile: the stale spec goes and the topic is
+          %% subscribed again, rather than being skipped as "already there".
+          ?_assertEqual(ok, mcl_om_pubsub:ensure_subscriptions([Decl])),
+          ?_assertEqual([Topic], running_topics_with_declarations()),
+          ?_assertEqual([], mcl_om_pubsub_subscriptions:dead_specs(children())),
+          ?_assertEqual([], maps:get(failed, mcl_om_pubsub_subscriptions:report()))
+        ]
+     end}.
+
+%% THE WIRING, NOT THE PIECES (Uranus R2). `verdict/1' and `body/7' were
+%% tested on their own, so a snapshot that stopped folding the subscription
+%% verdict in stayed green. This one fails if `mcl_om_health' drops it: the
+%% only thing that changed here is that a start refusal was recorded.
+a_subscription_failure_degrades_the_health_snapshot_test_() ->
+    {setup, fun start_health_and_fake_mesh/0, fun stop_fake_mesh/1,
+     fun(_) ->
+        [ ?_assertEqual(ok, mcl_om_health:snapshot()),
+          ?_assertEqual(ok, refuse_the_next_start()),
+          ?_assertEqual(ok, mcl_om_pubsub:ensure_subscriptions(
+                              [#{topic => <<"svc.events">>, module => handler,
+                                 sources => members}])),
+          ?_assertMatch({degraded, #{subscriptions := [#{topic := <<"svc.events">>}]}},
+                        mcl_om_health:snapshot())
+        ]
+     end}.
+
+children() ->
+    mcl_om_pubsub_subscriptions:children().
+
+running_topics_with_declarations() ->
+    mcl_om_pubsub_subscriptions:running_topics(children()).
+
+%% The child the fake SDK's `start_link/6' hands the supervisor: a real
+%% linked process that exits NORMALLY on request, exactly what a handler
+%% answering `{stop, normal, State}' to an event does.
+dying_child() ->
+    {ok, spawn_link(fun() -> receive die -> exit(normal) end end)}.
+
+kill_the_child(Topic) ->
+    [{Topic, Pid}] = [{T, P} || {T, P} <- children(), T =:= Topic],
+    Pid ! die,
+    {ok, Pid}.
+
+%% The supervisor's own bookkeeping runs after the exit, so the spec is
+%% not pidless the instant the child dies.
+await_dead_spec(_Topic, 0) ->
+    {error, timeout};
+await_dead_spec(Topic, N) ->
+    case lists:member(Topic, mcl_om_pubsub_subscriptions:dead_specs(children())) of
+        true  -> ok;
+        false -> timer:sleep(10), await_dead_spec(Topic, N - 1)
+    end.
+
+%% A pool and a realm that are really "there", so `reconcile' attempts a
+%% start, and a `macula_subscriber:start_link/6' that stands in for the
+%% SDK. Nothing else about macula is replaced.
+fake_mesh() ->
+    ok = meck:new(mcl_om_identity, [passthrough]),
+    ok = meck:expect(mcl_om_identity, macula_client, fun() -> {ok, self()} end),
+    ok = meck:expect(mcl_om_identity, realm, fun() -> {ok, <<1:256>>} end),
+    ok = meck:new(macula_subscriber, [passthrough]),
+    ok = meck:expect(macula_subscriber, start_link, 6,
+                     fun(_Mod, _Pool, _Realm, _Topic, _Args, _Opts) -> dying_child() end),
+    ok.
+
+start_reconciler_with_a_fake_mesh() ->
+    Servers = start_servers(),
+    ok = fake_mesh(),
+    Servers.
+
+start_health_and_fake_mesh() ->
+    {ok, H} = mcl_om_health:start_link(),
+    ok = mcl_om_health:register(dummy_service),
+    Servers = start_servers(),
+    ok = fake_mesh(),
+    {H, Servers}.
+
+stop_fake_mesh({H, Servers}) ->
+    stop_fake_mesh(Servers),
+    try gen_server:stop(H) catch _:_ -> ok end;
+stop_fake_mesh(Servers) ->
+    meck:unload([macula_subscriber, mcl_om_identity]),
+    stop_servers(Servers).
+
+%% The next start attempt is refused by the SDK, which is what a wrong
+%% `sources' looks like from here -- macula 18 answers
+%% `{error, {sources, required}}' and the reconciler must record it.
+refuse_the_next_start() ->
+    ok = meck:expect(macula_subscriber, start_link, 6,
+                     fun(_M, _P, _R, _T, _A, _O) -> {error, {sources, required}} end).
 
 %%%===================================================================
 %%% Degrades without a mesh — same contract as every other piece.
