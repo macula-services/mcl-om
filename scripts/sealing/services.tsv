@@ -8,6 +8,13 @@
 # Filled from the fleet's release-targets on 2026-10-31 (19 mcl-* images on a track).
 # Nine further mcl-* repos serve capabilities but are not deployed; they are deliberately
 # absent here, so that a measurement cannot silently count a service nobody runs.
+#
+# mcl-fovea is the exception, and the first thing the measurement caught: the plan's
+# inventory calls it "not deployed", but it advertises mcl-fovea/info and
+# mcl-fovea/get_limits in the fleet's realm (measured 2026-10-31). It runs on a box
+# outside this fleet repo and its reconciler (macula-fleet PORTS.md), which is why a
+# survey of release targets could not see it. It is listed here because it SERVES,
+# and a service that serves is a service whose absence must be a finding.
 mcl-agora	yes
 mcl-bookclub	yes
 mcl-bookclub-observer	yes
@@ -15,6 +22,7 @@ mcl-chess	yes
 mcl-citizens	yes
 mcl-distributor	yes
 mcl-echo	yes
+mcl-fovea	yes
 mcl-graph	yes
 mcl-jobs	yes
 mcl-kanban	yes

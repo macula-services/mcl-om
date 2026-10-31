@@ -1,0 +1,27 @@
+# Advertisement prefixes that are not services, and why.
+#
+# One line per prefix: <prefix>	<reason>
+#
+# WHY THIS FILE EXISTS. check-sealing.sh's fourth rule fails on a listed procedure
+# that belongs to no service in services.tsv, because that is how an unmeasured
+# service shows itself -- mcl-fovea, for one, advertised without being in the
+# deployed inventory. But a list that only ever named services would report the same
+# true-but-not-a-finding lines on every run: every agent's own ring, and the realm's
+# own identity procedures. A check that can never reach "no findings" is not a gate.
+#
+# WHY IT IS NOT AN EXCLUSION LIST. Nothing is dropped by omission. A prefix here is
+# a WRITTEN claim that the procedures under it are not services, with the reason it
+# is true, and a prefix that answers nothing in a listing is a finding on its own
+# (STALE-NOT-SERVICE) -- the same discipline opt-outs.tsv carries. Adding a line is
+# a reviewed decision, not a way to silence a service nobody declared.
+#
+# Keep it short, and keep each reason about the mesh's structure rather than about a
+# convenience: "this is the realm's control surface" is a reason, "it does not seal
+# yet" is not. A service that does not seal belongs in services.tsv and in an opt-out,
+# never here.
+#
+# Both entries below come from the first real listing (2026-10-31), which carried 17
+# ring procedures and 9 realm procedures beside the services.
+
+~	agent-to-agent contact: an inviter's own namespace, served to one peer, carrying an unguessable room. It is not a capability a service offers and it is not relayed traffic.
+io.macula/	the realm's own identity and certificate surface, served by the realm node. It moves public records by design, it is out of scope for this measurement, and the sealing design says so in as many words.
