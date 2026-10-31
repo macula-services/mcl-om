@@ -1,0 +1,29 @@
+# The services that must appear in a sealing measurement.
+#
+# One service per line: <service>	<deployed>	<note>
+# "deployed" is yes for a service the fleet runs today. A service that is listed here
+# and missing from a measurement is a FINDING, not a zero: it may be down, booting, or
+# not advertising, and none of those is evidence that it seals.
+#
+# Filled from the fleet's release-targets on 2026-10-31 (19 mcl-* images on a track).
+# Nine further mcl-* repos serve capabilities but are not deployed; they are deliberately
+# absent here, so that a measurement cannot silently count a service nobody runs.
+mcl-agora	yes
+mcl-bookclub	yes
+mcl-bookclub-observer	yes
+mcl-chess	yes
+mcl-citizens	yes
+mcl-distributor	yes
+mcl-echo	yes
+mcl-graph	yes
+mcl-jobs	yes
+mcl-kanban	yes
+mcl-mail	yes
+mcl-news	yes
+mcl-rag	yes
+mcl-sec-guard	yes
+mcl-sentinel	yes
+mcl-spartan	yes
+mcl-stations	yes
+mcl-tube	yes
+mcl-warden	yes
