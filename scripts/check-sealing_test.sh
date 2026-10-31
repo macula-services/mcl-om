@@ -178,6 +178,17 @@ if [ "$got" = "0" ] && grep -q '^procedures listed   2$' "$OUT"; then
 else
     bad "R3 a 0-byte opt-out file leaves the listing intact (exit $got)"
 fi
+# A file whose LAST LINE HAS NO NEWLINE must not swallow the marker after it. The
+# sections are marked by printed lines, so an unterminated last line would run on into
+# the next marker, that marker would stop being a marker, and every section after it
+# would shift -- rule F silenced, replaced by findings about the wrong file. An editor
+# that strips the final newline makes the committed files exactly that.
+case_tag "a newline-less section file does not silence rule F" UNMEASURED \
+    "$FIXTURES/stations-five-covered.tsv" --services "$S" --opt-outs "$NONE" \
+    --not-services "$FIXTURES/not-services-no-final-newline.tsv" --stations "$ST6" --quiet
+if grep -q '^UNMEASURED *station station-6 ' "$OUT"; then ok "the newline-less file leaves the right station unmeasured"
+else bad "the newline-less file leaves the right station unmeasured"; fi
+
 : >"$TMP/zero.tsv"
 got="$(run "$FIXTURES/keyless-no-off.tsv" --services "$S" --opt-outs "$NONE" --not-services "$TMP/zero.tsv")"
 if [ "$got" = "1" ] && grep -q '^NO-OFF ' "$OUT" && ! grep -q '^UNKNOWN \|^MALFORMED ' "$OUT"; then
