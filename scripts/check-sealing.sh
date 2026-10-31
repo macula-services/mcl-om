@@ -94,12 +94,18 @@ for f in "$LISTING" "$SERVICES" "$OPT_OUTS" "$NOT_SERVICES" "$STATIONS"; do
     fi
 done
 
+# A NEWLINE BEFORE EVERY MARKER, because a file whose last line has none would otherwise
+# swallow the next marker into that line and shift every section after it -- the same
+# class of failure as the 0-byte file above, one line further on (Pluto r=2). An editor
+# that strips the final newline produces exactly that file, so the marker cannot rely on
+# the file ending tidily. Blank lines are ignored by every section, so the extra newline
+# costs nothing.
 {
-    printf '@@section services\n';     cat "$SERVICES"
-    printf '@@section opt-outs\n';     cat "$OPT_OUTS"
-    printf '@@section not-services\n'; cat "$NOT_SERVICES"
-    printf '@@section stations\n';     cat "$STATIONS"
-    printf '@@section listing\n';      cat "$LISTING"
+    printf '\n@@section services\n';     cat "$SERVICES"
+    printf '\n@@section opt-outs\n';     cat "$OPT_OUTS"
+    printf '\n@@section not-services\n'; cat "$NOT_SERVICES"
+    printf '\n@@section stations\n';     cat "$STATIONS"
+    printf '\n@@section listing\n';      cat "$LISTING"
 } | awk -F'\t' -v quiet="$QUIET" '
 function trim(s) { gsub(/^[ \t]+|[ \t]+$/, "", s); return s }
 function report(tag, msg) { findings++; printf "%-8s %s\n", tag, msg }
