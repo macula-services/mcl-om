@@ -1,0 +1,53 @@
+# The per-service edit list for release A, as far as it can be read from the source today.
+#
+# <service>	<kind>	<item>	<action>	<source>
+#
+# kind = config  a configuration key release A deletes
+# kind = topic   a pub/sub topic that must gain `open` (or, in its own later change, `group`)
+# kind = check   something to inspect rather than change
+#
+# This is the checklist P2 and P4 are verified against, so a row is only here once it has
+# been read out of the source. Services whose topic names have not been enumerated are
+# listed at the bottom as unchecked, rather than guessed at: a wrong row here would send
+# a builder to edit a topic that does not exist.
+
+# --- config: release A deletes kem_advertise, so no service may still set it -----------
+
+mcl-citizens	config	{macula, kem_advertise, enabled}	delete	config/sys.config.src:88
+mcl-distributor	config	{macula, kem_advertise, enabled}	delete	config/sys.config.src:49
+mcl-echo	config	{macula, kem_advertise, enabled}	delete	config/sys.config.src:106
+mcl-graph	config	{macula, kem_advertise, enabled}	delete	config/sys.config.src:55
+mcl-jobs	config	{macula, kem_advertise, enabled}	delete	config/sys.config.src
+mcl-kanban	config	{macula, kem_advertise, enabled}	delete	config/runtime.exs
+mcl-rag	config	{macula, kem_advertise, enabled}	delete	config/sys.config.src
+mcl-tube	config	{macula, kem_advertise, enabled}	delete	config/sys.config.src
+
+# --- topics: publisher and every subscriber gain `open`, in the same change ------------
+
+mcl-bookclub	topic	bookclub/member/member_registered_v1	open	apps/host_bookclub/src/emit_book_procured_v1_to_mesh/
+mcl-bookclub-observer	topic	io.macula/mcl-bookclub/bookclub/member/member_registered_v1	open	apps/mcl_bookclub_observer/src/mcl_bookclub_observer_service.erl
+mcl-bookclub-observer	topic	io.macula/mcl-bookclub/bookclub/book/book_procured_v1	open	apps/mcl_bookclub_observer/src/mcl_bookclub_observer_service.erl
+mcl-bookclub-observer	topic	io.macula/mcl-bookclub/bookclub/book/book_retired_v1	open	apps/mcl_bookclub_observer/src/mcl_bookclub_observer_service.erl
+mcl-echo	topic	denials_observed	open	publisher of the sec-guard alert topic
+mcl-sec-guard	topic	denials_observed (default; configurable per box)	open	apps/mcl_sec_guard/src/mcl_sec_guard_service.erl
+mcl-citizens	topic	the presence topic	open	apps/mcl_citizens/src/register_presence/ and hear_citizen_presence/
+mcl-graph	topic	entity_learned, link_learned	open	apps/mcl_graph/src/mcl_graph_facts.erl
+mcl-graph	topic	truth_asserted	open	apps/mcl_graph/src/mcl_graph_facts.erl
+mcl-news	topic	the news wire topics (news_item_reported)	open	apps/mcl_news/src/mcl_news_facts.erl
+mcl-agora	topic	the news wire topics it hears	open	apps/mcl_agora/src/mcl_agora_service.erl
+mcl-spartan	topic	the news wire topics it hears	open	apps/mcl_spartan/src/mcl_spartan_service.erl
+mcl-agora	topic	agora post topics (square_topics)	open	apps/mcl_agora/src/mcl_agora_service.erl
+mcl-warden	topic	the warden report topics	open	apps/mcl_warden/src/mcl_warden_facts.erl
+mcl-sentinel	topic	the warden report topics it hears	open	apps/mcl_sentinel/src/hear_warden_reports/hear_warden_reports.erl
+mcl-sentinel	topic	sentinel_checked_in, attacker_ensnared	open	apps/mcl_sentinel/src/mcl_sentinel_facts.erl
+
+# --- checks: inspect rather than change ------------------------------------------------
+
+mcl-stations	check	explicit-target `confidential => off` in dos_campaign/src/dos_calls.erl	read at the A rebuild
+
+# --- not yet enumerated, so not listed above -------------------------------------------
+# These publish or subscribe but their topic names have not been read out of the source.
+# They are the first thing P4 fills in; leaving them out of the table above is deliberate.
+#
+#   mcl-chess      publishes per-game facts; names not yet read from its facts module
+#   mcl-kanban     subscribes to the realm's crew-fact topics, names from CrewFact.facts()

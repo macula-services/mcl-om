@@ -1,0 +1,15 @@
+# Written opt-outs: the PROOF half of a sealing measurement.
+#
+# One line per procedure that is allowed to be served clear:
+# <procedure>	<reason>	<decided by>	<date>
+#
+# The rule this file exists for: a keyless advertisement is not a failure by itself,
+# because release A lets an operator write `off'. It is a failure when the keyless
+# advertisement is not on this list. Nothing may be clear by omission.
+#
+# Keep it short. Every entry is a decision someone signed, and the measurement prints
+# this file beside its findings so the two are read together.
+#
+# No entries yet, and that is correct today: nothing on the fleet has written `off',
+# because release A does not exist yet. This file becomes non-empty one line at a time,
+# in the PR that makes each decision.
