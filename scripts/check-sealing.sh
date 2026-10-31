@@ -15,7 +15,9 @@
 # this check can: it is pure, and its fixtures are in scripts/sealing/fixtures/.
 #
 # FIVE RULES, each a way the fleet can look fine while being wrong:
-#   A  a keyless procedure with no matching opt-out   -> clear by omission
+#   A  a keyless procedure with no matching opt-out   -> clear by omission. A
+#      procedure under a declared not-a-service prefix is exempt: its claim is its
+#      reason, and what this measurement moves is about service payloads.
 #   B  an opt-out naming a procedure that never appeared -> a stale decision, or a
 #      listing that missed the service, and neither may pass silently
 #   C  a service in services.tsv absent from the listing -> absence is a FINDING.
@@ -164,14 +166,17 @@ END {
                 report("UNKNOWN", proc " belongs to no service in the services file")
             } else {
                 not_svc_seen[np]++
+                not_svc_owner[proc] = np
             }
         }
     }
 
-    # Rule A: clear by omission.
+    # Rule A: clear by omission. A procedure whose not-a-service claim is already
+    # written down is not crying omission: the claim IS its reason, and the register
+    # this measurement moves is about service payloads.
     for (i = 1; i <= nlines; i++) {
         proc = listed_order[i]
-        if ((proc in keyless) && !(proc in off))
+        if ((proc in keyless) && !(proc in off) && !(proc in not_svc_owner))
             report("NO-OFF", proc " is advertised keyless and has no written opt-out")
     }
 
@@ -199,14 +204,18 @@ END {
     }
 
     if (!quiet) {
-        keyed = 0; clear = 0; clear_off = 0
+        keyed = 0; clear = 0; clear_off = 0; clear_ns = 0
         # Per PROCEDURE, not per line: a procedure advertised by several boxes
         # appears once per advertisement.
         for (p in listed) {
             # A procedure advertised BOTH ways -- mid-roll, keyed on one box and
             # keyless on another -- counts as keyless: it can still be read, and
             # the summary must not say the fleet is sealed while it can be.
-            if (p in keyless) { clear++; if (p in off) clear_off++ }
+            if (p in keyless) {
+                clear++
+                if (p in off) clear_off++
+                else if (p in not_svc_owner) clear_ns++
+            }
             else { keyed++ }
         }
         printf "\n"
@@ -214,7 +223,7 @@ END {
         printf "services seen       %d\n", nsvc - absent_count()
         printf "procedures listed   %d\n", nlines
         printf "  keyed             %d\n", keyed
-        printf "  keyless           %d  (%d with a written opt-out)\n", clear, clear_off
+        printf "  keyless           %d  (%d with a written opt-out, %d not a service)\n", clear, clear_off, clear_ns
         printf "written opt-outs    %d\n", noff
         printf "not-a-service prefs %d\n", nnos
     }

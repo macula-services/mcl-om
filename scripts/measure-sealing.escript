@@ -216,7 +216,13 @@ start_macula() ->
 
 connect(Seeds, TimeoutMs) ->
     {ok, Profile} = macula_crypto_profile:configured(),
-    {ok, Key} = macula_node_keys:generate(identity, Profile, #{}),
+    %% The fleet's own difficulty, not the cheapest key that starts: a station
+    %% admits a node whose identity proves the work, and a plain key is refused
+    %% at the dial -- which reads as an unreachable fleet rather than a refused
+    %% one. About half a second.
+    {ok, Key} = macula_node_keys:generate(
+                  identity, Profile,
+                  #{puzzle_difficulty => macula_node_keys:puzzle_difficulty()}),
     case macula_client:connect(Seeds, #{node_identity => Key}) of
         {ok, Pool} ->
             ok = wait_healthy(Pool, TimeoutMs),
@@ -282,7 +288,7 @@ mode(_Procedure, _Ad) -> skip.
 %% A realm id arrives as the 32 raw bytes or as text, depending on how the
 %% advertiser wrote it, and the operator may type either spelling. Compare hex.
 realm_hex(<<_:64/binary>> = Hex) -> normalise_realm(Hex);
-realm_hex(<<_:32/binary>> = Raw) -> binary:encode_hex(Raw);
+realm_hex(<<_:32/binary>> = Raw) -> binary:encode_hex(Raw, lowercase);
 realm_hex(_Other) -> any.
 
 normalise_realm(<<"0x", Rest/binary>>) -> normalise_realm(Rest);
