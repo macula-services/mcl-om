@@ -124,6 +124,10 @@ case_no_tag "a declared not-a-service prefix is not UNKNOWN"       UNKNOWN \
     "$FIXTURES/with-ring.tsv" --services "$S" --opt-outs "$NONE" --not-services "$NS" --quiet
 case_tag    "an undeclared prefix is still UNKNOWN"                UNKNOWN \
     "$FIXTURES/with-ring.tsv" --services "$S" --opt-outs "$NONE" --quiet
+case_no_tag "a clear procedure under a declared prefix is not NO-OFF" NO-OFF \
+    "$FIXTURES/with-clear-ring.tsv" --services "$S" --opt-outs "$NONE" --not-services "$NS" --quiet
+case_exit   "a clear procedure under a declared prefix passes"       0 \
+    "$FIXTURES/with-clear-ring.tsv" --services "$S" --opt-outs "$NONE" --not-services "$NS" --quiet
 case_tag    "a not-a-service prefix that matched nothing is stale"  STALE-NOT-SERVICE \
     "$FIXTURES/all-keyed.tsv" --services "$S" --opt-outs "$NONE" --not-services "$NS" --quiet
 
