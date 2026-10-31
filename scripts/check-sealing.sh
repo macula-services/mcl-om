@@ -14,7 +14,7 @@
 # (scripts/measure-sealing.escript) because a live query cannot be tested offline and
 # this check can: it is pure, and its fixtures are in scripts/sealing/fixtures/.
 #
-# FIVE RULES, each a way the fleet can look fine while being wrong:
+# SIX RULES, each a way the fleet can look fine while being wrong:
 #   A  a keyless procedure with no matching opt-out   -> clear by omission. A
 #      procedure under a declared not-a-service prefix is exempt: its claim is its
 #      reason, and what this measurement moves is about service payloads.
@@ -26,6 +26,10 @@
 #      not-a-service prefix -> an unmeasured service
 #   E  a declared not-a-service prefix that matched nothing -> a written claim
 #      about the fleet that the fleet no longer answers
+#   F  a station in stations.tsv that the listing never names, or that contributed
+#      nothing to it -> a hole in the measurement. A DHT read is answered from the
+#      records ONE station holds, so a one-station listing is one replica set, and
+#      an advertisement held only elsewhere would read as sealed (mcl-om#44 R1)
 #
 # not-services.tsv is the answer to rule D, and it is a list of CLAIMS (each with a
 # reason), not an exclusion list: an agent's ring procedure and the realm's own
@@ -36,20 +40,27 @@
 # Usage:
 #
 #   scripts/check-sealing.sh <listing.tsv> [--services F] [--opt-outs F]
-#                            [--not-services F] [--quiet]
+#                            [--not-services F] [--stations F] [--quiet]
 #
 # The listing is one line per advertisement, tab separated:
 #
 #   <procedure>	<keyed|keyless>
 #
-# produced by scripts/measure-sealing.escript. Blank lines and lines starting with `#'
-# are ignored in every file this script reads.
+# produced by scripts/measure-sealing.escript, plus one `# station <label>
+# advertisements=<n>' header per station that measurement read. Blank lines and lines
+# starting with `#' are ignored in every file this script reads, EXCEPT those station
+# headers, which are what rule F reads.
 #
 # ONE LINE PER ADVERTISEMENT, which means a procedure served by six boxes arrives
 # six times, and a service mid-roll arrives keyed on some boxes and keyless on
 # others. Every rule here is about the PROCEDURE, so a procedure is judged once --
 # and a procedure seen keyless even once is keyless, because a caller can still
 # reach that box.
+#
+# THE SECTIONS ARE MARKED, not inferred from file boundaries: a rule that counted
+# files (`FNR == 1') never fires for an EMPTY file, so one 0-byte input shifted every
+# section after it and the checker printed findings about the wrong file (mcl-om#44
+# R3). The marked form cannot be missed, and a fixture with a 0-byte file holds it.
 
 set -uo pipefail
 
@@ -57,6 +68,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SERVICES="$SCRIPT_DIR/sealing/services.tsv"
 OPT_OUTS="$SCRIPT_DIR/sealing/opt-outs.tsv"
 NOT_SERVICES="$SCRIPT_DIR/sealing/not-services.tsv"
+STATIONS="$SCRIPT_DIR/sealing/stations.tsv"
 LISTING=""
 QUIET=0
 
@@ -65,29 +77,55 @@ while [ $# -gt 0 ]; do
         --services)     SERVICES="$2"; shift 2 ;;
         --opt-outs)     OPT_OUTS="$2"; shift 2 ;;
         --not-services) NOT_SERVICES="$2"; shift 2 ;;
+        --stations)     STATIONS="$2"; shift 2 ;;
         --quiet)        QUIET=1; shift ;;
-        -h|--help)      sed -n '2,48p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        # The whole leading comment block, whatever it grows to: a fixed line range
+        # silently cut the help in half the moment the header gained a rule.
+        -h|--help)      awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' \
+                            "${BASH_SOURCE[0]}"; exit 0 ;;
         *)              LISTING="$1"; shift ;;
     esac
 done
 
-for f in "$LISTING" "$SERVICES" "$OPT_OUTS" "$NOT_SERVICES"; do
+for f in "$LISTING" "$SERVICES" "$OPT_OUTS" "$NOT_SERVICES" "$STATIONS"; do
     if [ ! -f "$f" ]; then
         echo "check-sealing: no such file: $f" >&2
         exit 2
     fi
 done
 
-awk -F'\t' -v quiet="$QUIET" '
+{
+    printf '@@section services\n';     cat "$SERVICES"
+    printf '@@section opt-outs\n';     cat "$OPT_OUTS"
+    printf '@@section not-services\n'; cat "$NOT_SERVICES"
+    printf '@@section stations\n';     cat "$STATIONS"
+    printf '@@section listing\n';      cat "$LISTING"
+} | awk -F'\t' -v quiet="$QUIET" '
 function trim(s) { gsub(/^[ \t]+|[ \t]+$/, "", s); return s }
 function report(tag, msg) { findings++; printf "%-8s %s\n", tag, msg }
 
-# Four files, in a fixed order: services, opt-outs, not-services, listing. The
-# section is counted, not guessed from FNR == NR, so the same file may be passed
-# for two of them (a test does exactly that) and still be read correctly.
-FNR == 1 { section++ }
+# `# station <label> advertisements=<n>`, one per station the measurement read.
+# A label here that the committed stations file does not name is not a finding by
+# itself (a run may read more stations than the file lists); a label the file names
+# that the listing never mentions, or one that says it contributed nothing, is.
+function read_station_line(s,   label, count) {
+    s = substr(s, length("# station ") + 1)
+    label = s
+    sub(/[ \t].*$/, "", label)
+    count = s
+    sub(/^.*advertisements=/, "", count)
+    sub(/[^0-9].*$/, "", count)
+    measured[label] = (count == "" ? 0 : count + 0)
+}
 
-section == 1 {
+# The sections are MARKED, not inferred from file boundaries: an empty file has no
+# first line, so an FNR == 1 boundary never fires for it and the next section shifts by
+# one -- which read a listing as the not-services file and reported the wrong
+# findings (mcl-om#44 R3). A marker line cannot be missed, and the same file may be
+# passed twice.
+/^@@section / { section = $0; sub(/^@@section /, "", section); next }
+
+section == "services" {
     line = $0
     sub(/#.*/, "", line)
     if (line ~ /^[ \t]*$/) next
@@ -97,7 +135,7 @@ section == 1 {
     svc_call[++nsvc] = svc
     next
 }
-section == 2 {
+section == "opt-outs" {
     line = $0
     sub(/#.*/, "", line)
     if (line ~ /^[ \t]*$/) next
@@ -108,7 +146,7 @@ section == 2 {
     off_seen[proc] = 0
     next
 }
-section == 3 {
+section == "not-services" {
     line = $0
     sub(/#.*/, "", line)
     if (line ~ /^[ \t]*$/) next
@@ -119,7 +157,20 @@ section == 3 {
     not_svc_seen[prefix] = 0
     next
 }
-section == 4 {
+section == "stations" {
+    line = $0
+    sub(/#.*/, "", line)
+    if (line ~ /^[ \t]*$/) next
+    label = trim($1)
+    if (label == "") next
+    station_seen[label] = 0
+    station_list[++nst] = label
+    next
+}
+section == "listing" {
+    # A station header line says how much of this listing came from that station.
+    # It is read before the comment strip below, which throws comments away.
+    if ($0 ~ /^# station /) { read_station_line($0); next }
     line = $0
     sub(/#.*/, "", line)
     if (line ~ /^[ \t]*$/) next
@@ -131,8 +182,10 @@ section == 4 {
         next
     }
     listed[proc] = mode
-    # One line PER ADVERTISEMENT, so a procedure served by six boxes arrives six
-    # times. Every rule below is about the procedure, not the box: report it once.
+    # One line PER ADVERTISEMENT, which means a procedure served by six boxes
+    # arrives six times. Every rule below is about the procedure, not the box, so
+    # a procedure is judged once -- and a procedure seen keyless even once is
+    # keyless, because a caller can still reach that box.
     if (!(proc in seen_proc)) {
         seen_proc[proc] = 1
         listed_order[++nlines] = proc
@@ -148,7 +201,11 @@ END {
         best = ""
         for (j = 1; j <= nsvc; j++) {
             s = svc_call[j]
-            if (index(proc, s) == 1 && length(s) > length(best)) best = s
+            # Match on the FIRST PATH SEGMENT, not on a bare prefix: mcl-bookclub
+            # is a prefix of mcl-bookclub-phoenix/info, and crediting that to
+            # mcl-bookclub left the undeployed service neither UNKNOWN nor its
+            # owner ABSENT (mcl-om#44 R2).
+            if (index(proc, s "/") == 1 && length(s) > length(best)) best = s
         }
         if (best != "") {
             svc_seen[best]++
@@ -203,6 +260,20 @@ END {
             report("STALE-NOT-SERVICE", p " is declared not-a-service but matched nothing")
     }
 
+    # Rule F: the measurement must have read every station the fleet runs. A DHT
+    # read answers from the records ONE station holds, so a listing taken from one
+    # station describes one stations replica set -- and a keyless advertisement
+    # held only on another station replicas never appears (mcl-om#44 R1). A station in
+    # the committed list that the listing never mentions, or one that says it
+    # contributed nothing, is a hole in the measurement, not a quiet zero.
+    for (j = 1; j <= nst; j++) {
+        label = station_list[j]
+        if (!(label in measured))
+            report("UNMEASURED", "station " label " is expected and the listing does not name it")
+        else if (measured[label] + 0 == 0)
+            report("UNMEASURED", "station " label " contributed no advertisement to this listing")
+    }
+
     if (!quiet) {
         keyed = 0; clear = 0; clear_off = 0; clear_ns = 0
         # Per PROCEDURE, not per line: a procedure advertised by several boxes
@@ -240,5 +311,4 @@ function absent_count(   j, n) {
     n = 0
     for (j = 1; j <= nsvc; j++) if (svc_seen[svc_call[j]] == 0) n++
     return n
-}
-' "$SERVICES" "$OPT_OUTS" "$NOT_SERVICES" "$LISTING"
+}'

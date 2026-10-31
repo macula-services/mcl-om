@@ -1,0 +1,23 @@
+# The stations a sealing measurement must have read.
+#
+# One label per line. These are the labels the measurement writes into its listing
+# header (`# station <label> advertisements=<n>`), NOT hostnames: this repository is
+# public, and which box is which is the fleet's business, not the register's. The
+# operator maps labels to stations on the box that runs the measurement; the labels
+# default to station-1..station-N in the order the seeds are given, so a run against
+# the fleet's stations needs no arguments to line up with this file.
+#
+# WHY THIS EXISTS. A station answers a DHT read from the records IT holds, so one
+# station is one replica set: an advertisement held only on another station's
+# replicas never appears in a single-station listing, and a half-rolled service
+# could read as sealed. check-sealing.sh fails when a label here is missing from the
+# listing, or when it appears with nothing to show.
+#
+# Six, because the fleet runs six public stations. Change this file in the commit
+# that changes the fleet, and the measurement cannot quietly shrink to one station.
+station-1
+station-2
+station-3
+station-4
+station-5
+station-6
