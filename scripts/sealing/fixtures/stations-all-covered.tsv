@@ -1,0 +1,8 @@
+# station station-1 advertisements=1
+# station station-2 advertisements=1
+# station station-3 advertisements=1
+# station station-4 advertisements=1
+# station station-5 advertisements=1
+# station station-6 advertisements=1
+mcl-warden/limits	keyed
+mcl-sec-guard/denials	keyed

@@ -51,14 +51,24 @@
 %% the operator's own stored key: reading the DHT needs an identity to connect
 %% with, and nothing else.
 %%
-%% Output: one line per advertisement, tab separated, plus `#' comments.
+%% Output: one line per DISTINCT <procedure, mode> pair, tab separated, plus `#'
+%% comments.
 %%
 %%   <procedure>	<keyed|keyless>
 %%
-%% A procedure advertised by several boxes appears once per advertisement, so a
+%% A procedure advertised by several boxes appears once per DISTINCT mode, so a
 %% service mid-roll that is keyed on one box and keyless on another shows BOTH
 %% lines. That is the honest reading of a mixed fleet and it is what
 %% check-sealing.sh needs to refuse a roll that is only half done.
+%%
+%% ONE STATION IS NOT THE FLEET (mcl-om#44 R1). A station answers a DHT read with
+%% the records IT holds, so asking one station about the fleet describes one
+%% station's replica set: an advertisement held only on another station's replicas
+%% never appears, and a half-rolled service could then read as sealed. So every
+%% seed is queried on its OWN pool and the rows are unioned, and the header carries
+%% one line per station saying how many advertisements that station contributed.
+%% A station that cannot be read fails the run: a fleet measurement with a station
+%% silently missing is the failure this exists to prevent.
 
 -mode(compile).
 
@@ -71,13 +81,23 @@ main(Args) ->
     ok = add_code_paths(Lib),
     ok = configure_sdk(maps:get(profile, Opts, pq_hybrid)),
     ok = start_macula(),
-    Pool = connect(Seeds, maps:get(timeout, Opts)),
-    {ok, Records} = find_advertisements(Pool),
+    Key = identity_key(),
+    PerStation = [measure(Seed, Key, Opts) || Seed <- Seeds],
+    Records = lists:append([Rs || {_Label, Rs} <- PerStation]),
     Lines = listing(Records, Opts),
-    Header = header(Seeds, Records, Opts),
+    Header = header(PerStation, Records, Opts),
     emit(Header ++ Lines, maps:get(out, Opts, undefined)),
-    catch macula_client:close(Pool),
     halt(0).
+
+%% One station, one pool, its own answer. The pool is closed before the next seed
+%% is dialled: a pool holding several seeds answers a DHT read from ONE of them
+%% (macula:find_records_by_type/2 is a single dht_call), which is exactly the
+%% mistake this loop exists to avoid making again.
+measure(#{label := Label} = Seed, Key, Opts) ->
+    Pool = connect([maps:without([label], Seed)], Key, maps:get(timeout, Opts)),
+    {ok, Records} = find_advertisements(Pool),
+    catch macula_client:close(Pool),
+    {Label, Records}.
 
 %%%===================================================================
 %%% Arguments
@@ -109,7 +129,7 @@ parse_args([Other | _], _Opts) ->
 
 usage(Code) ->
     io:format(standard_error,
-              "measure-sealing.escript [--lib DIR] [--seed host:port[:nodeid]]... "
+              "measure-sealing.escript [--lib DIR] [--seed [label=]host:port[:nodeid]]... "
               "[--realm HEX] [--profile NAME] [--comment TEXT] [--out FILE] "
               "[--timeout MS]~n", []),
     halt(Code).
@@ -130,23 +150,59 @@ repo_root() ->
 seeds(#{seeds := []}) ->
     case os:getenv("MCL_SEALING_SEEDS") of
         false -> no_seeds();
-        Raw -> [parse_seed(S) || S <- split_seeds(Raw)]
+        Raw -> label_seeds([parse_seed(S) || S <- split_seeds(Raw)])
     end;
 seeds(#{seeds := Specs}) ->
-    [parse_seed(S) || S <- Specs].
+    label_seeds([parse_seed(S) || S <- Specs]).
+
+%% A label is what the listing says about a station, and it is the operator's to
+%% choose: the header must be able to name the stations it read without the listing
+%% carrying a hostname or a node id. `<label>=host:port[:nodeid]' names one; a seed
+%% with no label gets `station-1', `station-2', ... in the order it was given.
+label_seeds(Specs) ->
+    Numbered = [S#{
+                  label => maps:get(label, S, list_to_binary("station-" ++ integer_to_list(N)))
+                 } || {S, N} <- lists:zip(Specs, lists:seq(1, length(Specs)))],
+    Labels = [maps:get(label, S) || S <- Numbered],
+    case length(Labels) =:= length(lists:usort(Labels)) of
+        true -> Numbered;
+        false -> duplicate_label(Labels)
+    end.
+
+duplicate_label(Labels) ->
+    io:format(standard_error,
+              "measure-sealing: two seeds carry the same label (~p). A station that "
+              "cannot be told apart from another cannot be reported on.~n", [Labels]),
+    halt(2).
 
 split_seeds(Raw) ->
     [S || S <- string:lexemes(Raw, ", "), S =/= ""].
 
 no_seeds() ->
     io:format(standard_error,
-              "measure-sealing: no seed given. Pass --seed host:port[:nodeid] "
+              "measure-sealing: no seed given. Pass --seed [label=]host:port[:nodeid] "
               "or set MCL_SEALING_SEEDS. A measurement against no station is "
               "not a measurement.~n", []),
     halt(2).
 
+%% `<label>=host:port[:nodeid>' or `host:port[:nodeid]'. The label is split off at
+%% the LAST `=', so a label may itself contain one.
+split_label(Spec) ->
+    case string:split(Spec, "=", trailing) of
+        [Label, Address] -> {list_to_binary(Label), Address};
+        [_Only] -> {undefined, Spec}
+    end.
+
 parse_seed(Spec) ->
-    case string:lexemes(Spec, ":") of
+    {Label, Address} = split_label(Spec),
+    Seed = parse_address(Address, Spec),
+    case Label of
+        undefined -> Seed;
+        Bin -> Seed#{label => Bin}
+    end.
+
+parse_address(Address, Spec) ->
+    case string:lexemes(Address, ":") of
         [Host, Port] ->
             #{host => list_to_binary(Host), port => list_to_integer(Port)};
         [Host, Port, NodeId] ->
@@ -154,7 +210,7 @@ parse_seed(Spec) ->
               expected_node_id => hex_to_bin(NodeId)};
         _ ->
             io:format(standard_error,
-                      "measure-sealing: a seed is host:port[:<64 hex>], got: ~ts~n",
+                      "measure-sealing: a seed is [label=]host:port[:<64 hex>], got: ~ts~n",
                       [Spec]),
             halt(2)
     end.
@@ -214,15 +270,19 @@ start_macula() ->
             halt(2)
     end.
 
-connect(Seeds, TimeoutMs) ->
+%% The fleet's own difficulty, not the cheapest key that starts: a station admits a
+%% node whose identity proves the work, and a plain key is refused at the dial --
+%% which reads as an unreachable fleet rather than a refused one. About half a
+%% second, and made ONCE for the whole measurement: every station is read under the
+%% same node, so a station that logs the reader records one reader, not six.
+identity_key() ->
     {ok, Profile} = macula_crypto_profile:configured(),
-    %% The fleet's own difficulty, not the cheapest key that starts: a station
-    %% admits a node whose identity proves the work, and a plain key is refused
-    %% at the dial -- which reads as an unreachable fleet rather than a refused
-    %% one. About half a second.
     {ok, Key} = macula_node_keys:generate(
                   identity, Profile,
                   #{puzzle_difficulty => macula_node_keys:puzzle_difficulty()}),
+    Key.
+
+connect(Seeds, Key, TimeoutMs) ->
     case macula_client:connect(Seeds, #{node_identity => Key}) of
         {ok, Pool} ->
             ok = wait_healthy(Pool, TimeoutMs),
@@ -298,16 +358,34 @@ sorted(Rows) ->
     Lines = [<<Procedure/binary, "\t", Mode/binary, "\n">> || {Procedure, Mode} <- Rows],
     lists:usort(Lines).
 
-header(Seeds, Records, Opts) ->
-    Station = fun(#{host := H, port := P}) ->
-                      [H, ":", integer_to_list(P)]
+%% One header line per station, and the count on it is what THAT station
+%% contributed to this listing -- after the realm filter, because a count that
+%% included every realm would overstate the reading and hide a station that
+%% answered with nothing in the one realm being measured.
+header(PerStation, Records, Opts) ->
+    Realm = maps:get(realm, Opts, any),
+    Station = fun({Label, StationRecords}) ->
+                      InRealm = [R || R <- StationRecords, record_in_realm(R, Realm)],
+                      [<<"# station ">>, Label, <<" advertisements=">>,
+                       integer_to_list(length(InRealm)), <<"\n">>]
               end,
-    Which = lists:join(",", [Station(S) || S <- Seeds]),
     [<<"# measured at ">>, timestamp(), <<"\n">>,
-     <<"# stations queried: ">>, Which, <<"\n">>,
-     <<"# realm: ">>, realm_label(maps:get(realm, Opts, any)), <<"\n">>,
-     <<"# advertisements returned and verified: ">>, integer_to_list(length(Records)), <<"\n">>]
+     <<"# stations queried: ">>, integer_to_list(length(PerStation)), <<"\n">>]
+        ++ [Station(P) || P <- PerStation]
+        ++ [<<"# realm: ">>, realm_label(Realm), <<"\n">>,
+            <<"# advertisements returned and verified: ">>,
+            integer_to_list(length(Records)), <<"\n">>,
+            <<"# advertisements outside the realm or in an unreadable realm form: ">>,
+            integer_to_list(length([R || R <- Records, not record_in_realm(R, Realm)])),
+            <<"\n">>,
+            <<"# distinct procedure/mode pairs in this listing: ">>,
+            integer_to_list(length(listing(Records, Opts))), <<"\n">>]
         ++ [<<"# ", (list_to_binary(C))/binary, "\n">> || C <- maps:get(comments, Opts)].
+
+%% What a station contributed, as the listing judged it. Used by the header for
+%% its per-station counts so the two can never disagree about the same record.
+record_in_realm(Record, Realm) ->
+    listing([Record], #{realm => Realm}) =/= [].
 
 realm_label(any) ->
     <<"every realm this pool's stations know (pass --realm to scope it)">>;

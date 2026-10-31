@@ -32,12 +32,25 @@ OUT="$TMP/out"
 # committed file. A case that passes its own --not-services overrides this.
 NSNONE="$FIXTURES/not-services-empty.tsv"
 
+# ...and from an EMPTY stations file, for the same reason: rule F reads the committed
+# station list, which is the fleet's, and a fixture listing names no stations at all.
+# A case that tests rule F passes its own --stations.
+STNONE="$FIXTURES/stations-none.tsv"
+
 # Run the checker and record its exit code. Output is kept in $OUT for the assertions.
 run() {
     case " $* " in
-        *" --not-services "*) "$CHECK" "$@" >"$OUT" 2>&1 ;;
-        *)                    "$CHECK" "$@" --not-services "$NSNONE" >"$OUT" 2>&1 ;;
+        *" --not-services "*) nsf=0 ;;
+        *)                    nsf=1 ;;
     esac
+    case " $* " in
+        *" --stations "*) stf=0 ;;
+        *)                stf=1 ;;
+    esac
+    set -- "$@" \
+        $([ "$nsf" = 1 ] && printf '%s\n' --not-services "$NSNONE") \
+        $([ "$stf" = 1 ] && printf '%s\n' --stations "$STNONE")
+    "$CHECK" "$@" >"$OUT" 2>&1
     echo $?
 }
 
@@ -131,6 +144,48 @@ case_exit   "a clear procedure under a declared prefix passes"       0 \
 case_tag    "a not-a-service prefix that matched nothing is stale"  STALE-NOT-SERVICE \
     "$FIXTURES/all-keyed.tsv" --services "$S" --opt-outs "$NONE" --not-services "$NS" --quiet
 
+# --- Rule F: the listing must have read every station --------------------------
+# A DHT read is answered from the records ONE station holds, so a listing taken from
+# one station is one replica set and an advertisement held only on another station's
+# replicas never appears (mcl-om#44 R1). The committed station list is what turns a
+# quiet zero into a finding.
+ST6="$FIXTURES/stations-six.tsv"
+case_tag    "F  a station the listing never names is UNMEASURED" UNMEASURED \
+    "$FIXTURES/stations-five-covered.tsv" --services "$S" --opt-outs "$NONE" --stations "$ST6" --quiet
+case_exit   "F  an unmeasured station exits 1"          1 \
+    "$FIXTURES/stations-five-covered.tsv" --services "$S" --opt-outs "$NONE" --stations "$ST6" --quiet
+if grep -q '^UNMEASURED *station station-6 ' "$OUT"; then ok "F  the missing station is the one named"
+else bad "F  the missing station is the one named"; fi
+case_tag    "F  a station that advertised nothing is UNMEASURED" UNMEASURED \
+    "$FIXTURES/stations-empty-one.tsv" --services "$S" --opt-outs "$NONE" --stations "$ST6" --quiet
+case_exit   "F  a station with nothing to show exits 1"  1 \
+    "$FIXTURES/stations-empty-one.tsv" --services "$S" --opt-outs "$NONE" --stations "$ST6" --quiet
+# ...and the half that matters: a full survey fires nothing.
+case_no_tag "F  a full survey has no UNMEASURED"        UNMEASURED \
+    "$FIXTURES/stations-all-covered.tsv" --services "$S" --opt-outs "$NONE" --stations "$ST6" --quiet
+case_exit   "F  a full survey passes"                   0 \
+    "$FIXTURES/stations-all-covered.tsv" --services "$S" --opt-outs "$NONE" --stations "$ST6" --quiet
+
+# --- R3: an empty file must not shift the sections -----------------------------
+# A 0-byte file has no first line, so a section boundary inferred from FNR would
+# never fire for it and every later section would be read one file early -- the
+# listing read as the not-services file, and the wrong findings printed (mcl-om#44
+# R3). Sections are marked now. This case puts a 0-byte file in the middle and
+# asserts the listing still arrives whole, by its own summary line.
+got="$(run "$FIXTURES/all-keyed.tsv" --services "$S" --opt-outs "$FIXTURES/zero-byte-opt-outs.tsv")"
+if [ "$got" = "0" ] && grep -q '^procedures listed   2$' "$OUT"; then
+    ok "R3 a 0-byte opt-out file leaves the listing intact"
+else
+    bad "R3 a 0-byte opt-out file leaves the listing intact (exit $got)"
+fi
+: >"$TMP/zero.tsv"
+got="$(run "$FIXTURES/keyless-no-off.tsv" --services "$S" --opt-outs "$NONE" --not-services "$TMP/zero.tsv")"
+if [ "$got" = "1" ] && grep -q '^NO-OFF ' "$OUT" && ! grep -q '^UNKNOWN \|^MALFORMED ' "$OUT"; then
+    ok "R3 a 0-byte not-services file still reads the listing"
+else
+    bad "R3 a 0-byte not-services file still reads the listing (exit $got)"
+fi
+
 # --- The clean case: nothing may fire -----------------------------------------
 case_exit   "clean listing passes"                     0 \
     "$FIXTURES/all-keyed.tsv" --services "$S" --opt-outs "$NONE" --quiet
@@ -167,6 +222,17 @@ gen="$TMP/real.tsv"
 awk -F'\t' '$1 !~ /^#/ && NF >= 1 && $1 != "" { printf "%s/probe\tkeyed\n", $1 }' "$REAL" >"$gen"
 case_exit   "every committed service attributes a probe procedure" 0 \
     "$gen" --services "$REAL" --opt-outs "$NONE" --quiet
+
+# A service name is not a prefix of another: mcl-bookclub is a prefix of
+# mcl-bookclub-phoenix/info, and a bare `index(proc, s) == 1` credited that procedure
+# to mcl-bookclub -- so the undeployed service was neither UNKNOWN nor its own owner
+# ABSENT (mcl-om#44 R2). Match on the first path SEGMENT.
+case_tag    "a phoenix procedure is not a bookclub procedure" UNKNOWN \
+    "$FIXTURES/bookclub-phoenix.tsv" --services "$REAL" --opt-outs "$NONE" --quiet
+if grep -q '^UNKNOWN *mcl-bookclub-phoenix/info' "$OUT"; then ok "the phoenix procedure is the UNKNOWN one"
+else bad "the phoenix procedure is the UNKNOWN one"; fi
+if grep -q '^ABSENT *mcl-bookclub-observer ' "$OUT"; then bad "observer is not left ABSENT by phoenix"
+else ok "observer is not left ABSENT by phoenix"; fi
 
 F="$TMP/bookclub.tsv"
 printf 'mcl-bookclub-observer/probe\tkeyed\n' >"$F"

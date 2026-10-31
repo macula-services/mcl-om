@@ -89,6 +89,14 @@ jobs:
           key: rebar3-hex-${{ hashFiles('rebar.config') }}
           restore-keys: rebar3-hex-
 
+      # The offline half of the sealing measurement (mcl-om#44). It ran in NO
+      # workflow before this line: the checker and its 40 fixture cases existed, and
+      # CI would have passed with every one of them broken -- the same failure the
+      # template suite was added for. Pure shell and fixtures, no mesh, no network.
+      # The live half (scripts/measure-sealing.escript) needs the fleet and cannot
+      # run here, so what is gated is the judgement, not the acquisition.
+      - run: scripts/check-sealing_test.sh
+
       - run: rebar3 lint
       # A call to a function that does not exist fails here rather than at runtime.
       # What counts is pinned in rebar.config: `xref_checks` names undefined calls
