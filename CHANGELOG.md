@@ -3,6 +3,73 @@
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [SemVer](https://semver.org/).
 
+## [1.7.0] - 2026-11-01
+
+A subscription can now be under a sealed group (mcl-om#49). The publish side
+has had its hook since mcl-tenders: `publisher_opts => #{publish => Fun}` reads
+the token at the publish. The subscribe side had no equivalent, so a service
+that publishes its facts sealed could not subscribe to them through mcl_om at
+all — it had to hand-roll a subscriber and lose the reconcile, `/health` and
+the fail-closed bookkeeping. This is the subscribe-side twin, and it is what
+mcl-tenders#4 and the guide_tender_lifecycle need; mcl-om#48 later swaps the
+admission for the node's realm membership UCAN without changing a declaration.
+
+### Added
+
+- **`group` and `admission` on `mcl_om_service:subscription()`**
+  (mcl-om#49): valid only together. `group` is the sealed group's prefix, which
+  `topic` must be under on a segment boundary — a whole segment, so
+  `<realm>/tenders` is a group of `<realm>/tenders/wire/x_v1` and never of
+  `<realm>/tenders_archive/wire/x_v1`. `admission` is `{Module, Function,
+  Args}`, called as `apply/3` with exactly those arguments and nothing added,
+  answering `{ok, Token}` (the UCAN that admits this node to the group) or
+  `{error, Reason}`. Declared wrong, the boot is refused naming the topic, the
+  way a missing `sources` already is: half of the pair, a group that is not a
+  segment of its topic, a term that is not `{atom, atom, list}`, and an
+  `M:F/arity` that is not exported are each their own refusal.
+- **The token exists for the length of one call, and nowhere else IN MCL_OM'S
+  OWN ARTEFACTS.** mcl_om starts such a subscriber with a `subscribe` function
+  of its own (`macula_subscriber:start_link/6`'s `subscribe` option) that calls
+  the admission and passes the token straight to `macula:subscribe/5` beside
+  the group. So the child spec carries the fun and the `{M, F, A}` and never the
+  token, and `macula_subscriber` keeps no options in its state at all. What
+  mcl_om reports for a refused admission is never what the admission answered as
+  itself: an atom is passed through (`no_admission_token`), any term becomes
+  `admission_refused`, and a raise `admission_raised` — because an admission
+  reads a token and can fail holding it (`{error, {expired, Token}}` is a real
+  shape), and echoing that term is exactly how a token would reach a log line,
+  `/health` or a crash report. The tests look for a canary token in the child
+  spec, in the read-back, in the recorded failure, in the `/health` report and in
+  the log — including a crash raised in the subscribe path itself, whose reason
+  would otherwise carry the options, and so the token, into a log line.
+  NODE-WIDE this holds only once macula-io/macula#189 lands: the SDK's keyring
+  keeps the ucan in its own state and `macula_node_keys:redacted/1` does not
+  redact it, so a crash report or `sys:get_status` of the keyring can still show
+  one. That is macula's fix, not this one.
+- **Called once per subscribe attempt, never on a tick.** The admission runs at
+  a first start, a restart, a pool replacement and a changed declaration — not
+  on the 30s reconcile that finds the subscriber running and matching. Nothing
+  is cached in mcl_om: once the group is joined, a later epoch pull is macula's
+  keyring's business.
+
+### Changed
+
+- **The declaration-equality check now compares `group` and `admission`**
+  (mcl-om#41's rule, extended): changing either restarts that subscriber and
+  no other. A `declaration/2` read-back of a subscription with neither reads
+  exactly as it did before.
+
+### Fixed
+
+- Fail closed throughout: an admission that refuses, answers something that is
+  not a token, or raises starts no subscriber, is recorded per topic, and
+  degrades `/health` naming the topic and the reason. There is no fallback to a
+  clear subscription.
+- A raise from `macula:subscribe/5` is recorded as the fixed atom
+  `subscribe_raised`. Its own reason is a `function_clause` whose arguments are
+  the options it was called with — the token among them — and that reason is
+  logged with `~p` and kept for `/health`, so it is not passed on.
+
 ## [1.6.0] - 2026-10-30
 
 Serving openly stops being the default here too (macula-io/macula#147,

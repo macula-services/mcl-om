@@ -130,7 +130,9 @@ in the service's own `<name>_app`, reading the store's settings from
 -type subscription() :: #{topic := binary(),
                           module := module(),
                           args => term(),
-                          sources := sources()}.
+                          sources := sources(),
+                          group => binary(),
+                          admission => {module(), atom(), [term()]}}.
 
 -export_type([info/0, json_value/0, health/0, capability/0, identity_spec/0,
               subscription/0, sources/0]).
@@ -178,8 +180,19 @@ in the service's own `<name>_app`, reading the store's settings from
      "those publishers, no lookup), or `{open, Reason}' -- `open' as an "
      "explicit opt-out, refused unless a non-empty reason says why anyone "
      "may deliver, the way `guard => none' already reads. The subscriber's "
-     "own SDK enforces it on every fact before the handler runs. A "
-     "declaration mcl_om cannot wire -- no `sources' above all -- refuses "
+     "own SDK enforces it on every fact before the handler runs. "
+     "A subscription under a SEALED group adds `group' and `admission', "
+     "which are valid only together: `group' is the group's prefix, which "
+     "`topic' must be under on a segment boundary, and `admission' is "
+     "`{Module, Function, Args}' -- called as `apply/3' with exactly those "
+     "arguments and nothing added -- answering `{ok, Token}', the UCAN that "
+     "admits this node to the group, or `{error, Reason}'. mcl_om calls it "
+     "once per subscribe attempt and hands the token straight to "
+     "`macula:subscribe/5', so the token is in no child spec, no state and "
+     "no log; a refusal starts nothing and `/health' names the topic and "
+     "the reason. Nothing is cached: a later epoch pull is macula's "
+     "keyring's business once the group is joined. "
+     "A declaration mcl_om cannot wire -- no `sources' above all -- refuses "
      "the boot naming the topic, before the service's own `start/1' runs. "
      "It is read twice, before start/1 and again once the service is up, so "
      "it must be PURE: derive it from config or app env, never from state "

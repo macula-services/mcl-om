@@ -39,6 +39,37 @@
 %%% macula#147) is refused by `validate/1' before anything is attempted, so
 %%% the mistake is named at boot rather than discovered from a log.
 %%%
+%%% A SUBSCRIPTION UNDER A SEALED GROUP NAMES THE ADMISSION THAT OPENS IT
+%%% (mcl-om#49). A declaration may carry `group' (the group's prefix) and
+%%% `admission' ({M, F, A}), and then mcl_om gives the subscriber a
+%%% `subscribe' function of its own instead of macula's default: at each
+%%% subscribe attempt it calls the admission, and hands the token it
+%%% answers straight to `macula:subscribe/5' beside the group. The token
+%%% is therefore in no child spec, no subscriber state and no log of
+%%% mcl_om's -- the spec carries the fun and the {M, F, A}, and the fun's
+%%% own frame is the only place a token ever exists. NODE-wide that holds
+%%% only once macula-io/macula#189 lands: the SDK's keyring keeps the ucan
+%%% in its own state and `macula_node_keys:redacted/1' does not redact
+%%% `ucan' / `ucan_token', so a crash report or `sys:get_status' of the
+%%% keyring can still show one, which is macula's to fix and not this.
+%%%
+%%% An admission that refuses (or raises) starts nothing: the topic is
+%%% recorded as failed, `/health' names it and the reason, and the next
+%%% tick tries again. What it ANSWERS is not reported as itself: an atom
+%%% is passed through (`no_admission_token'), anything else becomes
+%%% `admission_refused', and a raise `admission_raised'. Nor is a raise
+%%% from `macula:subscribe/5' passed on as itself -- that reason is the
+%%% call's own arguments, the token among them, so it is reported as
+%%% `subscribe_raised'. There is no fallback to a clear subscription.
+%%%
+%%% AN ADMISSION MUST NOT BLOCK. It is called from this server's own
+%%% reconcile (through `supervisor:start_child/2'), so a subscription whose
+%%% admission waits for something -- a network call with no deadline, say
+%%% -- holds up the reconcile of EVERY other subscription and the `/health'
+%%% report with it. Read what you need before the fun is handed over, or
+%%% bound the wait; what the admission itself does to get a token in under
+%%% a second is then nobody else's delay.
+%%%
 %%% Reconnect handling that is deliberately NOT here: no
 %%% `macula_event_gone' listening, no resubscribe-on-DOWN. Confirmed
 %%% live (`macula_link_respawn_replay_tests.erl') that an ordinary link
@@ -59,6 +90,11 @@
 -export([diff/2, declaration/2, validate/1, start_failure/1,
          recorded/3, failures/1,
          children/0, running_topics/1, dead_specs/1, coming_back/1]).
+%% The child a declaration becomes, and the parts of a sealed-group
+%% subscription that a test can hold without a mesh: the token an admission
+%% answers, and the options macula is finally given.
+-export([child_spec/3, start_subscriber/4, subscribe/2, admission_token/1,
+         subscribe_opts/3]).
 
 %% The report /health reads, written by this server on every reconcile.
 -define(REPORT, mcl_om_pubsub_subscriptions_report).
@@ -70,9 +106,12 @@
 
 %% What a running child was started with, read back from its child spec:
 %% the whole declaration minus `Pool' and `Realm', which are the node's
-%% current handles rather than the service's intent.
+%% current handles rather than the service's intent. `group' and
+%% `admission' are present only for a subscription that declares them.
 -type declaration() :: #{topic := binary(), module := module() | unknown,
-                         args := term(), sources := term()}.
+                         args := term(), sources := term(),
+                         group => binary(),
+                         admission => {module(), atom(), [term()]}}.
 
 -type failure_report() :: [map()].
 
@@ -210,17 +249,22 @@ diff(Desired, Current) ->
 matches(Declaration, Declarations) ->
     lists:any(fun(Other) -> same_declaration(Declaration, Other) end, Declarations).
 
-%% Same topic, same handler, same args, same sources. The sources compare in
+%% Same topic, same handler, same args, same sources, and the same group
+%% and admission. The sources compare in
 %% the form the SDK takes them (`{open, Reason}' is macula's `open'): the
 %% reason is the service's written documentation of an opt-out, not
 %% something a running subscriber can differ on. `args' compares through
 %% `args/1', so a declaration that leaves it out and the `[]' the child was
 %% actually started with are the same declaration, not a restart every tick.
+%% A changed `group' or `admission' DOES restart: the subscriber is
+%% subscribed under the old one and must be re-admitted under the new.
 same_declaration(#{topic := Topic} = A, #{topic := Topic} = B) ->
     maps:get(module, A, undefined) =:= maps:get(module, B, undefined)
         andalso args(A) =:= args(B)
         andalso wire_sources(maps:get(sources, A, undefined))
-                =:= wire_sources(maps:get(sources, B, undefined));
+                =:= wire_sources(maps:get(sources, B, undefined))
+        andalso maps:get(group, A, undefined) =:= maps:get(group, B, undefined)
+        andalso maps:get(admission, A, undefined) =:= maps:get(admission, B, undefined);
 same_declaration(_A, _B) ->
     false.
 
@@ -276,7 +320,8 @@ childspec(Topic) ->
 
 %% @doc The declaration a running child was started with, read back from its
 %% own child spec: `macula_subscriber:start_link/6''s start args are Module,
-%% Pool, Realm, Topic, Args, Opts, and `sources' lives in Opts. Anything
+%% Pool, Realm, Topic, Args, Opts, and `sources' lives in Opts -- as do
+%% `group' and `admission', when the declaration named them. Anything
 %% else running under the subscription supervisor is reported as `unknown',
 %% which matches no declaration -- so it is stopped rather than kept as a
 %% subscriber nothing asked for.
@@ -285,23 +330,134 @@ declaration(Topic,
             #{start := {macula_subscriber, start_link,
                         [Mod, _Pool, _Realm, Topic, Args, Opts]}})
   when is_map(Opts) ->
-    #{topic => Topic, module => Mod, args => Args,
-      sources => maps:get(sources, Opts, undefined)};
+    Decl = #{topic => Topic, module => Mod, args => Args,
+             sources => maps:get(sources, Opts, undefined)},
+    %% Only when declared: a subscription with no group reads back exactly
+    %% as it always did, rather than gaining two `undefined's.
+    maps:merge(Decl, maps:with([group, admission], Opts));
 declaration(Topic, _ChildSpec) ->
     #{topic => Topic, module => unknown, args => undefined, sources => undefined}.
 
+-spec start_subscriber(pid(), binary(), mcl_om_service:subscription(), map()) -> map().
 start_subscriber(Pool, Realm, Sub, Failures) ->
-    #{topic := Topic, module := Module, sources := Sources} = Sub,
-    ChildSpec = #{id       => Topic,
-                  start    => {macula_subscriber, start_link,
-                               [Module, Pool, Realm, Topic, args(Sub),
-                                #{sources => wire_sources(Sources)}]},
-                  restart  => transient,
-                  shutdown => 5_000,
-                  type     => worker,
-                  modules  => [Module]},
-    recorded(Topic, start_failure(supervisor:start_child(mcl_om_pubsub_sup, ChildSpec)),
+    #{topic := Topic} = Sub,
+    recorded(Topic, start_failure(supervisor:start_child(mcl_om_pubsub_sup,
+                                                         child_spec(Pool, Realm, Sub))),
              Failures).
+
+%% @doc The child a declaration becomes. Split out so a test can hold the
+%% spec itself -- above all, to show that a token is in it nowhere: the
+%% admission is NOT called here, so the only thing a sealed-group
+%% subscription puts in its spec is the fun and the {M, F, A}.
+-spec child_spec(pid(), binary(), mcl_om_service:subscription()) -> map().
+child_spec(Pool, Realm, #{topic := Topic, module := Module} = Sub) ->
+    #{id       => Topic,
+      start    => {macula_subscriber, start_link,
+                   [Module, Pool, Realm, Topic, args(Sub), subscriber_opts(Sub)]},
+      restart  => transient,
+      shutdown => 5_000,
+      type     => worker,
+      modules  => [Module]}.
+
+%% What the subscriber is started with: the declaration's `sources' in the
+%% form macula takes, and -- for a subscription under a sealed group -- the
+%% group, the {M, F, A} and the `subscribe' fun that turns one into a
+%% token at each subscribe attempt. None of these is secret; the token
+%% they produce is, and it exists only inside that fun's own frame.
+subscriber_opts(Sub) ->
+    Base = #{sources => wire_sources(maps:get(sources, Sub))},
+    sealed(Base, Sub).
+
+sealed(Opts, #{group := Group, admission := Admission}) ->
+    Opts#{group => Group, admission => Admission,
+          subscribe => subscribe(Group, Admission)};
+sealed(Opts, _Sub) ->
+    Opts.
+
+%% @doc The `subscribe' function macula_subscriber is started with for a
+%% sealed-group subscription: the admission is called HERE, at each
+%% subscribe attempt (a first start, a restart, a pool replacement, a
+%% changed declaration -- never a reconcile tick that finds the
+%% subscriber running), and its token goes straight to
+%% `macula:subscribe/5' beside the group. Nothing caches it: once the
+%% group is joined, a later epoch pull is macula's keyring's business.
+-spec subscribe(binary(), {module(), atom(), [term()]}) ->
+          fun((pid(), binary(), binary(), pid(), map()) -> {ok, reference()} | {error, term()}).
+subscribe(Group, Admission) ->
+    fun(Pool, Realm, Topic, Subscriber, Opts) ->
+        admitted(Admission, Group, Pool, Realm, Topic, Subscriber, Opts)
+    end.
+
+%% One subscribe attempt: the admission is asked for a token, and the token
+%% -- with the group -- is the last thing handed to macula, in the options
+%% that go with this call and nowhere else. Split out of the fun above so
+%% the decision is a named function rather than a case inside an anonymous
+%% one.
+admitted(Admission, Group, Pool, Realm, Topic, Subscriber, Opts) ->
+    case admission_token(Admission) of
+        {ok, Token} ->
+            handed_over(Group, Token, Pool, Realm, Topic, Subscriber, Opts);
+        {error, Reason} ->
+            %% macula's own shape for a refused group (`{error, {group,
+            %% Reason}}'), so a caller that already matches it does not need
+            %% a second case. macula_subscriber stops on it, the reconcile
+            %% records the topic, /health names both.
+            {error, {group, {admission, Reason}}}
+    end.
+
+%% THE TOKEN DIES AT THIS FRAME (Pluto's publisher finding, subscribe side).
+%% `macula:subscribe/5' is not ours, and an exception from it carries the
+%% call's own arguments: a `function_clause' reason IS the argument list,
+%% which is the options, which is the token -- and the subscriber's start
+%% failure gets that reason logged with `~p' and kept for `/health'. So a
+%% raise is answered by a fixed atom and its own reason is never passed on.
+%% The subscriber stops, the topic is recorded as failed and the next tick
+%% retries it, exactly as any other failed start; only the cause is less
+%% specific than it would be for a call that holds no secret.
+handed_over(Group, Token, Pool, Realm, Topic, Subscriber, Opts) ->
+    try macula:subscribe(Pool, Realm, Topic, Subscriber,
+                         subscribe_opts(Group, Token, Opts))
+    catch
+        _Class:_Reason -> {error, subscribe_raised}
+    end.
+
+%% @doc The options `macula:subscribe/5' is finally given: the
+%% declaration's own (`sources', `delivery' and the like), `group', and the
+%% token. `admission' is dropped -- it is mcl_om's declaration key, not an
+%% option macula knows.
+-spec subscribe_opts(binary(), binary(), map()) -> map().
+subscribe_opts(Group, Token, Opts) ->
+    (maps:without([admission], Opts))#{group => Group, ucan_token => Token}.
+
+%% @doc What an admission answered, as a token or a reason safe to report.
+%%
+%% NOTHING AN ADMISSION SAYS IS REPORTED AS ITSELF (mcl-om#49). Whatever this
+%% returns is echoed to a log line, to `/health' and to a supervisor's crash
+%% report, so the only thing passed through is an ATOM: a reason an operator
+%% can act on (`no_admission_token') and that cannot carry anything. An
+%% admission that answers a term, a tuple, or a list is reported by the fixed
+%% atom `admission_refused', and one that raises by `admission_raised'. An
+%% admission reads a token and can fail holding it -- `{error, {expired,
+%% Token}}', say -- and echoing that term is exactly how the token would
+%% reach a log line, `/health' or a crash report.
+-spec admission_token({module(), atom(), [term()]}) ->
+          {ok, binary()} | {error, atom()}.
+admission_token({Module, Function, Args}) ->
+    try apply(Module, Function, Args) of
+        {ok, Token} when is_binary(Token), byte_size(Token) > 0 ->
+            {ok, Token};
+        {ok, _NotAToken} ->
+            {error, not_a_token};
+        {error, Reason} when is_atom(Reason) ->
+            {error, Reason};
+        {error, _Term} ->
+            {error, admission_refused};
+        _Other ->
+            {error, not_an_admission}
+    catch
+        _Class:_Reason ->
+            {error, admission_raised}
+    end.
 
 args(Sub) ->
     maps:get(args, Sub, []).
@@ -377,7 +533,10 @@ arm_timer(S) ->
 %% mesh. Refused: `sources' missing; a source class macula does not know;
 %% `open' with no written reason, or a reason that is not text; an empty or
 %% malformed `{nodes, _}' / `{org, _}'; a non-binary topic; a non-atom
-%% module; the same topic twice; and anything that is not a map at all.
+%% module; the same topic twice; `group' without `admission' or the other
+%% way round, a `group' `topic' is not under on a segment boundary, an
+%% `admission' that is not `{atom, atom, list}', and an `M:F/arity' that is
+%% not exported; and anything that is not a map at all.
 -spec validate(term()) -> ok | {error, {mcl_om_subscription_invalid, map()}}.
 validate(Desired) when is_list(Desired) ->
     validate_each(Desired, []);
@@ -406,11 +565,82 @@ continued({error, _} = Error, _Sub, _Rest, _Seen) ->
     Error.
 
 validate_one(#{topic := Topic, module := Module} = Sub) when is_atom(Module) ->
-    validate_sources(Topic, maps:get(sources, Sub, undefined));
+    and_group(validate_sources(Topic, maps:get(sources, Sub, undefined)), Sub);
 validate_one(#{topic := Topic, module := Module}) ->
     invalid(Topic, {module, not_an_atom, Module});
 validate_one(#{topic := Topic}) ->
     invalid(Topic, {module, required}).
+
+%% A sealed-group subscription is checked only once its sources are: the
+%% first refusal is the one an operator acts on.
+and_group(ok, #{topic := Topic} = Sub) ->
+    validate_group(Topic, maps:get(group, Sub, undefined),
+                   maps:get(admission, Sub, undefined));
+and_group({error, _} = Error, _Sub) ->
+    Error.
+
+%% `group' and `admission' are a pair: half of one wires a subscription
+%% nobody can open, and half of the other calls nothing.
+validate_group(_Topic, undefined, undefined) ->
+    ok;
+validate_group(Topic, undefined, _Admission) ->
+    invalid(Topic, {admission, requires_a_group});
+validate_group(Topic, _Group, undefined) ->
+    invalid(Topic, {group, requires_an_admission});
+validate_group(Topic, Group, Admission) ->
+    and_admission(validate_group_prefix(Topic, Group), Topic, Admission).
+
+%% The prefix a sealed event's topic must be under: a whole segment, not a
+%% fragment of one, so `<realm>/tenders' is a prefix of
+%% `<realm>/tenders/wire/x_v1' and never of `<realm>/tenders_archive/wire/x_v1'.
+validate_group_prefix(Topic, Group) when not is_binary(Group) ->
+    invalid(Topic, {group, not_a_binary});
+validate_group_prefix(Topic, <<>>) ->
+    invalid(Topic, {group, is_empty});
+validate_group_prefix(Topic, Group) ->
+    prefixed(Topic, is_a_group_of(Group, Topic)).
+
+is_a_group_of(Group, Topic) ->
+    Size = byte_size(Group),
+    Size =< byte_size(Topic)
+        andalso binary:part(Topic, 0, Size) =:= Group
+        andalso (byte_size(Topic) =:= Size orelse binary:at(Topic, Size) =:= $/).
+
+prefixed(_Topic, true) ->
+    ok;
+prefixed(Topic, false) ->
+    invalid(Topic, {group, not_a_prefix_of_topic}).
+
+and_admission(ok, Topic, Admission) ->
+    validate_admission(Topic, Admission);
+and_admission({error, _} = Error, _Topic, _Admission) ->
+    Error.
+
+%% `{M, F, A}', with nothing added: what mcl_om calls at each subscribe
+%% attempt is exactly what the service declared. The term itself is never
+%% echoed into a refusal -- a declaration that put something else here (a
+%% token, in the worst case) must not have it printed at boot.
+validate_admission(Topic, {Module, Function, Args})
+  when is_atom(Module), is_atom(Function), is_list(Args) ->
+    admission_exported(Topic, Module, Function, length(Args));
+validate_admission(Topic, _Other) ->
+    invalid(Topic, {admission, not_an_mfa}).
+
+%% A module that will not load cannot export the function: refused where it
+%% is, naming the module, rather than discovered at the first subscribe.
+admission_exported(Topic, Module, Function, Arity) ->
+    case code:ensure_loaded(Module) of
+        {module, Module} ->
+            admission_function(Topic, Module, Function, Arity,
+                               erlang:function_exported(Module, Function, Arity));
+        {error, _Why} ->
+            invalid(Topic, {admission, {not_loadable, Module}})
+    end.
+
+admission_function(_Topic, _Module, _Function, _Arity, true) ->
+    ok;
+admission_function(Topic, Module, Function, Arity, false) ->
+    invalid(Topic, {admission, {not_exported, Module, Function, Arity}}).
 
 validate_sources(_Topic, members) ->
     ok;
