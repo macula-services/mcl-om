@@ -305,7 +305,9 @@ A refusal never falls back to a clear subscription. The subscriber does not
 start, `mcl_om_pubsub_subscriptions` retries on its 30s tick, and `/health`
 names the topic and the reason — `{group, {admission, Reason}}` for yours,
 or the SDK's own verdict (`not_authorized`, `not_a_member`, `no_distributor`)
-once one is presented.
+once one is presented. A raise out of the SDK call itself is reported as
+`subscribe_raised`: its own reason is the call's arguments, and the token is
+one of them.
 
 Under a group, a sealed event arrives already opened, with `sealed => 1` and
 `seal_key_id` in its meta; one that cannot be opened arrives once as

@@ -240,6 +240,8 @@ A refusal is a refusal to subscribe, never a fall back to a clear
 subscription: the start fails, the reconcile retries it on its 30s tick, and
 `/health` names the topic and the reason (an emitted `{group, {admission,
 Reason}}`, or macula's own `not_authorized`, `not_a_member`, `no_distributor`).
+A raise out of the SDK call itself is reported as `subscribe_raised` and not by
+its own reason, which is the call's arguments — the token among them.
 
 ## Persistence is the service's own
 

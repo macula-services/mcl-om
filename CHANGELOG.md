@@ -37,7 +37,9 @@ admission for the node's realm membership UCAN without changing a declaration.
   whatever the admission answered or raised with — an admission reads a token
   and can fail holding it, so echoing that term is exactly how a token would
   reach a crash report. The tests look for a canary token in the child spec, in
-  the read-back, in the recorded failure and in the `/health` report.
+  the read-back, in the recorded failure, in the `/health` report and in the
+  log — including a crash raised in the subscribe path itself, whose reason
+  would otherwise carry the options, and so the token, into a log line.
 - **Called once per subscribe attempt, never on a tick.** The admission runs at
   a first start, a restart, a pool replacement and a changed declaration — not
   on the 30s reconcile that finds the subscriber running and matching. Nothing
@@ -57,6 +59,10 @@ admission for the node's realm membership UCAN without changing a declaration.
   not a token, or raises starts no subscriber, is recorded per topic, and
   degrades `/health` naming the topic and the reason. There is no fallback to a
   clear subscription.
+- A raise from `macula:subscribe/5` is recorded as the fixed atom
+  `subscribe_raised`. Its own reason is a `function_clause` whose arguments are
+  the options it was called with — the token among them — and that reason is
+  logged with `~p` and kept for `/health`, so it is not passed on.
 
 ## [1.6.0] - 2026-10-30
 

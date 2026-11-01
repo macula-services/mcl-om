@@ -49,8 +49,11 @@
 %%% spec carries the fun and the {M, F, A}, and the fun's own frame is
 %%% the only place a token ever exists. An admission that refuses (or
 %%% raises) starts nothing: the topic is recorded as failed, `/health'
-%%% names it and the reason, and the next tick tries again. There is no
-%%% fallback to a clear subscription.
+%%% names it and the reason, and the next tick tries again. Neither is a
+%%% raise from `macula:subscribe/5' passed on as itself -- that reason is
+%%% the call's own arguments, the token among them, so it is reported as
+%%% the fixed atom `subscribe_raised'. There is no fallback to a clear
+%%% subscription.
 %%%
 %%% Reconnect handling that is deliberately NOT here: no
 %%% `macula_event_gone' listening, no resubscribe-on-DOWN. Confirmed
@@ -378,14 +381,29 @@ subscribe(Group, Admission) ->
 admitted(Admission, Group, Pool, Realm, Topic, Subscriber, Opts) ->
     case admission_token(Admission) of
         {ok, Token} ->
-            macula:subscribe(Pool, Realm, Topic, Subscriber,
-                             subscribe_opts(Group, Token, Opts));
+            handed_over(Group, Token, Pool, Realm, Topic, Subscriber, Opts);
         {error, Reason} ->
             %% macula's own shape for a refused group (`{error, {group,
             %% Reason}}'), so a caller that already matches it does not need
             %% a second case. macula_subscriber stops on it, the reconcile
             %% records the topic, /health names both.
             {error, {group, {admission, Reason}}}
+    end.
+
+%% THE TOKEN DIES AT THIS FRAME (Pluto's publisher finding, subscribe side).
+%% `macula:subscribe/5' is not ours, and an exception from it carries the
+%% call's own arguments: a `function_clause' reason IS the argument list,
+%% which is the options, which is the token -- and the subscriber's start
+%% failure gets that reason logged with `~p' and kept for `/health'. So a
+%% raise is answered by a fixed atom and its own reason is never passed on.
+%% The subscriber stops, the topic is recorded as failed and the next tick
+%% retries it, exactly as any other failed start; only the cause is less
+%% specific than it would be for a call that holds no secret.
+handed_over(Group, Token, Pool, Realm, Topic, Subscriber, Opts) ->
+    try macula:subscribe(Pool, Realm, Topic, Subscriber,
+                         subscribe_opts(Group, Token, Opts))
+    catch
+        _Class:_Reason -> {error, subscribe_raised}
     end.
 
 %% @doc The options `macula:subscribe/5' is finally given: the

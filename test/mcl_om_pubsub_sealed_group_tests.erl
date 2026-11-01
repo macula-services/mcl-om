@@ -10,6 +10,10 @@
 -module(mcl_om_pubsub_sealed_group_tests).
 -include_lib("eunit/include/eunit.hrl").
 
+%% The logger handler that catches everything this module's tests make the
+%% node log, so a leak test can look for the canary in the log too.
+-export([log/2]).
+
 -define(GROUP, <<"io.example/mcl-tenders/tenders">>).
 -define(TOPIC, <<"io.example/mcl-tenders/tenders/wire/tender_notice_reported_v1">>).
 -define(ADMISSION, {sealed_group_admission, token, []}).
@@ -154,6 +158,60 @@ raising_admission_leaves_the_token_in_no_reason_test() ->
       end).
 
 printed(Reason) -> iolist_to_binary(io_lib:format("~p", [Reason])).
+
+%%%===================================================================
+%%% A crash in the SUBSCRIBE path is the other way the token could get out
+%%% (Pluto's publisher finding, subscribe side): the token is handed to
+%%% `macula:subscribe/5', which is not ours, and a raise from there carries
+%%% the call's own arguments -- the token among them -- into a reason that
+%%% `recorded/3' logs with `~p' and keeps for `/health'.
+%%%===================================================================
+
+%% A pool that is not a pool is a `function_clause' in macula, raised with
+%% the options this subscription was given: the exact shape probed, where
+%% the reason printed `<ucan_token, CANARY>'. The fun answers a fixed atom
+%% instead, so the token stops at the frame that held it -- and the topic is
+%% still recorded as failed, so the next tick retries it.
+subscribe_path_crash_leaves_the_token_nowhere_test() ->
+    with_pubsub_sup(
+      fun() ->
+              ok = logger:add_handler(?MODULE, ?MODULE,
+                                      #{level => all, config => #{pid => self()}}),
+              try
+                  Failures = mcl_om_pubsub_subscriptions:start_subscriber(
+                               not_a_pool, realm(), sealed(?ADMISSION), #{}),
+                  Logged = printed(logged()),
+                  ?assertEqual(#{?TOPIC => subscribe_raised}, Failures),
+                  ?assertEqual([#{topic => ?TOPIC, reason => <<"subscribe_raised">>}],
+                               mcl_om_pubsub_subscriptions:failures(Failures)),
+                  ?assertNot(contains(Failures, canary())),
+                  ?assertNot(contains(mcl_om_pubsub_subscriptions:failures(Failures), canary())),
+                  %% The handler really did catch this start's log line --
+                  %% otherwise "the canary is not in the log" proves nothing.
+                  ?assertNotEqual(nomatch, binary:match(Logged, <<"did not start">>)),
+                  ?assertNotEqual(nomatch, binary:match(Logged, <<"subscribe_raised">>)),
+                  ?assertEqual(nomatch, binary:match(Logged, canary())),
+                  %% Nothing subscribed, and no spec left to be mistaken for one.
+                  ?assertEqual([], mcl_om_pubsub_subscriptions:children())
+              after
+                  logger:remove_handler(?MODULE)
+              end
+      end).
+
+%% Everything the handler has forwarded so far, waited for once: a crash
+%% report is logged from another process, so it arrives after the call that
+%% caused it has already answered.
+logged() ->
+    receive
+        {log, Level, Report} -> [{Level, Report} | logged()]
+    after 500 -> []
+    end.
+
+%% logger handler: forward every event to the test process.
+log(#{level := Level, msg := Msg}, #{config := #{pid := Pid}}) ->
+    Pid ! {log, Level, Msg};
+log(_Event, _Config) ->
+    ok.
 
 with_pubsub_sup(Body) ->
     {ok, Sup} = mcl_om_pubsub_sup:start_link(),
