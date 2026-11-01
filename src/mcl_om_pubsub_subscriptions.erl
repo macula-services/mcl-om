@@ -45,15 +45,30 @@
 %%% `subscribe' function of its own instead of macula's default: at each
 %%% subscribe attempt it calls the admission, and hands the token it
 %%% answers straight to `macula:subscribe/5' beside the group. The token
-%%% is therefore in no child spec, no subscriber state and no log -- the
-%%% spec carries the fun and the {M, F, A}, and the fun's own frame is
-%%% the only place a token ever exists. An admission that refuses (or
-%%% raises) starts nothing: the topic is recorded as failed, `/health'
-%%% names it and the reason, and the next tick tries again. Neither is a
-%%% raise from `macula:subscribe/5' passed on as itself -- that reason is
-%%% the call's own arguments, the token among them, so it is reported as
-%%% the fixed atom `subscribe_raised'. There is no fallback to a clear
-%%% subscription.
+%%% is therefore in no child spec, no subscriber state and no log of
+%%% mcl_om's -- the spec carries the fun and the {M, F, A}, and the fun's
+%%% own frame is the only place a token ever exists. NODE-wide that holds
+%%% only once macula-io/macula#189 lands: the SDK's keyring keeps the ucan
+%%% in its own state and `macula_node_keys:redacted/1' does not redact
+%%% `ucan' / `ucan_token', so a crash report or `sys:get_status' of the
+%%% keyring can still show one, which is macula's to fix and not this.
+%%%
+%%% An admission that refuses (or raises) starts nothing: the topic is
+%%% recorded as failed, `/health' names it and the reason, and the next
+%%% tick tries again. What it ANSWERS is not reported as itself: an atom
+%%% is passed through (`no_admission_token'), anything else becomes
+%%% `admission_refused', and a raise `admission_raised'. Nor is a raise
+%%% from `macula:subscribe/5' passed on as itself -- that reason is the
+%%% call's own arguments, the token among them, so it is reported as
+%%% `subscribe_raised'. There is no fallback to a clear subscription.
+%%%
+%%% AN ADMISSION MUST NOT BLOCK. It is called from this server's own
+%%% reconcile (through `supervisor:start_child/2'), so a subscription whose
+%%% admission waits for something -- a network call with no deadline, say
+%%% -- holds up the reconcile of EVERY other subscription and the `/health'
+%%% report with it. Read what you need before the fun is handed over, or
+%%% bound the wait; what the admission itself does to get a token in under
+%%% a second is then nobody else's delay.
 %%%
 %%% Reconnect handling that is deliberately NOT here: no
 %%% `macula_event_gone' listening, no resubscribe-on-DOWN. Confirmed
@@ -416,24 +431,27 @@ subscribe_opts(Group, Token, Opts) ->
 
 %% @doc What an admission answered, as a token or a reason safe to report.
 %%
-%% THE REASON IS REPORTED, THE TOKEN NEVER IS (mcl-om#49). Everything here
-%% is echoed to a log line, to `/health' and to a supervisor's crash
-%% report, so a term that is not a token is never passed through
-%% unexamined: an admission that returns something else, or that raises,
-%% is reported by a fixed atom rather than by what it returned or why.
-%% An admission reads a token and can fail holding it -- a badmatch on the
-%% value it just fetched, say -- and echoing that term is exactly how the
-%% token would reach a crash report.
+%% NOTHING AN ADMISSION SAYS IS REPORTED AS ITSELF (mcl-om#49). Whatever this
+%% returns is echoed to a log line, to `/health' and to a supervisor's crash
+%% report, so the only thing passed through is an ATOM: a reason an operator
+%% can act on (`no_admission_token') and that cannot carry anything. An
+%% admission that answers a term, a tuple, or a list is reported by the fixed
+%% atom `admission_refused', and one that raises by `admission_raised'. An
+%% admission reads a token and can fail holding it -- `{error, {expired,
+%% Token}}', say -- and echoing that term is exactly how the token would
+%% reach a log line, `/health' or a crash report.
 -spec admission_token({module(), atom(), [term()]}) ->
-          {ok, binary()} | {error, term()}.
+          {ok, binary()} | {error, atom()}.
 admission_token({Module, Function, Args}) ->
     try apply(Module, Function, Args) of
         {ok, Token} when is_binary(Token), byte_size(Token) > 0 ->
             {ok, Token};
         {ok, _NotAToken} ->
             {error, not_a_token};
-        {error, Reason} ->
+        {error, Reason} when is_atom(Reason) ->
             {error, Reason};
+        {error, _Term} ->
+            {error, admission_refused};
         _Other ->
             {error, not_an_admission}
     catch

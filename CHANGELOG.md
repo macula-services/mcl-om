@@ -27,19 +27,25 @@ admission for the node's realm membership UCAN without changing a declaration.
   way a missing `sources` already is: half of the pair, a group that is not a
   segment of its topic, a term that is not `{atom, atom, list}`, and an
   `M:F/arity` that is not exported are each their own refusal.
-- **The token exists for the length of one call, and nowhere else.** mcl_om
-  starts such a subscriber with a `subscribe` function of its own
-  (`macula_subscriber:start_link/6`'s `subscribe` option) that calls the
-  admission and passes the token straight to `macula:subscribe/5` beside the
-  group. So the child spec carries the fun and the `{M, F, A}` and never the
-  token; `macula_subscriber` keeps no options in its state at all; and the
-  reason mcl_om reports for a refused admission is a fixed atom rather than
-  whatever the admission answered or raised with — an admission reads a token
-  and can fail holding it, so echoing that term is exactly how a token would
-  reach a crash report. The tests look for a canary token in the child spec, in
-  the read-back, in the recorded failure, in the `/health` report and in the
-  log — including a crash raised in the subscribe path itself, whose reason
+- **The token exists for the length of one call, and nowhere else IN MCL_OM'S
+  OWN ARTEFACTS.** mcl_om starts such a subscriber with a `subscribe` function
+  of its own (`macula_subscriber:start_link/6`'s `subscribe` option) that calls
+  the admission and passes the token straight to `macula:subscribe/5` beside
+  the group. So the child spec carries the fun and the `{M, F, A}` and never the
+  token, and `macula_subscriber` keeps no options in its state at all. What
+  mcl_om reports for a refused admission is never what the admission answered as
+  itself: an atom is passed through (`no_admission_token`), any term becomes
+  `admission_refused`, and a raise `admission_raised` — because an admission
+  reads a token and can fail holding it (`{error, {expired, Token}}` is a real
+  shape), and echoing that term is exactly how a token would reach a log line,
+  `/health` or a crash report. The tests look for a canary token in the child
+  spec, in the read-back, in the recorded failure, in the `/health` report and in
+  the log — including a crash raised in the subscribe path itself, whose reason
   would otherwise carry the options, and so the token, into a log line.
+  NODE-WIDE this holds only once macula-io/macula#189 lands: the SDK's keyring
+  keeps the ucan in its own state and `macula_node_keys:redacted/1` does not
+  redact it, so a crash report or `sys:get_status` of the keyring can still show
+  one. That is macula's fix, not this one.
 - **Called once per subscribe attempt, never on a tick.** The admission runs at
   a first start, a restart, a pool replacement and a changed declaration — not
   on the 30s reconcile that finds the subscriber running and matching. Nothing

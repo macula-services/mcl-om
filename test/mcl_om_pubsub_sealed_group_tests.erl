@@ -97,10 +97,22 @@ subscribe_opts_name_the_group_and_the_token_and_drop_the_admission_test_() ->
 admission_token_answers_the_token_test() ->
     ?assertEqual({ok, canary()}, mcl_om_pubsub_subscriptions:admission_token(?ADMISSION)).
 
-admission_token_passes_a_refusal_through_test() ->
+%% An ATOM an admission refuses with is passed through: it is the operator's
+%% only lead, and an atom cannot carry anything.
+admission_token_passes_an_atom_refusal_through_test() ->
     ?assertEqual({error, no_admission_token},
                  mcl_om_pubsub_subscriptions:admission_token(
                    {sealed_group_admission, missing, []})).
+
+%% A TERM it refuses with is NOT (Terra, r1). `{error, {expired, Token}}' is
+%% what an admission looks like when the keyring says the token it just read
+%% has expired, and that term went verbatim into `recorded/3''s log line and
+%% into `/health'. Only atoms are reported as themselves.
+admission_token_does_not_pass_a_term_refusal_through_test_() ->
+    Result = mcl_om_pubsub_subscriptions:admission_token(
+               {sealed_group_admission, refused_with_token, []}),
+    [?_assertEqual({error, admission_refused}, Result),
+     ?_assertNot(contains(Result, canary()))].
 
 %% An admission that answers something that is not a token is refused by a
 %% fixed atom: whatever it answered is not echoed, because an admission
@@ -156,6 +168,61 @@ raising_admission_leaves_the_token_in_no_reason_test() ->
               ?assertNot(contains(Failures, canary())),
               ?assertNot(contains(mcl_om_pubsub_subscriptions:failures(Failures), canary()))
       end).
+
+%% The same, for the refusal that carries the token INSIDE its reason
+%% (Terra, r1): `{error, {expired, Token}}' is a real admission's shape when
+%% the token it just read has expired. The recorded reason, the `/health'
+%% report it becomes and the log line that reports it all carry the fixed
+%% atom, and neither the token nor the term it arrived in.
+refusal_carrying_the_token_leaves_it_nowhere_test() ->
+    with_pubsub_sup(
+      fun() ->
+              ok = logger:add_handler(?MODULE, ?MODULE,
+                                      #{level => all, config => #{pid => self()}}),
+              try
+                  Failures = mcl_om_pubsub_subscriptions:start_subscriber(
+                               self(), realm(),
+                               sealed({sealed_group_admission, refused_with_token, []}), #{}),
+                  Logged = printed(logged()),
+                  Reason = {group, {admission, admission_refused}},
+                  ?assertEqual(#{?TOPIC => Reason}, Failures),
+                  %% `/health''s body: the same, printed, and nothing else.
+                  ?assertEqual([#{topic => ?TOPIC, reason => printed(Reason)}],
+                               mcl_om_pubsub_subscriptions:failures(Failures)),
+                  ?assertNot(contains(Failures, canary())),
+                  ?assertNotEqual(nomatch, binary:match(Logged, <<"did not start">>)),
+                  ?assertEqual(nomatch, binary:match(Logged, canary())),
+                  %% Not just the token: the term it arrived in is gone too.
+                  ?assertEqual(nomatch, binary:match(Logged, <<"expired">>)),
+                  ?assertEqual([], mcl_om_pubsub_subscriptions:children())
+              after
+                  logger:remove_handler(?MODULE)
+              end
+      end).
+
+%% THE ADMISSION IS ASKED AGAIN ON EVERY ATTEMPT (Terra, r1, observation).
+%% Nothing is cached in mcl_om: a second start -- a restart, a pool
+%% replacement, a changed declaration -- calls the admission again, which is
+%% the only way a rotated token ever reaches macula.
+admission_is_asked_again_on_the_next_attempt_test() ->
+    with_pubsub_sup(
+      fun() ->
+              Sub = sealed({sealed_group_admission, count, [self()]}),
+              _ = mcl_om_pubsub_subscriptions:start_subscriber(
+                    not_a_pool, realm(), Sub, #{}),
+              _ = mcl_om_pubsub_subscriptions:start_subscriber(
+                    not_a_pool, realm(), Sub, #{}),
+              %% Both attempts were made, so the admission was asked twice:
+              %% admissions_heard/1 counts DOWN and answers what is still due.
+              ?assertEqual(0, admissions_heard(2))
+      end).
+
+admissions_heard(StillDue) ->
+    receive
+        {admission_called, _} -> admissions_heard(StillDue - 1)
+    after 0 ->
+            StillDue
+    end.
 
 printed(Reason) -> iolist_to_binary(io_lib:format("~p", [Reason])).
 

@@ -298,14 +298,20 @@ mcl_om calls it **once per subscribe attempt** — a first start, a restart,
 a pool replacement, a changed declaration — and hands the token straight to
 the SDK beside the group. It is never called on a reconcile tick that finds
 your subscriber running and matching, nothing is cached, and the token is in
-no child spec, in no subscriber state and in no log: only the function and
-`{Module, Function, Args}` are kept, and the token lives for one call.
+no child spec, in no subscriber state and in no log of mcl_om's: only the
+function and `{Module, Function, Args}` are kept, and the token lives for one
+call. (Node-wide, the SDK keyring still holds it until macula-io/macula#189
+lands.) Because the admission runs inside the reconcile server, it must not
+block: a wait with no deadline delays every other subscription's reconcile.
 
 A refusal never falls back to a clear subscription. The subscriber does not
 start, `mcl_om_pubsub_subscriptions` retries on its 30s tick, and `/health`
 names the topic and the reason — `{group, {admission, Reason}}` for yours,
 or the SDK's own verdict (`not_authorized`, `not_a_member`, `no_distributor`)
-once one is presented. A raise out of the SDK call itself is reported as
+once one is presented. A refusal is reported by an ATOM only: answer
+`{error, expired}` and `/health` says `expired`; answer `{error, {expired,
+Anything}}` and it says `admission_refused`, because that term may hold the
+token you just read. A raise out of the SDK call itself is reported as
 `subscribe_raised`: its own reason is the call's arguments, and the token is
 one of them.
 

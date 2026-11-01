@@ -231,17 +231,25 @@ all mcl-tenders needs.
 
 mcl_om calls the admission once per subscribe attempt and hands the token
 straight to `macula:subscribe/5` beside the group, so **the token is never in a
-child spec, in a subscriber's state or in a log**: the child spec carries the
-function and the `{Module, Function, Args}`, and the token exists only inside
-that one call. Nothing is cached — once the group is joined, later epoch pulls
-are the SDK keyring's business.
+child spec, in a subscriber's state or in a log of mcl_om's**: the child spec
+carries the function and the `{Module, Function, Args}`, and the token exists
+only inside that one call. Nothing is cached — once the group is joined, later
+epoch pulls are the SDK keyring's business. (Node-wide that holds once
+macula-io/macula#189 lands: the SDK's keyring keeps the ucan in its own state
+and its redaction leaves it in place, so until that is fixed a crash report of
+the keyring can still show one. That is macula's, not this library's.)
 
 A refusal is a refusal to subscribe, never a fall back to a clear
 subscription: the start fails, the reconcile retries it on its 30s tick, and
 `/health` names the topic and the reason (an emitted `{group, {admission,
 Reason}}`, or macula's own `not_authorized`, `not_a_member`, `no_distributor`).
-A raise out of the SDK call itself is reported as `subscribe_raised` and not by
-its own reason, which is the call's arguments — the token among them.
+What your admission answers is never reported as itself: an atom passes through,
+any term is reported as `admission_refused`, and a raise as
+`admission_raised` — because a refusal can carry the token it just read. A raise
+out of the SDK call itself is reported as `subscribe_raised` for the same
+reason: its own reason is the call's arguments, the token among them. An
+admission is called from the reconcile server, so it must not block: a wait with
+no deadline holds up every other subscription's reconcile.
 
 ## Persistence is the service's own
 
