@@ -242,8 +242,9 @@ mcl_om_pubsub:ensure_subscriptions(
        sources => {org, <<"acme">>}} || EntityId <- my_entities()]).
 ```
 
-A change to any part of one entry — the topic, the handler, the args or
-`sources` — restarts exactly that subscriber and no other.
+A change to any part of one entry — the topic, the handler, the args,
+`sources`, or the `group` and `admission` below — restarts exactly that
+subscriber and no other.
 
 You do not need to handle reconnect yourself. An ordinary link respawn
 (a station blip) is invisible to a subscription — macula's pool
@@ -262,6 +263,54 @@ visible in the pool's own status, never handed to your handler.
 delegated; `{nodes, [NodeId]}` names exactly the publishers you mean.
 `members` admits any realm member, and `{open, Reason}` is the written
 opt-out.
+
+### Subscribing under a sealed group
+
+If your service publishes its facts sealed, subscribe to them sealed too
+(mcl_om 1.7.0, mcl-om#49). Two more keys, valid only together:
+
+```erlang
+subscriptions() ->
+    [#{topic     => <<"io.example/mcl-tenders/tenders/wire/tender_notice_reported_v1">>,
+       module    => tender_notice_handler,
+       sources   => {org, <<"mcl-tenders">>},
+       %% The group's prefix. `topic' must be under it on a SEGMENT
+       %% boundary, so this is not a group of `.../tenders_archive/...'.
+       group     => <<"io.example/mcl-tenders/tenders">>,
+       %% Called as apply/3 with exactly these arguments and nothing
+       %% added. `{ok, UCAN}' admits this node to the group; `{error,
+       %% Reason}' refuses the subscription.
+       admission => {tender_notices_group, admission, []}}].
+```
+
+Where the admission gets its UCAN is your service's business — read it
+from your deployment's environment, as mcl-tenders does:
+
+```erlang
+admission() ->
+    case os:getenv("MCL_TENDERS_GROUP_UCAN") of
+        false -> {error, no_admission_token};
+        Ucan  -> {ok, list_to_binary(Ucan)}
+    end.
+```
+
+mcl_om calls it **once per subscribe attempt** — a first start, a restart,
+a pool replacement, a changed declaration — and hands the token straight to
+the SDK beside the group. It is never called on a reconcile tick that finds
+your subscriber running and matching, nothing is cached, and the token is in
+no child spec, in no subscriber state and in no log: only the function and
+`{Module, Function, Args}` are kept, and the token lives for one call.
+
+A refusal never falls back to a clear subscription. The subscriber does not
+start, `mcl_om_pubsub_subscriptions` retries on its 30s tick, and `/health`
+names the topic and the reason — `{group, {admission, Reason}}` for yours,
+or the SDK's own verdict (`not_authorized`, `not_a_member`, `no_distributor`)
+once one is presented.
+
+Under a group, a sealed event arrives already opened, with `sealed => 1` and
+`seal_key_id` in its meta; one that cannot be opened arrives once as
+`{macula_event_unopened, SubRef, Topic, Info}` rather than as a payload your
+handler sees. macula's `macula_pubsub:subscribe/5` documents every reason.
 
 `sources` decides **delivery**. A handler that must decide per fact
 (one square's speakers out of an org's many) still asks the realm

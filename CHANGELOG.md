@@ -3,6 +3,61 @@
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [SemVer](https://semver.org/).
 
+## [1.7.0] - 2026-11-01
+
+A subscription can now be under a sealed group (mcl-om#49). The publish side
+has had its hook since mcl-tenders: `publisher_opts => #{publish => Fun}` reads
+the token at the publish. The subscribe side had no equivalent, so a service
+that publishes its facts sealed could not subscribe to them through mcl_om at
+all — it had to hand-roll a subscriber and lose the reconcile, `/health` and
+the fail-closed bookkeeping. This is the subscribe-side twin, and it is what
+mcl-tenders#4 and the guide_tender_lifecycle need; mcl-om#48 later swaps the
+admission for the node's realm membership UCAN without changing a declaration.
+
+### Added
+
+- **`group` and `admission` on `mcl_om_service:subscription()`**
+  (mcl-om#49): valid only together. `group` is the sealed group's prefix, which
+  `topic` must be under on a segment boundary — a whole segment, so
+  `<realm>/tenders` is a group of `<realm>/tenders/wire/x_v1` and never of
+  `<realm>/tenders_archive/wire/x_v1`. `admission` is `{Module, Function,
+  Args}`, called as `apply/3` with exactly those arguments and nothing added,
+  answering `{ok, Token}` (the UCAN that admits this node to the group) or
+  `{error, Reason}`. Declared wrong, the boot is refused naming the topic, the
+  way a missing `sources` already is: half of the pair, a group that is not a
+  segment of its topic, a term that is not `{atom, atom, list}`, and an
+  `M:F/arity` that is not exported are each their own refusal.
+- **The token exists for the length of one call, and nowhere else.** mcl_om
+  starts such a subscriber with a `subscribe` function of its own
+  (`macula_subscriber:start_link/6`'s `subscribe` option) that calls the
+  admission and passes the token straight to `macula:subscribe/5` beside the
+  group. So the child spec carries the fun and the `{M, F, A}` and never the
+  token; `macula_subscriber` keeps no options in its state at all; and the
+  reason mcl_om reports for a refused admission is a fixed atom rather than
+  whatever the admission answered or raised with — an admission reads a token
+  and can fail holding it, so echoing that term is exactly how a token would
+  reach a crash report. The tests look for a canary token in the child spec, in
+  the read-back, in the recorded failure and in the `/health` report.
+- **Called once per subscribe attempt, never on a tick.** The admission runs at
+  a first start, a restart, a pool replacement and a changed declaration — not
+  on the 30s reconcile that finds the subscriber running and matching. Nothing
+  is cached in mcl_om: once the group is joined, a later epoch pull is macula's
+  keyring's business.
+
+### Changed
+
+- **The declaration-equality check now compares `group` and `admission`**
+  (mcl-om#41's rule, extended): changing either restarts that subscriber and
+  no other. A `declaration/2` read-back of a subscription with neither reads
+  exactly as it did before.
+
+### Fixed
+
+- Fail closed throughout: an admission that refuses, answers something that is
+  not a token, or raises starts no subscriber, is recorded per topic, and
+  degrades `/health` naming the topic and the reason. There is no fallback to a
+  clear subscription.
+
 ## [1.6.0] - 2026-10-30
 
 Serving openly stops being the default here too (macula-io/macula#147,

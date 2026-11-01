@@ -209,6 +209,38 @@ gets without writing it:
   verdict rather than hiding behind `ok`, because the facts that subscriber
   exists to react to are not arriving.
 
+## Subscribing under a sealed group
+
+A service that publishes its facts sealed can subscribe to them through mcl_om
+too (1.7.0, mcl-om#49). Add two keys, valid only together, to a declaration in
+`subscriptions/0`:
+
+```erlang
+#{topic     => <<"io.example/mcl-tenders/tenders/wire/tender_notice_reported_v1">>,
+  module    => tender_notice_handler,
+  sources   => {org, <<"mcl-tenders">>},
+  group     => <<"io.example/mcl-tenders/tenders">>,
+  admission => {tender_notices_group, admission, []}}.
+```
+
+`group` is the sealed group's prefix, which `topic` must be under on a segment
+boundary. `admission` is `{Module, Function, Args}`, called with exactly those
+arguments and nothing added, answering `{ok, UCAN}` or `{error, Reason}` —
+`{tender_notices_group, admission, []}` reading `MCL_TENDERS_GROUP_UCAN` is
+all mcl-tenders needs.
+
+mcl_om calls the admission once per subscribe attempt and hands the token
+straight to `macula:subscribe/5` beside the group, so **the token is never in a
+child spec, in a subscriber's state or in a log**: the child spec carries the
+function and the `{Module, Function, Args}`, and the token exists only inside
+that one call. Nothing is cached — once the group is joined, later epoch pulls
+are the SDK keyring's business.
+
+A refusal is a refusal to subscribe, never a fall back to a clear
+subscription: the start fails, the reconcile retries it on its 30s tick, and
+`/health` names the topic and the reason (an emitted `{group, {admission,
+Reason}}`, or macula's own `not_authorized`, `not_a_member`, `no_distributor`).
+
 ## Persistence is the service's own
 
 `mcl_om` opens no store and starts no `reckon_db`, `evoq` or `reckon_evoq`
