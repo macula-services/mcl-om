@@ -5,8 +5,8 @@
 #   scripts/is_image_push.sh <before-sha> <after-sha>
 #
 # It builds UNLESS it can show that every changed path is documentation.
-# A push to main rebuilds :latest and watchtower rolls every box watching it,
-# so a README edit is not worth a restart. But `paths-ignore' got the other
+# A push to main publishes :main and :<sha>, which no box follows, so a README
+# edit is not worth a build. But `paths-ignore' got the other
 # half wrong: on the push that CREATES a branch GitHub has nothing to compare
 # against and evaluates the filter on the head commit alone, so a first push
 # ending in a docs commit built no image at all.
@@ -31,8 +31,10 @@ esac
 CHANGED=$(git diff --name-only "$BEFORE" "$AFTER" 2>/dev/null) || build true
 [ -n "$CHANGED" ] || build true
 
-# Documentation: any Markdown file, anything under docs/, and the licence.
-if printf '%s\n' "$CHANGED" | grep -qvE '(\.md$|^docs/|^LICENSE$)'; then
+# Documentation: any Markdown file, anything under docs/ and assets/, and the
+# licence. assets/ holds the C4 diagrams, which no build reads: a diagram-only
+# commit must not rebuild and re-push an image.
+if printf '%s\n' "$CHANGED" | grep -qvE '(\.md$|^docs/|^assets/|^LICENSE$)'; then
     build true
 fi
 build false

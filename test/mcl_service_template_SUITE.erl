@@ -533,7 +533,8 @@ docs_only_gate_decides_each_push_shape(Config) ->
     Docs1 = commit(Repo, "README.md", "a"),
     Docs2 = commit(Repo, "docs/guide.txt", "a"),
     Lic3  = commit(Repo, "LICENSE", "a"),
-    Code4 = commit(Repo, "src/svc.erl", "b"),
+    Assets4 = commit(Repo, "assets/c4-context.svg", "a"),
+    Code5 = commit(Repo, "src/svc.erl", "b"),
     Zero = lists:duplicate(40, $0),
     Unknown = lists:duplicate(40, $d),
     Gate = fun(Before, After) -> gate(Script, Repo, Before, After) end,
@@ -541,9 +542,13 @@ docs_only_gate_decides_each_push_shape(Config) ->
     ?assertEqual(<<"build=true\n">>,  Gate("", Docs1)),       %% no before at all
     ?assertEqual(<<"build=false\n">>, Gate(Code0, Docs1)),    %% README only
     ?assertEqual(<<"build=false\n">>, Gate(Code0, Lic3)),     %% docs, guide, licence
-    ?assertEqual(<<"build=true\n">>,  Gate(Lic3, Code4)),     %% code
-    ?assertEqual(<<"build=true\n">>,  Gate(Docs2, Code4)),    %% docs and code
-    ?assertEqual(<<"build=true\n">>,  Gate(Unknown, Code4)).  %% before not in history
+    %% THE C4 DIAGRAMS ARE OUTPUT, NOT INPUT (macula-codebase-checks#10). The
+    %% gate re-renders assets/c4-*.svg on a branch, so a diagram-only commit is
+    %% ordinary here; it must not rebuild and re-push an image.
+    ?assertEqual(<<"build=false\n">>, Gate(Lic3, Assets4)),   %% assets only
+    ?assertEqual(<<"build=true\n">>,  Gate(Lic3, Code5)),     %% code
+    ?assertEqual(<<"build=true\n">>,  Gate(Docs2, Code5)),    %% docs and code
+    ?assertEqual(<<"build=true\n">>,  Gate(Unknown, Code5)).  %% before not in history
 
 %% ONE OTP, NAMED THREE TIMES, NONE OF THEM FLOATING. The builder was
 %% `erlang:28-alpine' and lint `erlang:28'; when Docker Hub moved them on
