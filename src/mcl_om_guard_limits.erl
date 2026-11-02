@@ -120,8 +120,11 @@ validate_procedure_entries([{Proc, Limits} | Rest]) when is_binary(Proc), is_map
 validate_procedure_entries([{Proc, Limits} | _Rest]) ->
     {error, {bad_procedure_limits, Proc, {not_a_binary_and_map, Proc, Limits}}}.
 
+%% The entry on its own: known keys, positive integers, and, when it names
+%% both, per_caller_max at most global_max. A relation against numbers the
+%% capability declares is only known at its declare.
 validate_configured(Limits) ->
-    case validate_limits_keys(maps:remove(?ENVELOPE_KEY, Limits)) of
+    case validate_limits(maps:remove(?ENVELOPE_KEY, Limits)) of
         ok -> validate_envelope(maps:get(?ENVELOPE_KEY, Limits, #{}));
         {error, _} = Error -> Error
     end.

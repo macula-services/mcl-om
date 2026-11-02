@@ -40,7 +40,12 @@ how an operator gives one service other numbers in one environment without a reb
 
 Its `envelope` is merged per key over the capability's own. The whole block is checked when
 the guard starts: an unknown key, a value that is not a positive integer, a bad clamp or a
-procedure name that is not a binary stops the node before it advertises anything. A
+procedure name that is not a binary stops the node before it advertises anything, and so
+does an entry naming both `per_caller_max` and `global_max` with the first above the second.
+Two things boot cannot know: an entry whose `per_caller_max` exceeds the `global_max` the
+capability declares is refused when that procedure is declared (it is not advertised, and the
+warning repeats every tick); and a name that matches no procedure, a typo or an unqualified
+`<<"echo">>`, is ignored. A
 redeclare keeps runtime `set_limits` changes, so a guardian's retune survives the config.
 
 `per_caller_max` must not exceed `global_max`. Windows are keyed by their start on the wall

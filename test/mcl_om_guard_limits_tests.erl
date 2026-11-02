@@ -150,6 +150,8 @@ a_bad_config_is_refused_at_boot() ->
     Bad = [{#{procedures => #{"acme/echo" => #{}}}, bad_procedure_limits},
            {#{procedures => #{<<"acme/echo">> => #{per_caller_max => 0}}}, bad_procedure_limits},
            {#{procedures => #{<<"acme/echo">> => #{nonsense => 1}}}, bad_procedure_limits},
+           {#{procedures => #{<<"acme/echo">> => #{per_caller_max => 100, global_max => 10}}},
+            bad_procedure_limits},
            {#{procedures => #{<<"acme/echo">> =>
                                   #{envelope => #{global_max => #{min => 9, max => 1}}}}},
             bad_procedure_limits},

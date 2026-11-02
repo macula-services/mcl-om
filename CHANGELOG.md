@@ -23,8 +23,11 @@ already built against that template, so the two cannot drift apart silently.
   sets one procedure's limits, and optionally its envelope, for one environment
   without a rebuild. It is merged over the capability's own `limits` and stays
   under runtime `set_limits`. The guard checks the whole block at boot
-  (`mcl_om_guard_limits:validate_config/0`), so a bad entry stops the node
-  rather than surfacing at an advertise tick. The scaffold's `sys.config.src`
+  (`mcl_om_guard_limits:validate_config/0`), so a bad entry, including one
+  whose own `per_caller_max` exceeds its own `global_max`, stops the node rather
+  than surfacing at an advertise tick. Checked only when the procedure is
+  declared: the relation against the capability's own numbers, and whether the
+  name matches a procedure at all. The scaffold's `sys.config.src`
   shows the key.
 
 - **`scripts/seed-repository.sh <org>/<repo>` seeds the repository the scaffold
