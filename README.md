@@ -309,6 +309,22 @@ other. The generated eunit suite asserts the two agree modulo the separator, so
 a hand-rolled `rebar3 new` with a mismatched pair still fails on its first test
 run.
 
+**Once the repository exists, seed it.** `rebar3 new` writes files and cannot
+know the repository is there — `gh repo create` is yours, because who owns it
+and whether it is public is a decision — so the labels and the first issues are
+created by their own command, printed first and created only when asked:
+
+```bash
+scripts/seed-repository.sh macula-services/mcl-newservice           # the plan, creates nothing
+scripts/seed-repository.sh macula-services/mcl-newservice --file \
+    --crew=terra                                                    # creates it
+```
+
+It makes the five workflow labels, one `crew:<member>` label per member you
+name, and four issues each opening with its `Purpose (kind):` line: the C4 model
+before there is code, the README with the service's own logo, the walking
+skeleton, and `v0.1.0`. Members are named, never guessed.
+
 To use `rebar3 new` directly, install the templates once. rebar3 only finds
 custom templates under `~/.config/rebar3/templates`, and an empty directory has
 no dependencies to carry them there:
@@ -420,10 +436,13 @@ scripts and `.tool-versions`, derived from `mcl_service.template` rather than
 typed here — because the rest carry the service's own name, org and images, and
 a diff of those would report a substituted line as drift. The `distribution`
 line is the security row: `no-listener` is the template's form, `loopback`
-listens only on 127.0.0.1, `open` listens on every address with a cookie as its
-only defence, and `unknown` means the repository has no `config/vm.args.src` to
-read. `image-cookie` and `compose-cookie` report a baked-in cookie, which is one
-identical secret in every copy of a public image.
+listens only on 127.0.0.1 (or `::1` — a `inet_dist_use_interface` naming any
+other address is `open`, because that directive is also how a node binds the
+world), `open` listens on every address with a cookie as its only defence, and
+`unknown` means the repository has no `config/vm.args.src` to read.
+`image-cookie` and `compose-cookie` report a cookie set to a literal value —
+one identical secret in every copy of a public image. A compose file reading
+`MCL_COOKIE=${MCL_COOKIE:?…}` is the house form and is not reported.
 
 The sweep is a report, not a gate: it exits 0 and files nothing.
 

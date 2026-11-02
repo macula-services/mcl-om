@@ -15,10 +15,13 @@
 #   mcl-jobs   origin/main  4e0f2a1  differs       scripts/is_newest_release.sh
 #   mcl-jobs   origin/main  4e0f2a1  distribution  open
 #
-# READ-ONLY AND OFFLINE. Every file is read with `git show' at origin/main (or
-# at HEAD when a repository has no origin/main), never from the working tree, so
-# a checkout left on a branch reports what people deploy rather than what
-# somebody is editing, and nothing is fetched. Nothing is written anywhere.
+# READ-ONLY AND OFFLINE. Every file of a SERVICE is read with `git show' at
+# origin/main (or at HEAD when a repository has no origin/main), never from that
+# repository's working tree, so a checkout left on a branch reports what people
+# deploy rather than what somebody is editing. The template side is read from
+# THIS checkout's working tree, which is the point: it is what is being compared
+# against, including edits not yet committed. Nothing is fetched, nothing is
+# written anywhere.
 #
 # WHY ONLY THESE FILES ARE COMPARED. The template renders a service's own name,
 # org, registry and images into nearly all of its files, so comparing those
@@ -121,9 +124,15 @@ repositories "$@" | while IFS= read -r repo; do
     if [ -z "$vmargs" ]; then
         echo "$name	$ref	$sha	distribution	unknown"
     else
-        # Only flag lines count: the comment above them in every service that
-        # has been fixed names `-name' and `-setcookie' while using neither.
-        flags=$(printf '%s\n' "$vmargs" | grep -E '^[[:space:]]*-' || true)
+        # ONLY FLAG LINES, AND ONLY THE FLAG. A vm.args is not a fixed shape: the
+        # comment above the flags in a fixed service names `-name' and
+        # `-setcookie' while using neither; a file may be tab-indented; and a flag
+        # may carry a trailing comment or a CR from a file written elsewhere. Each
+        # is stripped before the flag is matched from its own start, because the
+        # answer here decides whether a reader is told a node is exposed.
+        flags=$(printf '%s\n' "$vmargs" | tr -d '\r' |
+                sed -e 's/[[:space:]]#.*$//' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' |
+                grep -E '^-' || true)
         # Written as ifs rather than `grep && named=yes': under `set -e' a
         # failing command in an AND-OR list is a trap, and this is the one place
         # where a false answer would be read as "the safe form".
@@ -134,7 +143,19 @@ repositories "$@" | while IFS= read -r repo; do
            printf '%s\n' "$flags" | grep -qE '^-start_epmd[[:space:]]+false$'; then
             echo "$name	$ref	$sha	distribution	no-listener"
         elif printf '%s\n' "$flags" | grep -qE '^-(name|sname|setcookie)([[:space:]]|$)'; then
-            if printf '%s\n' "$flags" | grep -qE '^(-kernel[[:space:]]+)?inet_dist_use_interface'; then
+            # LOOPBACK IS ONE ADDRESS, NOT ONE DIRECTIVE. `inet_dist_use_interface'
+            # is also how a node binds an address the world can reach: `{0,0,0,0}'
+            # or the box's own LAN address reads as loopback under a check that
+            # only asks whether the line is there, which would report an exposed
+            # node as the safe form.
+            bind=$(printf '%s\n' "$flags" |
+                   sed -n 's/^\(-kernel[[:space:]]\+\)\?inet_dist_use_interface[[:space:]]*//p' |
+                   tr -d '[:space:]"')
+            if case "$bind" in
+                   "{127,0,0,1}"|"{0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1}"|"127.0.0.1"|"::1")
+                       true ;;
+                   *) false ;;
+               esac; then
                 echo "$name	$ref	$sha	distribution	loopback"
             else
                 echo "$name	$ref	$sha	distribution	open"
@@ -148,11 +169,17 @@ repositories "$@" | while IFS= read -r repo; do
     # node's only other defence is the box's firewall, so it is reported apart
     # from the form even when the form is open.
     container=$(git -C "$repo" show "$ref:Containerfile" 2>/dev/null || true)
-    if printf '%s\n' "$container" | grep -qE '^[[:space:]]*ENV[[:space:]]+[A-Z_]*COOKIE'; then
+    # `env' in lower case is the same instruction, so the scan is
+    # case-insensitive in both the keyword and the variable.
+    if printf '%s\n' "$container" | grep -qiE '^[[:space:]]*env[[:space:]]+[a-z_]*cookie'; then
         echo "$name	$ref	$sha	image-cookie	Containerfile"
     fi
     compose=$(git -C "$repo" show "$ref:deploy/docker-compose.yml" 2>/dev/null || true)
-    if printf '%s\n' "$compose" | grep -q 'COOKIE'; then
+    # A COOKIE THE COMPOSE FILE PASSES THROUGH IS NOT A BAKED-IN ONE: the house
+    # form reads it from the box's environment, which is the point of the form.
+    # Only a literal value is a cookie this repository carries.
+    if printf '%s\n' "$compose" | tr -d '\r' |
+       grep -qE '^[[:space:]]*(-[[:space:]]*)?[A-Za-z_]*COOKIE[[:space:]]*[:=][[:space:]]*[^$[:space:]]'; then
         echo "$name	$ref	$sha	compose-cookie	deploy/docker-compose.yml"
     fi
 done

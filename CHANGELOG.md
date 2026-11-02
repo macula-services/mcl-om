@@ -10,11 +10,27 @@ house rules on its first commit, instead of collecting the gaps one review at a
 time. The library's API is unchanged; what moves is what `rebar3 new mcl_service`
 writes.
 
+Slice B of mcl-om#51: a scaffolded repository now arrives with its labels and
+its first issues named, instead of a list of jobs to discover.
+
 Slice C of mcl-om#51 adds the other half: a check that compares the services
 already built against that template, so the two cannot drift apart silently.
 
 ### Added
 
+- **`scripts/seed-repository.sh <org>/<repo>` seeds the repository the scaffold
+  cannot create** (mcl-om#55). It prints the plan and, with `--file`, creates
+  the five workflow labels the org uses, a `crew:<member>` label for each member
+  named with `--crew` or `MCL_CREW` (never guessed, since members come and go),
+  and four issues: the C4 model before there is code, the README with the
+  service's own logo, the walking skeleton (CI, a digest-pinned deployment
+  entry, the first two desks) and `v0.1.0` — each opening with the
+  `Purpose (kind):` line the house requires. Dry by default, because what gets
+  created should be readable before it is created, and because a plan rather
+  than a side effect is what `mcl_service_template_SUITE` can assert: it runs
+  the script with a stand-in `gh` on PATH and checks every call, every Purpose
+  line, and that no body carries a box name, a home path or a repository of
+  ours. `scaffold-service.sh` now names the command in its next steps.
 - **A generated service carries its own logo and README head** (mcl-om#51): two
   parameterised SVGs in `assets/` — the shared mesh icon with this service's name
   under it, light and dark — and a README that shows them, with a badge row.
@@ -38,10 +54,14 @@ already built against that template, so the two cannot drift apart silently.
   because everything else carries the service's own name, org and images. Each
   finding is one TSV line, so the sweep becomes one issue per service per
   difference. The distribution line is #24's remaining half: `no-listener` is
-  the template's form, `loopback` listens only on 127.0.0.1, `open` listens on
-  every address with a per-image cookie as its only defence, and `unknown` is a
-  repository with no `config/vm.args.src`. It is a report and not a gate: it
-  exits 0 and files nothing.
+  the template's form, `loopback` binds 127.0.0.1 (or `::1`) and nothing else —
+  the directive naming any other address, `{0,0,0,0}` included, is `open`, since
+  it is also how a node binds the world — `open` listens on every address with a
+  cookie as its only defence, and `unknown` is a repository with no
+  `config/vm.args.src`. A cookie is reported only where it is set to a literal
+  value; the house's `${MCL_COOKIE:?…}` pass-through is not a cookie this
+  repository carries. It is a report and not a gate: it exits 0 and files
+  nothing.
 
 ### Changed
 

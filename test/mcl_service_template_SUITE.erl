@@ -75,7 +75,11 @@
          store_scaffold_owns_its_store/1,
          drift_reports_missing_differing_and_matching_files/1,
          drift_classifies_how_a_service_starts_its_node/1,
-         drift_reads_the_default_branch_and_writes_nothing/1]).
+         drift_reads_the_default_branch_and_writes_nothing/1,
+         seeding_is_dry_by_default/1,
+         seeding_creates_the_labels_and_the_first_issues/1,
+         seeding_skips_an_issue_that_is_already_filed/1,
+         scaffold_names_the_seed_command_by_its_absolute_path/1]).
 
 -define(REPO, "mcl-probe-svc").
 -define(APP,  "mcl_probe_svc").
@@ -153,7 +157,11 @@ all() ->
      store_scaffold_owns_its_store,
      drift_reports_missing_differing_and_matching_files,
      drift_classifies_how_a_service_starts_its_node,
-     drift_reads_the_default_branch_and_writes_nothing].
+     drift_reads_the_default_branch_and_writes_nothing,
+     seeding_is_dry_by_default,
+     seeding_creates_the_labels_and_the_first_issues,
+     seeding_skips_an_issue_that_is_already_filed,
+     scaffold_names_the_seed_command_by_its_absolute_path].
 
 %%%---------------------------------------------------------------------------
 %%% Generate once, compile once, then assert
@@ -1445,6 +1453,158 @@ store_scaffold_owns_its_store(Config) ->
     {module, Service} = code:ensure_loaded(Service),
     [] = mcl_om:leftover_store_callbacks(Service).
 
+%%%---------------------------------------------------------------------------
+%%% Seeding the new repository (mcl-om#55)
+%%%---------------------------------------------------------------------------
+
+%% THE SCAFFOLD WRITES FILES AND CANNOT KNOW THE REPOSITORY EXISTS: `gh repo
+%% create' is the human's step, because who owns it and whether it is public is
+%% a decision. So the labels and the first issues are seeded by their own
+%% command, dry unless asked -- and a plan that is printed rather than applied
+%% is what makes it assertable. Nothing is created here: the stub `gh' records
+%% what it was asked to do and does nothing.
+seeding_is_dry_by_default(Config) ->
+    Priv = ?config(priv_dir, Config),
+    Logs = filename:join(Priv, "gh-dry"),
+    ok = filelib:ensure_path(Logs),
+    Stub = stub_gh(Priv),
+    Out = run(sh(), [seed_script(), "acme-widgets/mcl-seed-probe"], Priv,
+              [{"PATH", Stub ++ ":" ++ os:getenv("PATH")}, {"GH_LOG_DIR", Logs}]),
+    %% The plan names every label and every issue, and says what to do next...
+    [?assertNotEqual(nomatch, binary:match(Out, L))
+     || L <- [<<"label  plan">>, <<"label  work-package">>,
+              <<"Model the service in C4 before writing it">>,
+              <<"Release v0.1.0">>, <<"--file">>]],
+    %% ...and `gh' was not called at all.
+    ?assertEqual([], filelib:wildcard(filename:join(Logs, "*"))).
+
+%% WHAT IT CREATES, AND WHAT IT REFUSES TO PUT IN A PUBLIC REPOSITORY.
+seeding_creates_the_labels_and_the_first_issues(Config) ->
+    Priv = ?config(priv_dir, Config),
+    Logs = filename:join(Priv, "gh-file"),
+    ok = filelib:ensure_path(Logs),
+    Stub = stub_gh(Priv),
+    _ = run(sh(), [seed_script(), "acme-widgets/mcl-seed-probe", "--crew=terra", "--file"],
+            Priv, [{"PATH", Stub ++ ":" ++ os:getenv("PATH")}, {"GH_LOG_DIR", Logs}]),
+    Calls = gh_calls(Logs),
+    Labels = [Args || {<<"label create ", Args/binary>>, _Body} <- Calls],
+    ?assertEqual([<<"plan">>, <<"backlog">>, <<"proposal">>, <<"work-package">>,
+                  <<"design">>, <<"crew:terra">>],
+                 [Name || Args <- Labels, Name <- [hd(binary:split(Args, <<" ">>))]]),
+    %% Idempotent: running it twice updates a label rather than failing.
+    [?assertNotEqual(nomatch, binary:match(Args, <<"--force">>)) || Args <- Labels],
+    Issues = [{Args, Body} || {<<"issue create ", Args/binary>>, Body} <- Calls],
+    ?assertEqual(4, length(Issues)),
+    %% Every issue carries `plan': a backlog of four unlabelled issues is a
+    %% backlog nobody can filter, and the label is the org's first filter.
+    [?assertNotEqual(nomatch, binary:match(Args, <<"--label plan">>)) || {Args, _} <- Issues],
+    %% Every body opens with its Purpose line: that is what the house requires
+    %% of an issue, and it is the first thing a reader sees in the list.
+    [begin
+         First = hd(binary:split(Body, <<"\n">>)),
+         ?assertMatch({match, _},
+                      re:run(First, "^Purpose \\((capability|reliability|security|usability|upkeep)\\): ",
+                             [multiline]))
+     end || {_Args, Body} <- Issues],
+    %% A body lands in a repository that may be public: no box, no path, no
+    %% node id, no repository of ours by name.
+    %% The names, and then the SHAPE that names none of them: a node id is 64
+    %% hex characters, and one pasted into a body names a host as surely as
+    %% "host00" does without containing a word this list could hold.
+    Forbidden = [<<"macula-services">>, <<"macula-fleet">>, <<"macula-io">>,
+                 <<"beam0">>, <<"msi00">>, <<"host00">>, <<".lab">>,
+                 <<"/home/">>, <<"Lefever">>, <<"self-hosted">>],
+    ?assertEqual([], [{F, binary:part(Body, binary:match(Body, F), byte_size(F))}
+                      || {_Args, Body} <- Issues, F <- Forbidden,
+                         binary:match(Body, F) =/= nomatch]),
+    %% CAPTURED AS THE MATCH AND NOT AS OFFSETS: re:run answers {Start, Len}
+    %% pairs by default, so a `{match, [Id]}' pattern against it never matches
+    %% and the assertion passes over every body without looking at one.
+    ?assertEqual([], [{Body, Id}
+                      || {_Args, Body} <- Issues,
+                         {match, [Id]} <- [re:run(Body, "([0-9a-fA-F]{64})",
+                                                  [{capture, all_but_first, binary}])]]),
+    %% Each issue is addressed at the repository it seeds.
+    [?assertNotEqual(nomatch, binary:match(Args, <<"--repo acme-widgets/mcl-seed-probe">>))
+     || {Args, _Body} <- Calls].
+
+%% A RUN THAT STOPPED HALFWAY IS FINISHED BY RUNNING IT AGAIN, and the two
+%% issues it already filed are not filed twice: their titles are read back
+%% first, and a skipped one says so rather than passing for a created one.
+seeding_skips_an_issue_that_is_already_filed(Config) ->
+    Priv = ?config(priv_dir, Config),
+    Logs = filename:join(Priv, "gh-rerun"),
+    ok = filelib:ensure_path(Logs),
+    Stub = stub_gh(Priv),
+    Already = "Release v0.1.0",
+    Out = run(sh(), [seed_script(), "acme-widgets/mcl-seed-probe", "--file"], Priv,
+              [{"PATH", Stub ++ ":" ++ os:getenv("PATH")}, {"GH_LOG_DIR", Logs},
+               {"GH_EXISTING", Already}]),
+    Created = [Args || {<<"issue create ", Args/binary>>, _} <- gh_calls(Logs)],
+    ?assertEqual(3, length(Created)),
+    ?assertEqual(nomatch, binary:match(iolist_to_binary(Created), list_to_binary(Already))),
+    ?assertNotEqual(nomatch, binary:match(Out, <<"skip   Release v0.1.0">>)).
+
+%% THE PRINTED STEP HAS TO BE ONE THAT RUNS. `seed-repository.sh` lives in this
+%% checkout, and the next steps have just cd'd into the new repository, so a
+%% bare `scripts/seed-repository.sh' there names a file that does not exist.
+scaffold_names_the_seed_command_by_its_absolute_path(Config) ->
+    Out = ?config(house_out, Config),
+    Path = case re:run(Out, "(/[^ \n]*/scripts/seed-repository\\.sh) macula-services/"
+                            ?HOUSE_REPO,
+                       [{capture, all_but_first, list}]) of
+               {match, [Named]} -> Named;
+               Other            -> ct:fail({seed_command_is_not_absolute, Other})
+           end,
+    %% ...and the file it names is the one that is there.
+    ?assert(filelib:is_regular(Path)).
+
+%% A stand-in `gh', first on PATH: it records the argv of every call and the
+%% body it was given, and creates nothing. `GH_EXISTING' is what `issue list'
+%% answers, so a rerun can be exercised without a repository.
+stub_gh(Priv) ->
+    Bin = filename:join(Priv, "stub-bin"),
+    ok = filelib:ensure_path(Bin),
+    Gh = filename:join(Bin, "gh"),
+    %% STDIN IS READ ONLY WHEN `gh' IS TOLD TO, as the real one does: a stub
+    %% that always `cat's swallows the rest of the caller's input, and the seed
+    %% script runs `gh label create' inside a `while read' over its label list,
+    %% so always-reading made every name after the first vanish and the test
+    %% fail on the script's behalf.
+    Script = <<"#!/bin/sh\n"
+               "n=$(ls \"$GH_LOG_DIR\" | wc -l)\n"
+               "printf '%s\\n' \"$*\" > \"$GH_LOG_DIR/$n.call\"\n"
+               "case \"$*\" in\n"
+               "    *--body-file\\ -) cat >> \"$GH_LOG_DIR/$n.call\" ;;\n"
+               "    issue\\ list*) [ -z \"${GH_EXISTING:-}\" ] || printf '%s\\n' \"$GH_EXISTING\" ;;\n"
+               "esac\n"
+               "exit 0\n">>,
+    ok = file:write_file(Gh, Script),
+    ok = file:change_mode(Gh, 8#755),
+    Bin.
+
+%% {argv, stdin} per call, oldest first. The files are numbered by the stub.
+gh_calls(Dir) ->
+    Files = filelib:wildcard(filename:join(Dir, "*.call")),
+    Sorted = lists:sort(fun(A, B) -> call_number(A) =< call_number(B) end, Files),
+    [split_call(read(F)) || F <- Sorted].
+
+call_number(Path) ->
+    list_to_integer(filename:basename(Path, ".call")).
+
+split_call(Content) ->
+    [Args | Body] = binary:split(Content, <<"\n">>),
+    {Args, iolist_to_binary(lists:join(<<"\n">>, Body))}.
+
+sh() ->
+    case os:find_executable("sh") of
+        false -> ct:fail(no_sh_on_path);
+        Sh    -> Sh
+    end.
+
+seed_script() ->
+    filename:join([filename:dirname(?FILE), "..", "scripts", "seed-repository.sh"]).
+
 read(Root, Rel) ->
     {ok, Bin} = file:read_file(filename:join(Root, Rel)),
     Bin.
@@ -1476,31 +1636,72 @@ drift_reports_missing_differing_and_matching_files(Config) ->
 
 %% HOW A SERVICE STARTS ITS NODE DECIDES WHO CAN ATTACH TO IT (mcl-om#24): no
 %% listener at all, a listener on loopback, or one on every address with a
-%% cookie. The three fixtures are the three forms, and the fourth answer --
-%% unknown -- is a service with no config/vm.args.src to read.
+%% cookie. Each fixture is one of those, PLUS the forms that once read as the
+%% safe one: an address the world can reach on an interface directive, flags
+%% that are indented, commented or CRLF, and a compose file that passes the
+%% cookie through rather than carrying it.
+%%
+%% {Name, vm.args, Containerfile, compose, form, image cookie?, compose cookie?}
 drift_classifies_how_a_service_starts_its_node(Config) ->
-    Fixtures = [{"mcl-drift-open",
-                 "-sname mcl_drift_open\n-setcookie C0OKIE\n",
-                 "FROM scratch\nENV MCL_COOKIE=mcl_drift_open\n", "open", true},
-                {"mcl-drift-loopback",
-                 "-name x@h\n-setcookie C0OKIE\n"
-                 "-kernel inet_dist_use_interface {127,0,0,1}\n",
-                 "FROM scratch\n", "loopback", false},
-                {"mcl-drift-nodist",
-                 "-sname mcl_drift_nodist\n-start_epmd false\n-dist_listen false\n",
-                 "FROM scratch\n", "no-listener", false}],
+    Fixtures = [
+        {"mcl-drift-open",
+         "-sname mcl_drift_open\n-setcookie C0OKIE\n",
+         "FROM scratch\nENV MCL_COOKIE=mcl_drift_open\n", "", "open", true, false},
+        {"mcl-drift-loopback",
+         "-name x@h\n-setcookie C0OKIE\n"
+         "-kernel inet_dist_use_interface {127,0,0,1}\n",
+         "FROM scratch\n", "", "loopback", false, false},
+        %% NO LONGER LOOPBACK. The directive is present, and the address it
+        %% names is every address: asking only whether the line exists reports
+        %% an exposed node as the safe form.
+        {"mcl-drift-bind-all",
+         "-name x@h\n-setcookie C0OKIE\n"
+         "-kernel inet_dist_use_interface {0,0,0,0}\n",
+         "FROM scratch\n", "", "open", false, false},
+        {"mcl-drift-bind-lan",
+         "-name x@h\n-setcookie C0OKIE\n"
+         "-kernel inet_dist_use_interface {192,168,1,10}\n",
+         "FROM scratch\n", "", "open", false, false},
+        {"mcl-drift-nodist",
+         "-sname mcl_drift_nodist\n-start_epmd false\n-dist_listen false\n",
+         "FROM scratch\n", "", "no-listener", false, false},
+        %% WHITESPACE IS NOT SEMANTICS. A tab before the name and spaces before
+        %% the two falses are the same file as the one above.
+        {"mcl-drift-indented",
+         "\t-sname mcl_drift_indented\n  -start_epmd false\n  -dist_listen false\n",
+         "FROM scratch\n", "", "no-listener", false, false},
+        %% ...and a trailing comment or a CR is not a different value either.
+        {"mcl-drift-commented",
+         "-sname mcl_drift_commented\r\n-start_epmd false  # no epmd\r\n"
+         "-dist_listen false\r\n",
+         "FROM scratch\n", "", "no-listener", false, false},
+        %% A PASSED-THROUGH COOKIE IS NOT A BAKED-IN ONE. The compose file
+        %% reads it from the box's environment, which is the house form.
+        {"mcl-drift-passthrough",
+         "-sname mcl_drift_passthrough\n-setcookie C0OKIE\n",
+         "FROM scratch\n", "      - MCL_COOKIE=${MCL_COOKIE:?set it}\n",
+         "open", false, false},
+        {"mcl-drift-literal-compose",
+         "-sname mcl_drift_literal\n-setcookie C0OKIE\n",
+         "FROM scratch\n", "      - MCL_COOKIE=hunter2\n", "open", false, true},
+        {"mcl-drift-lowercase-env",
+         "-sname mcl_drift_lower\n-setcookie C0OKIE\n",
+         "from scratch\nenv MCL_COOKIE=hunter2\n", "", "open", true, false}],
     lists:foreach(
-      fun({Name, VmArgs, Container, Form, WantsCookie}) ->
+      fun({Name, VmArgs, Container, Compose, Form, WantsImage, WantsCompose}) ->
               Dir = fixture_service(Config, Name,
                                     [{"Containerfile", list_to_binary(Container)},
-                                     {"config/vm.args.src", list_to_binary(VmArgs)}]),
+                                     {"config/vm.args.src", list_to_binary(VmArgs)},
+                                     {"deploy/docker-compose.yml", list_to_binary(Compose)}]),
               Rows = drift_rows(Config, Dir),
               Forms = [D || {S, K, D} <- Rows, S =:= Name, K =:= "distribution"],
               ?assertEqual({Name, [Form]}, {Name, Forms}),
-              Cookie = lists:any(fun({S, K, _}) ->
-                                         S =:= Name andalso K =:= "image-cookie"
-                                 end, Rows),
-              ?assertEqual({Name, WantsCookie}, {Name, Cookie})
+              Said = fun(Kind) ->
+                             lists:any(fun({S, K, _}) -> S =:= Name andalso K =:= Kind end,
+                                       Rows)
+                     end,
+              ?assertEqual({Name, WantsImage}, {Name, Said("image-cookie")}),
+              ?assertEqual({Name, WantsCompose}, {Name, Said("compose-cookie")})
       end, Fixtures).
 
 %% READ-ONLY, AND AT THE BRANCH PEOPLE DEPLOY. It reports origin/main when the
