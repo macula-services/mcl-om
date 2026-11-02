@@ -52,6 +52,22 @@ writes.
   own tests pin the three flags, so the property survives after the scaffold has
   moved on.
 
+### Fixed
+
+- **A prerelease never moves `:latest`, and never counts as the newest
+  release.** `scripts/is_newest_release.sh` sorted with git's
+  `--sort=-v:refname`, which puts `v1.1.0-rc1` ABOVE `v1.1.0`: git reads the
+  `rc1` as text after the empty suffix a plain release has, where SemVer sorts a
+  prerelease before the release it precedes. So cutting an rc moved `:latest` to
+  a rehearsal, and the release cut after it — reading as not-newest against the
+  rc — never reached `:latest` at all. Only plain `vX.Y.Z` tags are releases
+  now. `only_a_plain_release_moves_latest` cuts both rows for real in a
+  throwaway repository and reads the answer from the script, and the promotion
+  step's own `if:` and the house's `needs: [build-and-push, attest]` are pinned
+  too, so neither can be dropped under a green suite. Found in the review of
+  #54; the same script on main in mcl-tenders and mcl-jobs is filed there
+  (mcl-tenders#17, mcl-jobs#14).
+
 ## [1.7.0] - 2026-11-01
 
 A subscription can now be under a sealed group (mcl-om#49). The publish side

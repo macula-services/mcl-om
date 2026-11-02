@@ -89,7 +89,7 @@ Three channels, and only a release moves the one people pull.
 |-----|-----------|------------|
 | push to `main` | `:main` and `:<sha>` | the tip, for trying. Nothing follows it. |
 | `v*` tag | `:<version>` | the rollback archive. |
-| the newest `v*` tag, once its image is built | `:latest` | what a `docker-compose.yml` pulls and what most hosts run. In the house this only happens after the image is signed, so `:latest` names an attested digest. |
+| the newest release tag, once its image is built | `:latest` | what a `docker-compose.yml` pulls and what most hosts run. A prerelease such as `v1.1.0-rc1` is a rehearsal and never moves it; only a plain `vX.Y.Z` counts as the newest. In the house this only happens after the image is signed, so `:latest` names an attested digest. |
 
 `scripts/image_tags.sh` decides the first two from `GITHUB_REF`, so one case
 governs the whole list; `scripts/is_newest_release.sh` and

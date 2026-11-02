@@ -33,6 +33,7 @@
          image_build_decides_from_the_pushed_range/1,
          docs_only_gate_decides_each_push_shape/1,
          release_tag_does_not_move_latest/1,
+         only_a_plain_release_moves_latest/1,
          generated_lint_workflow_assembles_the_release/1,
          generated_service_listens_for_no_node_connection/1,
          generated_tests_pin_the_no_distribution_form/1,
@@ -107,6 +108,7 @@ all() ->
      image_build_decides_from_the_pushed_range,
      docs_only_gate_decides_each_push_shape,
      release_tag_does_not_move_latest,
+     only_a_plain_release_moves_latest,
      generated_lint_workflow_assembles_the_release,
      generated_service_listens_for_no_node_connection,
      generated_tests_pin_the_no_distribution_form,
@@ -862,7 +864,64 @@ release_tag_does_not_move_latest(Config) ->
     %% being there, so an older tag finishing last cannot move :latest back.
     ?assertNotEqual(nomatch, binary:match(Body, <<"scripts/is_newest_release.sh">>)),
     ?assertNotEqual(nomatch, binary:match(Body, <<"scripts/promote_latest.sh">>)),
-    ?assertNotEqual(nomatch, binary:match(Body, <<"startsWith(github.ref, 'refs/tags/v')">>)).
+    ?assertNotEqual(nomatch, binary:match(Body, <<"startsWith(github.ref, 'refs/tags/v')">>)),
+    %% ...and the promotion step itself is guarded, not just the script beside
+    %% it: dropping the `if:' makes every tag move :latest and the suite stays
+    %% green, which is a green suite saying nothing.
+    ?assertNotEqual(nomatch,
+                    binary:match(Body, <<"if: steps.newest.outputs.promote == 'true'">>)),
+    %% THE HOUSE WAITS FOR THE SIGNATURE TOO. A box that verifies refuses an
+    %% unsigned digest under the tag it pulls, so promote-latest must run after
+    %% the signing job, not beside it; `needs: [build-and-push, attest]' is the
+    %% whole of that, so it is pinned as a line rather than as two words.
+    House = read(filename:join(?config(house_root, Config), ".github/workflows/build-push.yml")),
+    ?assertMatch({match, _},
+                 re:run(House, "^  promote-latest:\n    needs: \\[build-and-push, attest\\]$",
+                        [multiline])).
+
+%% A PRERELEASE IS A REHEARSAL, NOT A RELEASE (Terra, r1 on mcl-om#54). The
+%% script sorted with git's `--sort=-v:refname', which puts v1.1.0-rc1 ABOVE
+%% v1.1.0: git reads the "rc1" as text after the empty suffix a plain release
+%% has, where SemVer sorts a prerelease before the release it precedes. Both
+%% rows were probed against real tags, so they are cut for real here, in
+%% throwaway repositories, because the answer depends on what git sorts rather
+%% than on what the script says it sorts. On the bare sort an rc moved :latest
+%% to a rehearsal, and the release cut after it never reached :latest at all.
+only_a_plain_release_moves_latest(Config) ->
+    Script = filename:join(?config(root, Config), "scripts/is_newest_release.sh"),
+    Rows = [{["v1.0.0", "v1.1.0-rc1"], "v1.1.0-rc1", <<"promote=false">>},
+            {["v1.0.0-rc1", "v1.0.0"], "v1.0.0", <<"promote=true">>},
+            {["v1.0.0", "v1.1.0-rc1"], "v1.0.0", <<"promote=true">>},
+            {["v1.0.0", "v1.0.1"], "v1.0.0", <<"promote=false">>},
+            {["v1.0.0", "v1.0.1"], "v1.0.1", <<"promote=true">>}],
+    lists:foreach(fun({Tags, Tag, Expected}) ->
+                          Answer = newest_answer(Config, Script, Tags, Tag),
+                          ?assertEqual({Tags, Tag, Expected}, {Tags, Tag, Answer})
+                  end, Rows).
+
+%% One throwaway repository per row, so no row can be answered by another
+%% row's tags, and exactly one promote line is read: the notice beside it must
+%% not be mistaken for the answer.
+newest_answer(Config, Script, Tags, Tag) ->
+    Dir = filename:join(?config(priv_dir, Config),
+                        "tags-" ++ string:join(Tags ++ [Tag], "_")),
+    ok = filelib:ensure_path(Dir),
+    git(Dir, "init -q"),
+    _ = commit(Dir, "content", <<"x\n">>),
+    %% Signing is off explicitly: a developer whose global git signs tags gets
+    %% no tag at all here, and the row would pass by accident on an empty list.
+    [git(Dir, "-c tag.gpgsign=false -c tag.forceSignAnnotated=false tag " ++ T)
+     || T <- Tags],
+    Cut = git(Dir, "tag -l"),
+    [ct:fail({tag_not_cut, T, Cut}) || T <- Tags,
+                                        nomatch =:= binary:match(list_to_binary(Cut),
+                                                                 list_to_binary(T))],
+    Out = run(Script, [Tag], Dir),
+    case [L || L <- binary:split(Out, <<"\n">>, [global]),
+               lists:member(L, [<<"promote=true">>, <<"promote=false">>])] of
+        [Answer] -> Answer;
+        Other    -> ct:fail({expected_one_answer, Tag, Other, Out})
+    end.
 
 %% THE COMMAND THE CONTAINERFILE RUNS IS THE COMMAND CI RUNS (mcl-om#52).
 %% relx refuses things lint, eunit and dialyzer never look at, so a service
@@ -891,8 +950,11 @@ containerfile_release_command(Root) ->
 generated_service_listens_for_no_node_connection(Config) ->
     Root = ?config(root, Config),
     VmArgs = read(Root, "config/vm.args.src"),
+    %% `-name' by its whitespace rather than by one space after it: a tab is
+    %% the same flag, and the literal this used to match let `-name<TAB>' pass.
+    ?assertEqual(nomatch, re:run(VmArgs, "^-name[[:space:]]", [{capture, none}, multiline])),
     [?assertEqual(nomatch, binary:match(VmArgs, F))
-     || F <- [<<"-setcookie">>, <<"-name ">>, <<"MCL_COOKIE">>, <<"MCL_NODE_HOST">>]],
+     || F <- [<<"-setcookie">>, <<"MCL_COOKIE">>, <<"MCL_NODE_HOST">>]],
     [?assertNotEqual(nomatch, binary:match(VmArgs, F))
      || F <- [<<"-sname " ?APP>>, <<"-start_epmd false">>, <<"-dist_listen false">>]],
     Container = read(Root, "Containerfile"),

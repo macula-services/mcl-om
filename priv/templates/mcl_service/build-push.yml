@@ -4,14 +4,15 @@
 #
 #   push to main : publishes :main and :<sha>   <- the tip, for trying; nothing follows it
 #   push of v*   : publishes :<version>        <- the rollback archive
-#   the newest v* tag: :latest, as a carbon copy of that tag's digest <- what a compose file runs
+#   the newest release (a plain vX.Y.Z): :latest, as a carbon copy of that tag's digest <- what a compose file runs
 #
 # `:latest' is what anyone outside the fleet pulls and what
 # deploy/docker-compose.yml runs, so it names a release and never an unreviewed
 # tip of main. scripts/image_tags.sh decides the first two from the ref, and
 # scripts/promote_latest.sh moves :latest only to a digest that was just built
-# (and, in the house, after it was signed), only when it is the newest tag, so
-# a patch cut after a newer minor cannot move it backwards.
+# (and, in the house, after it was signed), only when it is the newest RELEASE
+# -- an rc is a rehearsal and never counts -- so a patch cut after a newer minor
+# cannot move it backwards.
 #
 # NO PATH FILTER, ON PURPOSE. A docs-only push would rebuild, but
 # `paths-ignore' cannot be trusted with that: on the push that CREATES a branch
@@ -224,8 +225,9 @@ jobs:
 <%/attest%>
 
   # :LATEST IS A RELEASE, NEVER A TIP OF MAIN. It moves as a carbon copy of the
-  # digest a v* tag just pushed, and only when that tag is the newest one: two
-  # tags build in parallel, and a patch cut after a newer minor must not drag
+  # digest a v* tag just pushed, and only when that tag is the newest RELEASE
+  # -- a plain vX.Y.Z, so an rc is a rehearsal and never moves it: two tags
+  # build in parallel, and a patch cut after a newer minor must not drag
   # :latest backwards. Nothing is re-serialised here, so the bytes under
   # :latest are the bytes that were built and, in the house, signed.
   #

@@ -228,7 +228,11 @@ the_release_opens_no_distribution_listener_test() ->
       fun(Forbidden) ->
               ?assertEqual(nomatch, binary:match(VmArgs, Forbidden), {present, Forbidden})
       end,
-      [<<"-setcookie">>, <<"-name ">>]),
+      [<<"-setcookie">>]),
+    %% `-name' by its whitespace rather than by one space after it: a tab is the
+    %% same flag, and the literal this used to match let `-name<TAB>' pass.
+    ?assertEqual(nomatch, re:run(VmArgs, "^-name[[:space:]]", [{capture, none}, multiline]),
+                 {present, "-name"}),
     lists:foreach(
       fun(Required) ->
               ?assertNotEqual(nomatch, binary:match(VmArgs, Required), {missing, Required})
@@ -238,7 +242,8 @@ the_release_opens_no_distribution_listener_test() ->
     ?assertEqual(nomatch, binary:match(Container, <<"MCL_COOKIE">>)).
 
 %% The full release, 28.4.3 and not 28: `otp_release' names only the major.
-running_otp() ->    {ok, Version} = file:read_file(filename:join([code:root_dir(), "releases",
+running_otp() ->
+    {ok, Version} = file:read_file(filename:join([code:root_dir(), "releases",
                                                   erlang:system_info(otp_release),
                                                   "OTP_VERSION"])),
     string:trim(Version).
