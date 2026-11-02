@@ -46,6 +46,10 @@
         %%                         window_ms                 => 10000,
         %%                         per_caller_max            => 600,
         %%                         global_max                => 6000},
+        %%     %% Per procedure, by its org-qualified name: merged over what the
+        %%     %% capability itself declares, still under runtime set_limits.
+        %%     procedures     => #{<<"<%repo%>/some_procedure">> =>
+        %%                             #{per_caller_max => 20, global_max => 300}},
         %%     alert_topic    => <<"denials_observed">>,
         %%     guardian       => #{realm_did     => <<"32 bytes">>,
         %%                         guardian_tier => <<"guardian">>}

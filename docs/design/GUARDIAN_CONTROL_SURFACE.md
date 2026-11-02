@@ -24,6 +24,25 @@ A capability overrides the limits with a `limits` key, adds per-key min/max clam
 | `global_max` | 6000 | calls from everyone per window |
 | `max_distinct_callers` | 1024 | distinct callers per window |
 
+**Where the numbers come from**, last one wins per key: the table's defaults; then
+`inbound_guard.default_limits` from the node's config, for every procedure; then the
+capability's own `limits`; then `inbound_guard.procedures`, the node's config for one
+procedure by its org-qualified name; then runtime `set_limits`. The per-procedure config is
+how an operator gives one service other numbers in one environment without a rebuild
+(mcl-echo#11):
+
+```erlang
+{mcl_om, [{inbound_guard, #{
+    procedures => #{<<"mcl-echo/echo">> => #{per_caller_max => 10, global_max => 100,
+                                              envelope => #{per_caller_max => #{min => 1, max => 20}}}}
+}}]}
+```
+
+Its `envelope` is merged per key over the capability's own. The whole block is checked when
+the guard starts: an unknown key, a value that is not a positive integer, a bad clamp or a
+procedure name that is not a binary stops the node before it advertises anything. A
+redeclare keeps runtime `set_limits` changes, so a guardian's retune survives the config.
+
 `per_caller_max` must not exceed `global_max`. Windows are keyed by their start on the wall
 clock (`(Now div window_ms) * window_ms`), so starts can be compared across services. Old
 windows are swept once they are older than three times the largest `window_ms` in use.

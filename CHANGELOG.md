@@ -18,6 +18,15 @@ already built against that template, so the two cannot drift apart silently.
 
 ### Added
 
+- **Per-procedure inbound limits from the node's config** (mcl-om#19,
+  mcl-echo#11). `{inbound_guard, #{procedures => #{<<"org/proc">> => Limits}}}`
+  sets one procedure's limits, and optionally its envelope, for one environment
+  without a rebuild. It is merged over the capability's own `limits` and stays
+  under runtime `set_limits`. The guard checks the whole block at boot
+  (`mcl_om_guard_limits:validate_config/0`), so a bad entry stops the node
+  rather than surfacing at an advertise tick. The scaffold's `sys.config.src`
+  shows the key.
+
 - **`scripts/seed-repository.sh <org>/<repo>` seeds the repository the scaffold
   cannot create** (mcl-om#55). It prints the plan and, with `--file`, creates
   the five workflow labels the org uses, a `crew:<member>` label for each member
