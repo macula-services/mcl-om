@@ -33,6 +33,14 @@
          image_build_decides_from_the_pushed_range/1,
          docs_only_gate_decides_each_push_shape/1,
          release_tag_does_not_move_latest/1,
+         only_a_plain_release_moves_latest/1,
+         generated_lint_workflow_assembles_the_release/1,
+         generated_service_listens_for_no_node_connection/1,
+         generated_tests_pin_the_no_distribution_form/1,
+         generated_readme_shows_its_own_logo/1,
+         generated_release_path_is_executable_and_tested/1,
+         generated_service_carries_its_governance_files/1,
+         house_scaffold_funds_the_house/1,
          generated_service_is_pinned_to_one_otp/1,
          generated_runtime_guard_passes/1,
          generated_lint_toolchain_runs_in_its_image/1,
@@ -102,6 +110,14 @@ all() ->
      image_build_decides_from_the_pushed_range,
      docs_only_gate_decides_each_push_shape,
      release_tag_does_not_move_latest,
+     only_a_plain_release_moves_latest,
+     generated_lint_workflow_assembles_the_release,
+     generated_service_listens_for_no_node_connection,
+     generated_tests_pin_the_no_distribution_form,
+     generated_readme_shows_its_own_logo,
+     generated_release_path_is_executable_and_tested,
+     generated_service_carries_its_governance_files,
+     house_scaffold_funds_the_house,
      generated_service_is_pinned_to_one_otp,
      generated_runtime_guard_passes,
      generated_lint_toolchain_runs_in_its_image,
@@ -332,14 +348,23 @@ generates_every_expected_file(Config) ->
     Root = ?config(root, Config),
     Expected =
         ["rebar.config", ".gitignore", "README.md", "CHANGELOG.md", "LICENSE",
+         "SECURITY.md",
          "Containerfile",
          "architecture/README.md",
+         "assets/macula-" ?REPO "-full-light.svg",
+         "assets/macula-" ?REPO "-full-dark.svg",
+         ".github/FUNDING.yml",
+         ".github/advisories-waivers.txt",
          ".github/workflows/build-push.yml",
          ".github/workflows/lint.yml",
          "config/sys.config.src", "config/vm.args.src",
          "deploy/docker-compose.yml",
          "scripts/health.sh",
          "scripts/is_image_push.sh",
+         "scripts/image_tags.sh",
+         "scripts/is_newest_release.sh",
+         "scripts/promote_latest.sh",
+         "scripts/promote_latest_test.sh",
          "apps/" ?APP "/src/" ?APP ".app.src",
          "apps/" ?APP "/src/" ?APP "_app.erl",
          "apps/" ?APP "/src/" ?APP "_sup.erl",
@@ -362,8 +387,9 @@ the_c4_model_is_asked_for_and_not_faked(Config) ->
     ?assertNotEqual(nomatch, binary:match(Architecture, <<"assets/c4-context.svg">>)),
     ?assertNotEqual(nomatch, binary:match(Architecture, <<"assets/c4-components.svg">>)),
     %% Neither diagram is drawn for the service: a diagram from a template is a
-    %% placeholder, and the gate is what says so.
-    ?assertEqual([], filelib:wildcard(filename:join(Root, "assets/*.svg"))),
+    %% placeholder, and the gate is what says so. The logo in assets/ is not a
+    %% model and is not counted here.
+    ?assertEqual([], filelib:wildcard(filename:join(Root, "assets/c4-*.svg"))),
     %% The house holds its services to the model, so its scaffold carries the
     %% check, pinned by a full commit sha...
     House = read(filename:join([?config(house_root, Config), ".github", "workflows",
@@ -729,9 +755,28 @@ rest([])     -> <<>>;
 rest([Rest]) -> Rest.
 
 lint_images(Lint) ->
-    {match, Images} = re:run(Lint, "^\\s+image: (\\S+)$",
-                             [multiline, global, {capture, all_but_first, binary}]),
-    [I || [I] <- Images].
+    container_images(binary:split(Lint, <<"\n">>, [global]), false, []).
+
+%% The images a job RUNS IN, which is what the toolchain checks are about: the
+%% `container:' of a job. An `image:' anywhere else in the file is a service
+%% container (the promote-latest test starts a registry) and is no toolchain
+%% anyone builds in.
+container_images([], _AfterContainer, Acc) ->
+    lists:reverse(Acc);
+container_images([Line | Rest], AfterContainer, Acc) ->
+    Trim = string:trim(Line),
+    case {AfterContainer, re:run(Trim, "^image: (\\S+)$", [{capture, all_but_first, binary}])} of
+        {true, {match, [Image]}} ->
+            container_images(Rest, false, [Image | Acc]);
+        _ ->
+            container_images(Rest, still_in_container(AfterContainer, Trim), Acc)
+    end.
+
+%% A comment between `container:' and `image:' is part of the block; anything
+%% else ends it.
+still_in_container(_AfterContainer, <<"container:">>) -> true;
+still_in_container(AfterContainer, <<"#", _/binary>>) -> AfterContainer;
+still_in_container(_AfterContainer, _Line) -> false.
 
 %% ONE ORG PER SERVICE, NAMED AFTER THE REPOSITORY, fixed in the release rather
 %% than left to an environment variable someone can forget. Without it
@@ -793,20 +838,201 @@ generated_text_is_current(Config) ->
     ?assertEqual([], Stale),
     Readme = read(filename:join(Root, "README.md")),
     ?assertMatch({match, _},
-                 re:run(Readme, "publishes\\s+its\\s+own\\s+version\\s+and\\s+nothing\\s+else")).
+                 re:run(Readme, "only\\s+a\\s+release\\s+moves\\s+the\\s+one\\s+people\\s+pull")).
 
 folded(Bin) ->
     re:replace(Bin, "\\s+", " ", [global, {return, binary}]).
 
-%% TWO CHANNELS: main publishes :latest, a v* tag publishes its own version and
-%% NOTHING ELSE. Watchtower rolls every box on :latest, so a tag that also
-%% moved :latest made cutting a release the same act as deploying one.
+%% THREE CHANNELS, AND A TAG MOVES ONLY ITS OWN VERSION. A push to main
+%% publishes :main and :<sha>, a v* tag its version, and :latest is moved by
+%% promote-latest as a carbon copy of a built digest -- never by the build job,
+%% so a box that pulls :latest never runs a tip of main (mcl-jobs#9's rule).
+%%
+%% THE TAG LIST COMES FROM ONE PLACE. An inline case in the workflow and a
+%% script beside it is two places to get it wrong, so the workflow asks
+%% scripts/image_tags.sh and this test reads the answer from there.
 release_tag_does_not_move_latest(Config) ->
-    Body = read(filename:join(?config(root, Config),
-                              ".github/workflows/build-push.yml")),
+    Root = ?config(root, Config),
+    Tags = read(Root, "scripts/image_tags.sh"),
     ?assertNotEqual(nomatch,
-                    binary:match(Body, <<"tags=" ?REGISTRY "/" ?ORG "/" ?REPO ":${GITHUB_REF#refs/tags/v}\"">>)),
-    ?assertEqual(1, length(binary:matches(Body, <<":latest\"">>))).
+                    binary:match(Tags, <<"echo \"tags=$IMAGE:${REF#refs/tags/v}\"">>)),
+    ?assertNotEqual(nomatch,
+                    binary:match(Tags, <<"echo \"tags=$IMAGE:main $IMAGE:$SHA\"">>)),
+    %% :latest is not one of the tags a build publishes: only the promotion
+    %% step names it, and it is spoken of in a comment here, so the check is on
+    %% the tag itself rather than on the word.
+    ?assertEqual(nomatch, binary:match(Tags, <<"$IMAGE:latest">>)),
+    Body = read(Root, ".github/workflows/build-push.yml"),
+    ?assertNotEqual(nomatch, binary:match(Body, <<"scripts/image_tags.sh">>)),
+    %% ...and the promotion is guarded by the newest tag and by the digest
+    %% being there, so an older tag finishing last cannot move :latest back.
+    ?assertNotEqual(nomatch, binary:match(Body, <<"scripts/is_newest_release.sh">>)),
+    ?assertNotEqual(nomatch, binary:match(Body, <<"scripts/promote_latest.sh">>)),
+    ?assertNotEqual(nomatch, binary:match(Body, <<"startsWith(github.ref, 'refs/tags/v')">>)),
+    %% ...and the promotion step itself is guarded, not just the script beside
+    %% it: dropping the `if:' makes every tag move :latest and the suite stays
+    %% green, which is a green suite saying nothing.
+    ?assertNotEqual(nomatch,
+                    binary:match(Body, <<"if: steps.newest.outputs.promote == 'true'">>)),
+    %% THE HOUSE WAITS FOR THE SIGNATURE TOO. A box that verifies refuses an
+    %% unsigned digest under the tag it pulls, so promote-latest must run after
+    %% the signing job, not beside it; `needs: [build-and-push, attest]' is the
+    %% whole of that, so it is pinned as a line rather than as two words.
+    House = read(filename:join(?config(house_root, Config), ".github/workflows/build-push.yml")),
+    ?assertMatch({match, _},
+                 re:run(House, "^  promote-latest:\n    needs: \\[build-and-push, attest\\]$",
+                        [multiline])).
+
+%% A PRERELEASE IS A REHEARSAL, NOT A RELEASE (Terra, r1 on mcl-om#54). The
+%% script sorted with git's `--sort=-v:refname', which puts v1.1.0-rc1 ABOVE
+%% v1.1.0: git reads the "rc1" as text after the empty suffix a plain release
+%% has, where SemVer sorts a prerelease before the release it precedes. Both
+%% rows were probed against real tags, so they are cut for real here, in
+%% throwaway repositories, because the answer depends on what git sorts rather
+%% than on what the script says it sorts. On the bare sort an rc moved :latest
+%% to a rehearsal, and the release cut after it never reached :latest at all.
+only_a_plain_release_moves_latest(Config) ->
+    Script = filename:join(?config(root, Config), "scripts/is_newest_release.sh"),
+    Rows = [{["v1.0.0", "v1.1.0-rc1"], "v1.1.0-rc1", <<"promote=false">>},
+            {["v1.0.0-rc1", "v1.0.0"], "v1.0.0", <<"promote=true">>},
+            {["v1.0.0", "v1.1.0-rc1"], "v1.0.0", <<"promote=true">>},
+            {["v1.0.0", "v1.0.1"], "v1.0.0", <<"promote=false">>},
+            {["v1.0.0", "v1.0.1"], "v1.0.1", <<"promote=true">>}],
+    lists:foreach(fun({Tags, Tag, Expected}) ->
+                          Answer = newest_answer(Config, Script, Tags, Tag),
+                          ?assertEqual({Tags, Tag, Expected}, {Tags, Tag, Answer})
+                  end, Rows).
+
+%% One throwaway repository per row, so no row can be answered by another
+%% row's tags, and exactly one promote line is read: the notice beside it must
+%% not be mistaken for the answer.
+newest_answer(Config, Script, Tags, Tag) ->
+    Dir = filename:join(?config(priv_dir, Config),
+                        "tags-" ++ string:join(Tags ++ [Tag], "_")),
+    ok = filelib:ensure_path(Dir),
+    git(Dir, "init -q"),
+    _ = commit(Dir, "content", <<"x\n">>),
+    %% Signing is off explicitly: a developer whose global git signs tags gets
+    %% no tag at all here, and the row would pass by accident on an empty list.
+    [git(Dir, "-c tag.gpgsign=false -c tag.forceSignAnnotated=false tag " ++ T)
+     || T <- Tags],
+    Cut = git(Dir, "tag -l"),
+    [ct:fail({tag_not_cut, T, Cut}) || T <- Tags,
+                                        nomatch =:= binary:match(list_to_binary(Cut),
+                                                                 list_to_binary(T))],
+    Out = run(Script, [Tag], Dir),
+    case [L || L <- binary:split(Out, <<"\n">>, [global]),
+               lists:member(L, [<<"promote=true">>, <<"promote=false">>])] of
+        [Answer] -> Answer;
+        Other    -> ct:fail({expected_one_answer, Tag, Other, Out})
+    end.
+
+%% THE COMMAND THE CONTAINERFILE RUNS IS THE COMMAND CI RUNS (mcl-om#52).
+%% relx refuses things lint, eunit and dialyzer never look at, so a service
+%% could go green on every pull request and ship no image on its first tag.
+%% The check reads the Containerfile rather than a second literal, so moving
+%% the release command there without moving it here fails.
+generated_lint_workflow_assembles_the_release(Config) ->
+    Root = ?config(root, Config),
+    Command = containerfile_release_command(Root),
+    Lint = folded(read(Root, ".github/workflows/lint.yml")),
+    ?assertNotEqual(nomatch, binary:match(Lint, <<"- run: ", Command/binary>>)).
+
+containerfile_release_command(Root) ->
+    Lines = [string:trim(L) || L <- binary:split(read(Root, "Containerfile"),
+                                                 <<"\n">>, [global])],
+    case [Cmd || <<"RUN ", Cmd/binary>> <- Lines,
+                 binary:match(Cmd, <<" release">>) =/= nomatch] of
+        [Command | _] -> Command;
+        []            -> ct:fail(no_release_command_in_the_containerfile)
+    end.
+
+%% NO DISTRIBUTION LISTENER, NO COOKIE, NO EPMD ON A PUBLIC INTERFACE
+%% (mcl-om#24). A box that can reach this node's distribution port can attach
+%% a process holding the service's keys, and a per-box cookie is the only
+%% thing in front of it. The service talks to the mesh; it needs neither.
+generated_service_listens_for_no_node_connection(Config) ->
+    Root = ?config(root, Config),
+    VmArgs = read(Root, "config/vm.args.src"),
+    %% `-name' by its whitespace rather than by one space after it: a tab is
+    %% the same flag, and the literal this used to match let `-name<TAB>' pass.
+    ?assertEqual(nomatch, re:run(VmArgs, "^-name[[:space:]]", [{capture, none}, multiline])),
+    [?assertEqual(nomatch, binary:match(VmArgs, F))
+     || F <- [<<"-setcookie">>, <<"MCL_COOKIE">>, <<"MCL_NODE_HOST">>]],
+    [?assertNotEqual(nomatch, binary:match(VmArgs, F))
+     || F <- [<<"-sname " ?APP>>, <<"-start_epmd false">>, <<"-dist_listen false">>]],
+    Container = read(Root, "Containerfile"),
+    [?assertEqual(nomatch, binary:match(Container, F))
+     || F <- [<<"MCL_COOKIE">>, <<"ENV MCL_NODE_NAME">>]],
+    Compose = read(Root, "deploy/docker-compose.yml"),
+    [?assertEqual(nomatch, binary:match(Compose, F))
+     || F <- [<<"MCL_COOKIE">>, <<"MCL_NODE_HOST">>, <<"MCL_NODE_NAME">>]].
+
+%% AND THE GENERATED SERVICE CARRIES THE GUARD ITSELF, so this property
+%% survives in the service after the scaffold has moved on: the generated
+%% service tests read vm.args and the Containerfile and refuse the old form.
+generated_tests_pin_the_no_distribution_form(Config) ->
+    Root = ?config(root, Config),
+    Tests = read(Root, "apps/" ?APP "/test/" ?APP "_service_tests.erl"),
+    [?assertNotEqual(nomatch, binary:match(Tests, F))
+     || F <- [<<"dist_listen">>, <<"-setcookie">>, <<"start_epmd">>]].
+
+%% A DEDICATED LOGO, PARAMETERISED BY THE SERVICE NAME. The template ships the
+%% shared mesh icon and writes this service's name under it: a mark of its own
+%% from the first commit, and a README head that shows it in either theme.
+generated_readme_shows_its_own_logo(Config) ->
+    Root = ?config(root, Config),
+    Readme = read(Root, "README.md"),
+    Light = "assets/macula-" ?REPO "-full-light.svg",
+    Dark = "assets/macula-" ?REPO "-full-dark.svg",
+    [?assertNotEqual(nomatch, binary:match(Readme, list_to_binary(P)))
+     || P <- [Light, Dark]],
+    LightSvg = read(Root, Light),
+    DarkSvg = read(Root, Dark),
+    %% The name is IN the mark: a template that shipped a fixed one would say
+    %% mcl-probe-svc in every service.
+    [?assertNotEqual(nomatch, binary:match(Svg, <<?REPO>>))
+     || Svg <- [LightSvg, DarkSvg]],
+    ?assertNotEqual(LightSvg, DarkSvg).
+
+%% THE RELEASE PATH SHIPS WITH THE SERVICE, executable, and the promotion step
+%% is proven in CI on every change rather than on the tag that needs it.
+generated_release_path_is_executable_and_tested(Config) ->
+    Root = ?config(root, Config),
+    lists:foreach(
+      fun(Rel) ->
+              {ok, #file_info{mode = Mode}} =
+                  file:read_file_info(filename:join(Root, Rel)),
+              0 =/= Mode band 8#100 orelse ct:fail({not_executable, Rel})
+      end,
+      ["scripts/image_tags.sh", "scripts/is_newest_release.sh",
+       "scripts/promote_latest.sh", "scripts/promote_latest_test.sh"]),
+    Lint = read(Root, ".github/workflows/lint.yml"),
+    ?assertNotEqual(nomatch, binary:match(Lint, <<"scripts/promote_latest_test.sh">>)),
+    %% The registry the test runs against is one of its own, never the real one.
+    ?assertNotEqual(nomatch, binary:match(Lint, <<"localhost:5000">>)).
+
+%% WHAT EVERY SERVICE CARRIES BESIDES CODE: a security policy a stranger can
+%% act on, the funding button, and the advisory waivers the dependency scan
+%% reads. A stranger's scaffold waives nothing and funds nobody.
+generated_service_carries_its_governance_files(Config) ->
+    Root = ?config(root, Config),
+    ?assertNotEqual(nomatch,
+                    binary:match(read(Root, "SECURITY.md"), <<"Reporting a vulnerability">>)),
+    ?assertNotEqual(nomatch,
+                    binary:match(read(Root, ".github/FUNDING.yml"), <<"github: []">>)),
+    Waivers = read(Root, ".github/advisories-waivers.txt"),
+    %% The header explains the row shape, so the rows are what is left after
+    %% the comments and the blank lines: a new service waives nothing.
+    Rows = [L || L <- binary:split(Waivers, <<"\n">>, [global]),
+                 L =/= <<>>, binary:at(L, 0) =/= $#],
+    ?assertEqual([], Rows).
+
+%% ...and the house's own scaffold funds the house, which is the only
+%% difference between the two: same file, one variable.
+house_scaffold_funds_the_house(Config) ->
+    Funding = read(?config(house_root, Config), ".github/FUNDING.yml"),
+    ?assertNotEqual(nomatch, binary:match(Funding, <<"rgfaber">>)).
 
 %% THE SCAFFOLD MUST BE USABLE BY SOMEONE WHO IS NOT US, and the first version
 %% was not: it hardcoded our organisation, our registry, our GitOps repository
@@ -1030,17 +1256,22 @@ image_build_runs_on_docker_and_podman_alike(Config) ->
          ?assertEqual(nomatch, binary:match(Body, <<"prune">>))
      end || Root <- [?config(root, Config), ?config(house_root, Config)]].
 
-%% ONLY MAIN FEEDS :latest AND ONLY A v* TAG FEEDS THE ARCHIVE. The workflow
-%% can be run by hand, and from a branch every ref that was not a v* tag fell
-%% through to :latest: an ungated branch build overwrote the deploy channel
-%% (Fable, on mcl-fovea). Any other ref is refused, naming it.
+%% THREE CHANNELS AND NO FALLTHROUGH. The workflow can be run by hand, and from
+%% a branch every ref that was not a v* tag once fell through to :latest: an
+%% ungated branch build overwrote the deploy channel (Fable, on mcl-fovea). The
+%% tag list is scripts/image_tags.sh's, so that is where the case is asserted,
+%% and the workflow must not keep a second copy of it.
 only_main_and_release_tags_publish(Config) ->
-    Body = read(filename:join(?config(root, Config), ".github/workflows/build-push.yml")),
-    ?assertMatch({match, _}, re:run(Body, "^\\s+refs/heads/main\\) echo \"tags=\\S+:latest\"",
+    Root = ?config(root, Config),
+    Tags = read(Root, "scripts/image_tags.sh"),
+    ?assertMatch({match, _}, re:run(Tags, "^\\s+refs/heads/main\\) echo \"tags=\\S+:main \\S+:\\$SHA\"",
                                     [multiline])),
-    ?assertMatch({match, _}, re:run(Body, "^\\s+\\*\\) echo \"::error::.*\\$GITHUB_REF.*exit 1",
+    ?assertMatch({match, _}, re:run(Tags, "^\\s+\\*\\) echo \"::error::.*\\$REF",
                                     [multiline])),
-    ?assertEqual(nomatch, binary:match(Body, <<"else">>)).
+    ?assertNotEqual(nomatch, binary:match(Tags, <<"exit 1">>)),
+    Body = read(Root, ".github/workflows/build-push.yml"),
+    ?assertNotEqual(nomatch, binary:match(Body, <<"scripts/image_tags.sh">>)),
+    ?assertEqual(nomatch, binary:match(Body, <<"refs/heads/main) echo">>)).
 
 %% NOTHING PUBLISHES WHILE ITS OWN TESTS ARE RED. build-push used to run
 %% beside lint.yml, so a push whose tests failed still pushed its image, and a

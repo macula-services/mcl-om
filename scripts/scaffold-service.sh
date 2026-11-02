@@ -103,14 +103,20 @@ fi
 # with macula-ci-images' c4-model.yml: a context and a component diagram in
 # assets/, shown by a README. Same condition and same reason as attest: the
 # check is ours, pinned to our commit, and a stranger's scaffold names neither.
+#
+# HOUSE says only that the repository is one of ours: it is what puts OUR
+# funding page in .github/FUNDING.yml instead of an empty list. Separate from
+# attest because un-signing a service and un-funding it are not the same act.
 case "${ORG}" in
     macula-services|macula-internal|macula-io)
         ATTEST=1
         C4=1
+        HOUSE=1
         C4_GATE="macula-io/macula-ci-images/.github/workflows/c4-model.yml@40c349dfdd8063321f6d8de571d6fc6ee165729d" ;;
     *)
         ATTEST=
         C4=
+        HOUSE=
         C4_GATE= ;;
 esac
 
@@ -157,6 +163,7 @@ rebar3 new mcl_service \
     runs_on="${RUNS_ON}" \
     attest="${ATTEST}" \
     c4="${C4}" \
+    house="${HOUSE}" \
     c4_gate="${C4_GATE}" \
     ${HOLDER_ARGS[@]+"${HOLDER_ARGS[@]}"} \
     ${IMAGE_ARGS[@]+"${IMAGE_ARGS[@]}"}
@@ -192,8 +199,9 @@ The remote must be SSH, or the token must carry the 'workflow' scope: an HTTPS
 push that creates .github/workflows/ without it is refused, and the error names
 the file, not the scope.
 
-CI publishes two channels: a push to main publishes :latest, a v* tag
-publishes that version and nothing else.
+CI publishes three channels: a push to main publishes :main and :<sha>, which
+nothing follows; a v* tag publishes that version; and :latest moves to a tag's
+digest once its image is built, so what a host pulls is never a tip of main.
 
 ${PACKAGE_NOTE}
 EOF

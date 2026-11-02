@@ -1,6 +1,22 @@
 {{=<% %>=}}# <%repo%>
 
-**<%desc%>**
+[![CI](https://img.shields.io/github/actions/workflow/status/<%org%>/<%repo%>/lint.yml?branch=main&label=CI)](https://github.com/<%org%>/<%repo%>/actions/workflows/lint.yml)
+[![License](https://img.shields.io/badge/license-<%#proprietary%>proprietary<%/proprietary%><%^proprietary%>Apache--2.0<%/proprietary%>-blue.svg)](LICENSE)
+[![image](https://img.shields.io/badge/ghcr.io-image-blue.svg)](https://<%registry%>/<%org%>/<%repo%>)
+[![BEAM](https://img.shields.io/badge/beam-28%2B-A90533?logo=erlang&logoColor=white)](https://www.erlang.org)
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/macula-<%repo%>-full-dark.svg">
+    <img src="assets/macula-<%repo%>-full-light.svg" alt="<%repo%>" width="320">
+  </picture>
+</p>
+
+<p align="center">
+  <strong><%desc%></strong>
+</p>
+
+---
 
 ## Status: scaffold
 
@@ -54,9 +70,11 @@ Nothing checks that they are there in this scaffold.
 | `MACULA_STATION_NODE_IDS` | required | The matching 64-hex station node ids, comma-separated, index-paired with the seeds. The dial is pinned (D5): mcl_om refuses to boot a pool with an unpinned seed. |
 | `MCL_SERVICE_NAME` | `<%repo%>` | Label on the boot claim the realm's operator sees. Falls back to the service's own name. |
 | `MCL_BOX` | empty | Label naming the host, also on the boot claim. Set it where you deploy. |
-| `MCL_NODE_NAME` | `<%name%>` | Erlang node name. |
-| `MCL_NODE_HOST` | `127.0.0.1` | Erlang node host. |
-| `MCL_COOKIE` | `<%name%>` | Erlang cookie. |
+
+No node name, no node host and no cookie: the release starts with `-sname`,
+`-start_epmd false` and `-dist_listen false` (`config/vm.args.src`), so it
+listens for no node connection at all and has nothing to authenticate one with
+(mcl-om#24). `remote_console` and `eval` therefore do not reach it, by design.
 
 `deploy/docker-compose.yml` runs it, and carries what the service knows about
 itself. If you deploy through something else, let that carry **placement**: which
@@ -65,11 +83,25 @@ what stops a config table in a README and the real environment drifting.
 
 ## Deployment
 
-The image has two channels. A push to `main` publishes
-`<%registry%>/<%org%>/<%repo%>:latest`, the deploy channel: a host that follows
-`:latest` deploys every merge. A `v*` tag publishes its own version and nothing
-else, the rollback archive: pin a host to one to roll back. A push that changes
-only documentation builds no image (`scripts/is_image_push.sh`).
+Three channels, and only a release moves the one people pull.
+
+| Ref | Publishes | What it is |
+|-----|-----------|------------|
+| push to `main` | `:main` and `:<sha>` | the tip, for trying. Nothing follows it. |
+| `v*` tag | `:<version>` | the rollback archive. |
+| the newest release tag, once its image is built | `:latest` | what a `docker-compose.yml` pulls and what most hosts run. A prerelease such as `v1.1.0-rc1` is a rehearsal and never moves it; only a plain `vX.Y.Z` counts as the newest. In the house this only happens after the image is signed, so `:latest` names an attested digest. |
+
+`scripts/image_tags.sh` decides the first two from `GITHUB_REF`, so one case
+governs the whole list; `scripts/is_newest_release.sh` and
+`scripts/promote_latest.sh` move `:latest` and only ever to a **signed digest**,
+never to a tip of `main`, and never backwards when an older tag finishes last.
+`scripts/promote_latest_test.sh` proves the promotion against a registry of its
+own in CI. A push that changes only documentation builds no image
+(`scripts/is_image_push.sh`).
+
+Cut a release by tagging the commit you mean: `git tag v0.1.0 && git push
+origin v0.1.0`. The tag's own version publishes first, and `:latest` follows once
+the image is signed.
 
 The service's org, the `<org>` in every procedure it offers (`<org>/<name>`), is
 this repository's name, fixed in `config/sys.config.src`. The realm's grant names
