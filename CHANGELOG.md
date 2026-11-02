@@ -10,6 +10,9 @@ house rules on its first commit, instead of collecting the gaps one review at a
 time. The library's API is unchanged; what moves is what `rebar3 new mcl_service`
 writes.
 
+Slice C of mcl-om#51 adds the other half: a check that compares the services
+already built against that template, so the two cannot drift apart silently.
+
 ### Added
 
 - **A generated service carries its own logo and README head** (mcl-om#51): two
@@ -26,6 +29,19 @@ writes.
   `scripts/promote_latest.sh` copies a digest's own manifest bytes under
   `:latest` rather than re-serialising one nothing signed. Its test runs in CI
   against a registry of its own on every change.
+- **`scripts/check-service-drift.sh` reports how a service differs from the
+  template, and how it starts its Erlang node** (mcl-om#56). Read-only,
+  offline, and read at `origin/main` rather than from the working tree, so a
+  checkout left on a branch says what people deploy. It compares only the files
+  the template ships verbatim — the four release scripts and `.tool-versions`,
+  derived from `mcl_service.template` rather than typed into the script —
+  because everything else carries the service's own name, org and images. Each
+  finding is one TSV line, so the sweep becomes one issue per service per
+  difference. The distribution line is #24's remaining half: `no-listener` is
+  the template's form, `loopback` listens only on 127.0.0.1, `open` listens on
+  every address with a per-image cookie as its only defence, and `unknown` is a
+  repository with no `config/vm.args.src`. It is a report and not a gate: it
+  exits 0 and files nothing.
 
 ### Changed
 

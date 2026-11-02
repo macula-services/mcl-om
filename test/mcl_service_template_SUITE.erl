@@ -72,7 +72,10 @@
          house_images_are_signed_by_digest/1,
          generated_tests_guard_the_behaviour_attribute/1,
          storeless_scaffold_names_no_store/1,
-         store_scaffold_owns_its_store/1]).
+         store_scaffold_owns_its_store/1,
+         drift_reports_missing_differing_and_matching_files/1,
+         drift_classifies_how_a_service_starts_its_node/1,
+         drift_reads_the_default_branch_and_writes_nothing/1]).
 
 -define(REPO, "mcl-probe-svc").
 -define(APP,  "mcl_probe_svc").
@@ -147,7 +150,10 @@ all() ->
      house_images_are_signed_by_digest,
      generated_tests_guard_the_behaviour_attribute,
      storeless_scaffold_names_no_store,
-     store_scaffold_owns_its_store].
+     store_scaffold_owns_its_store,
+     drift_reports_missing_differing_and_matching_files,
+     drift_classifies_how_a_service_starts_its_node,
+     drift_reads_the_default_branch_and_writes_nothing].
 
 %%%---------------------------------------------------------------------------
 %%% Generate once, compile once, then assert
@@ -1442,3 +1448,103 @@ store_scaffold_owns_its_store(Config) ->
 read(Root, Rel) ->
     {ok, Bin} = file:read_file(filename:join(Root, Rel)),
     Bin.
+
+%%%---------------------------------------------------------------------------
+%%% Drift against the template (mcl-om#56)
+%%%---------------------------------------------------------------------------
+
+%% A DIFFERENCE, NOT A JUDGEMENT. What the check must get right is which of
+%% three states a shared file is in, and that a file which matches says nothing:
+%% the sweep's output becomes one issue per finding, so a false line is an issue
+%% somebody has to close by arguing with it.
+%%
+%% The fixtures are real repositories with real commits, because the answer
+%% comes from git -- what the default branch holds -- and not from a directory
+%% being read as it happens to sit.
+drift_reports_missing_differing_and_matching_files(Config) ->
+    Dir = fixture_service(Config, "mcl-drift-a",
+                          [{"Containerfile", <<"FROM scratch\n">>},
+                           {".tool-versions", template_file("tool-versions")},
+                           {"scripts/is_newest_release.sh", <<"#!/bin/sh\necho old\n">>}]),
+    Rows = drift_rows(Config, Dir),
+    ?assert(lists:member({"mcl-drift-a", "missing", "scripts/promote_latest.sh"}, Rows)),
+    ?assert(lists:member({"mcl-drift-a", "differs", "scripts/is_newest_release.sh"}, Rows)),
+    %% MATCHING IS SILENT. A service up to date on a file produces no line for
+    %% it; a check that listed "ok" for every one of them would bury the
+    %% differences it exists to show.
+    ?assertEqual([], [D || {_S, _K, D} <- Rows, D =:= ".tool-versions"]).
+
+%% HOW A SERVICE STARTS ITS NODE DECIDES WHO CAN ATTACH TO IT (mcl-om#24): no
+%% listener at all, a listener on loopback, or one on every address with a
+%% cookie. The three fixtures are the three forms, and the fourth answer --
+%% unknown -- is a service with no config/vm.args.src to read.
+drift_classifies_how_a_service_starts_its_node(Config) ->
+    Fixtures = [{"mcl-drift-open",
+                 "-sname mcl_drift_open\n-setcookie C0OKIE\n",
+                 "FROM scratch\nENV MCL_COOKIE=mcl_drift_open\n", "open", true},
+                {"mcl-drift-loopback",
+                 "-name x@h\n-setcookie C0OKIE\n"
+                 "-kernel inet_dist_use_interface {127,0,0,1}\n",
+                 "FROM scratch\n", "loopback", false},
+                {"mcl-drift-nodist",
+                 "-sname mcl_drift_nodist\n-start_epmd false\n-dist_listen false\n",
+                 "FROM scratch\n", "no-listener", false}],
+    lists:foreach(
+      fun({Name, VmArgs, Container, Form, WantsCookie}) ->
+              Dir = fixture_service(Config, Name,
+                                    [{"Containerfile", list_to_binary(Container)},
+                                     {"config/vm.args.src", list_to_binary(VmArgs)}]),
+              Rows = drift_rows(Config, Dir),
+              Forms = [D || {S, K, D} <- Rows, S =:= Name, K =:= "distribution"],
+              ?assertEqual({Name, [Form]}, {Name, Forms}),
+              Cookie = lists:any(fun({S, K, _}) ->
+                                         S =:= Name andalso K =:= "image-cookie"
+                                 end, Rows),
+              ?assertEqual({Name, WantsCookie}, {Name, Cookie})
+      end, Fixtures).
+
+%% READ-ONLY, AND AT THE BRANCH PEOPLE DEPLOY. It reports origin/main when the
+%% repository has one, never the working tree, so a checkout left on a branch
+%% says what is deployed instead of what somebody is editing; and it writes
+%% nothing into the repository it looked at.
+drift_reads_the_default_branch_and_writes_nothing(Config) ->
+    Dir = fixture_service(Config, "mcl-drift-b",
+                          [{"Containerfile", <<"FROM scratch\n">>}]),
+    %% A commit on a branch that is not main, carrying a file the template has
+    %% and main does not: a working-tree reader would report it as present.
+    git(Dir, "checkout -q -b side"),
+    _ = commit(Dir, "scripts/promote_latest.sh", <<"#!/bin/sh\necho side\n">>),
+    git(Dir, "update-ref refs/remotes/origin/main HEAD~1"),
+    Rows = drift_rows(Config, Dir),
+    ?assert(lists:member({"mcl-drift-b", "missing", "scripts/promote_latest.sh"}, Rows)),
+    %% Nothing was written: not a file, not a checkout, not a ref.
+    ?assertEqual("", string:trim(git(Dir, "status --porcelain"))).
+
+%% ONE FIXTURE SERVICE: a repository with a commit per file, so `git show' has
+%% something to answer from.
+fixture_service(Config, Name, Files) ->
+    Dir = filename:join([?config(priv_dir, Config), "drift", Name]),
+    ok = filelib:ensure_path(Dir),
+    git(Dir, "init -q"),
+    _ = commit(Dir, "README.md", <<"# fixture\n">>),
+    [commit(Dir, Rel, Content) || {Rel, Content} <- Files],
+    Dir.
+
+%% The lines the check printed, as {service, kind, detail}. The header and any
+%% blank line are not rows.
+drift_rows(Config, Dir) ->
+    Sh = os:find_executable("sh"),
+    Out = run(Sh, [drift_script(), Dir], ?config(priv_dir, Config)),
+    [begin
+         [Service, _Ref, _Sha, Kind, Detail] = binary:split(Line, <<"\t">>, [global]),
+         {binary_to_list(Service), binary_to_list(Kind), binary_to_list(Detail)}
+     end || Line <- binary:split(Out, <<"\n">>, [global]),
+            Line =/= <<>>, binary:first(Line) =/= $#].
+
+drift_script() ->
+    filename:join([filename:dirname(?FILE), "..", "scripts", "check-service-drift.sh"]).
+
+%% A template file as it sits in this checkout, for a fixture that must match it.
+template_file(Name) ->
+    read(filename:join([filename:dirname(?FILE), "..", "priv", "templates",
+                        "mcl_service", Name])).
