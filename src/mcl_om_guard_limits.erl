@@ -32,7 +32,7 @@
 %% call site.
 -compile({no_auto_import, [get/1]}).
 
--export([defaults/0, effective_defaults/0, declare/2, get/1, reset/1,
+-export([defaults/0, effective_defaults/0, configured/1, validate_config/0, declare/2, get/1, reset/1,
          set/3, validate_limits/1, validate_envelope/1, max_window_ms/0,
          procedures/0]).
 
@@ -78,16 +78,71 @@ effective_defaults() ->
             defaults()
     end.
 
+%% @doc The limits this node's config sets for one procedure:
+%% `{mcl_om, [{inbound_guard, #{procedures => #{Proc => Limits}}}]}', where
+%% `Limits' holds limit keys and optionally an `envelope'. It is a startup,
+%% per-environment setting (mcl-echo#11): merged OVER the capability's own
+%% `limits' at every declare, so an operator can tighten or loosen a
+%% service's numbers without a rebuild, and still under the runtime
+%% overrides. `#{}' when the config names nothing for `Proc'.
+-spec configured(binary()) -> map().
+configured(Proc) ->
+    case application:get_env(mcl_om, inbound_guard, #{}) of
+        #{procedures := #{Proc := Limits}} when is_map(Limits) -> Limits;
+        _NoConfig -> #{}
+    end.
+
+%% @doc The guard's config as a whole, checked at guard boot
+%% (mcl_om_guard:init/1): the framework defaults and every per-procedure
+%% entry. A bad entry stops the node before anything advertises itself as
+%% guarded, rather than surfacing at some later advertise tick.
+-spec validate_config() -> ok | {error, term()}.
+validate_config() ->
+    case validate_limits(effective_defaults()) of
+        ok -> validate_procedures(application:get_env(mcl_om, inbound_guard, #{}));
+        {error, _} = Error -> Error
+    end.
+
+validate_procedures(#{procedures := Procedures}) when is_map(Procedures) ->
+    validate_procedure_entries(maps:to_list(Procedures));
+validate_procedures(#{procedures := NotMap}) ->
+    {error, {procedures_not_a_map, NotMap}};
+validate_procedures(_NoProcedures) ->
+    ok.
+
+validate_procedure_entries([]) ->
+    ok;
+validate_procedure_entries([{Proc, Limits} | Rest]) when is_binary(Proc), is_map(Limits) ->
+    case validate_configured(Limits) of
+        ok -> validate_procedure_entries(Rest);
+        {error, Reason} -> {error, {bad_procedure_limits, Proc, Reason}}
+    end;
+validate_procedure_entries([{Proc, Limits} | _Rest]) ->
+    {error, {bad_procedure_limits, Proc, {not_a_binary_and_map, Proc, Limits}}}.
+
+%% The entry on its own: known keys, positive integers, and, when it names
+%% both, per_caller_max at most global_max. A relation against numbers the
+%% capability declares is only known at its declare.
+validate_configured(Limits) ->
+    case validate_limits(maps:remove(?ENVELOPE_KEY, Limits)) of
+        ok -> validate_envelope(maps:get(?ENVELOPE_KEY, Limits, #{}));
+        {error, _} = Error -> Error
+    end.
+
 %% @doc Register (or re-register) a capability''s declared limits and
-%% envelope, from its capability map''s `limits' key. A redeclare with
+%% envelope, from its capability map''s `limits' key, with this node's
+%% configured entry for it (configured/1) merged over them. A redeclare with
 %% the same base is a no-op -- runtime overrides survive. Raises
 %% `{mcl_om_guard_bad_limits, Proc, Reason}' on a bad map, so the
 %% advertise tick that carries it fails loud and keeps the prior
 %% registration.
 -spec declare(binary(), map()) -> ok.
 declare(Proc, CapLimits) when is_map(CapLimits) ->
-    Envelope = maps:get(?ENVELOPE_KEY, CapLimits, #{}),
-    Declared = maps:merge(effective_defaults(), maps:remove(?ENVELOPE_KEY, CapLimits)),
+    Configured = configured(Proc),
+    Envelope = maps:merge(maps:get(?ENVELOPE_KEY, CapLimits, #{}),
+                          maps:get(?ENVELOPE_KEY, Configured, #{})),
+    Declared = maps:merge(maps:merge(effective_defaults(), maps:remove(?ENVELOPE_KEY, CapLimits)),
+                          maps:remove(?ENVELOPE_KEY, Configured)),
     case {validate_limits(Declared), validate_envelope(Envelope)} of
         {ok, ok} -> declare_validated(Proc, Declared, Envelope), ok;
         {{error, _} = Error, _} -> error({mcl_om_guard_bad_limits, Proc, Error});

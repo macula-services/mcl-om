@@ -45,9 +45,10 @@ start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
 init([]) ->
-    %% A bad framework-wide limits config must stop the guard (and with
-    %% it the app) before anything advertises itself as guarded.
-    ok = mcl_om_guard_limits:validate_limits(mcl_om_guard_limits:effective_defaults()),
+    %% A bad limits config, framework-wide or per procedure, must stop the
+    %% guard (and with it the app) before anything advertises itself as
+    %% guarded.
+    ok = mcl_om_guard_limits:validate_config(),
     ?TABLE = ets:new(?TABLE, [set, public, named_table, {write_concurrency, true}]),
     erlang:send_after(?CLEANUP_INTERVAL_MS, self(), sweep),
     erlang:send_after(alert_tick_ms(), self(), report),

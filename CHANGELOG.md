@@ -3,7 +3,7 @@
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [SemVer](https://semver.org/).
 
-## [Unreleased]
+## [1.8.0] - 2026-11-02
 
 Slice A of mcl-om#51: the scaffold now generates a repository that meets the
 house rules on its first commit, instead of collecting the gaps one review at a
@@ -17,6 +17,19 @@ Slice C of mcl-om#51 adds the other half: a check that compares the services
 already built against that template, so the two cannot drift apart silently.
 
 ### Added
+
+- **Per-procedure inbound limits from the node's config** (mcl-om#19,
+  mcl-echo#11). `{inbound_guard, #{procedures => #{<<"org/proc">> => Limits}}}`
+  sets one procedure's limits, and optionally its envelope, for one environment
+  without a rebuild. It is merged over the capability's own `limits` and stays
+  under runtime `set_limits`. The guard checks the whole block at boot
+  (`mcl_om_guard_limits:validate_config/0`), so a bad entry, including one
+  whose own `per_caller_max` exceeds its own `global_max`, stops the node rather
+  than surfacing at an advertise tick. Checked only when the procedure is
+  declared: the relation against the capability's own numbers, and whether the
+  name matches a procedure at all. The scaffold's `sys.config.src`
+  shows the key, and a generated service now asks for `mcl_om ~> 1.8`, the
+  first release that reads it.
 
 - **`scripts/seed-repository.sh <org>/<repo>` seeds the repository the scaffold
   cannot create** (mcl-om#55). It prints the plan and, with `--file`, creates
