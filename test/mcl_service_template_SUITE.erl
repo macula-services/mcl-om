@@ -64,7 +64,9 @@
          house_images_are_signed_by_digest/1,
          generated_tests_guard_the_behaviour_attribute/1,
          storeless_scaffold_names_no_store/1,
-         store_scaffold_owns_its_store/1]).
+         store_scaffold_owns_its_store/1,
+         seeding_is_dry_by_default/1,
+         seeding_creates_the_labels_and_the_first_issues/1]).
 
 -define(REPO, "mcl-probe-svc").
 -define(APP,  "mcl_probe_svc").
@@ -131,7 +133,9 @@ all() ->
      house_images_are_signed_by_digest,
      generated_tests_guard_the_behaviour_attribute,
      storeless_scaffold_names_no_store,
-     store_scaffold_owns_its_store].
+     store_scaffold_owns_its_store,
+     seeding_is_dry_by_default,
+     seeding_creates_the_labels_and_the_first_issues].
 
 %%%---------------------------------------------------------------------------
 %%% Generate once, compile once, then assert
@@ -1207,6 +1211,111 @@ store_scaffold_owns_its_store(Config) ->
     Service = list_to_atom(?STORE_APP "_service"),
     {module, Service} = code:ensure_loaded(Service),
     [] = mcl_om:leftover_store_callbacks(Service).
+
+%%%---------------------------------------------------------------------------
+%%% Seeding the new repository (mcl-om#55)
+%%%---------------------------------------------------------------------------
+
+%% THE SCAFFOLD WRITES FILES AND CANNOT KNOW THE REPOSITORY EXISTS: `gh repo
+%% create' is the human's step, because who owns it and whether it is public is
+%% a decision. So the labels and the first issues are seeded by their own
+%% command, dry unless asked -- and a plan that is printed rather than applied
+%% is what makes it assertable. Nothing is created here: the stub `gh' records
+%% what it was asked to do and does nothing.
+seeding_is_dry_by_default(Config) ->
+    Priv = ?config(priv_dir, Config),
+    Logs = filename:join(Priv, "gh-dry"),
+    ok = filelib:ensure_path(Logs),
+    Stub = stub_gh(Priv),
+    Out = run(sh(), [seed_script(), "acme-widgets/mcl-seed-probe"], Priv,
+              [{"PATH", Stub ++ ":" ++ os:getenv("PATH")}, {"GH_LOG_DIR", Logs}]),
+    %% The plan names every label and every issue, and says what to do next...
+    [?assertNotEqual(nomatch, binary:match(Out, L))
+     || L <- [<<"label  plan">>, <<"label  work-package">>,
+              <<"Model the service in C4 before writing it">>,
+              <<"Release v0.1.0">>, <<"--file">>]],
+    %% ...and `gh' was not called at all.
+    ?assertEqual([], filelib:wildcard(filename:join(Logs, "*"))).
+
+%% WHAT IT CREATES, AND WHAT IT REFUSES TO PUT IN A PUBLIC REPOSITORY.
+seeding_creates_the_labels_and_the_first_issues(Config) ->
+    Priv = ?config(priv_dir, Config),
+    Logs = filename:join(Priv, "gh-file"),
+    ok = filelib:ensure_path(Logs),
+    Stub = stub_gh(Priv),
+    _ = run(sh(), [seed_script(), "acme-widgets/mcl-seed-probe", "--crew=terra", "--file"],
+            Priv, [{"PATH", Stub ++ ":" ++ os:getenv("PATH")}, {"GH_LOG_DIR", Logs}]),
+    Calls = gh_calls(Logs),
+    Labels = [Args || {<<"label create ", Args/binary>>, _Body} <- Calls],
+    ?assertEqual([<<"plan">>, <<"backlog">>, <<"proposal">>, <<"work-package">>,
+                  <<"design">>, <<"crew:terra">>],
+                 [Name || Args <- Labels, Name <- [hd(binary:split(Args, <<" ">>))]]),
+    %% Idempotent: running it twice updates a label rather than failing.
+    [?assertNotEqual(nomatch, binary:match(Args, <<"--force">>)) || Args <- Labels],
+    Issues = [{Args, Body} || {<<"issue create ", Args/binary>>, Body} <- Calls],
+    ?assertEqual(4, length(Issues)),
+    %% Every body opens with its Purpose line: that is what the house requires
+    %% of an issue, and it is the first thing a reader sees in the list.
+    [begin
+         First = hd(binary:split(Body, <<"\n">>)),
+         ?assertMatch({match, _},
+                      re:run(First, "^Purpose \\((capability|reliability|security|usability|upkeep)\\): ",
+                             [multiline]))
+     end || {_Args, Body} <- Issues],
+    %% A body lands in a repository that may be public: no box, no path, no
+    %% node id, no repository of ours by name.
+    Forbidden = [<<"macula-services">>, <<"macula-fleet">>, <<"macula-io">>,
+                 <<"beam0">>, <<"msi00">>, <<"/home/">>, <<"Lefever">>, <<"self-hosted">>],
+    ?assertEqual([], [{F, binary:part(Body, binary:match(Body, F), byte_size(F))}
+                      || {_Args, Body} <- Issues, F <- Forbidden,
+                         binary:match(Body, F) =/= nomatch]),
+    %% Each issue is addressed at the repository it seeds.
+    [?assertNotEqual(nomatch, binary:match(Args, <<"--repo acme-widgets/mcl-seed-probe">>))
+     || {Args, _Body} <- Calls].
+
+%% A stand-in `gh', first on PATH: it records the argv of every call and the
+%% body it was given, and creates nothing.
+stub_gh(Priv) ->
+    Bin = filename:join(Priv, "stub-bin"),
+    ok = filelib:ensure_path(Bin),
+    Gh = filename:join(Bin, "gh"),
+    %% STDIN IS READ ONLY WHEN `gh' IS TOLD TO, as the real one does: a stub
+    %% that always `cat's swallows the rest of the caller's input, and the seed
+    %% script runs `gh label create' inside a `while read' over its label list,
+    %% so always-reading made every name after the first vanish and the test
+    %% fail on the script's behalf.
+    Script = <<"#!/bin/sh\n"
+               "n=$(ls \"$GH_LOG_DIR\" | wc -l)\n"
+               "printf '%s\\n' \"$*\" > \"$GH_LOG_DIR/$n.call\"\n"
+               "case \"$*\" in\n"
+               "    *--body-file\\ -) cat >> \"$GH_LOG_DIR/$n.call\" ;;\n"
+               "esac\n"
+               "exit 0\n">>,
+    ok = file:write_file(Gh, Script),
+    ok = file:change_mode(Gh, 8#755),
+    Bin.
+
+%% {argv, stdin} per call, oldest first. The files are numbered by the stub.
+gh_calls(Dir) ->
+    Files = filelib:wildcard(filename:join(Dir, "*.call")),
+    Sorted = lists:sort(fun(A, B) -> call_number(A) =< call_number(B) end, Files),
+    [split_call(read(F)) || F <- Sorted].
+
+call_number(Path) ->
+    list_to_integer(filename:basename(Path, ".call")).
+
+split_call(Content) ->
+    [Args | Body] = binary:split(Content, <<"\n">>),
+    {Args, iolist_to_binary(lists:join(<<"\n">>, Body))}.
+
+sh() ->
+    case os:find_executable("sh") of
+        false -> ct:fail(no_sh_on_path);
+        Sh    -> Sh
+    end.
+
+seed_script() ->
+    filename:join([filename:dirname(?FILE), "..", "scripts", "seed-repository.sh"]).
 
 read(Root, Rel) ->
     {ok, Bin} = file:read_file(filename:join(Root, Rel)),
