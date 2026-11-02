@@ -73,6 +73,9 @@
          generated_tests_guard_the_behaviour_attribute/1,
          storeless_scaffold_names_no_store/1,
          store_scaffold_owns_its_store/1,
+         drift_reports_missing_differing_and_matching_files/1,
+         drift_classifies_how_a_service_starts_its_node/1,
+         drift_reads_the_default_branch_and_writes_nothing/1,
          seeding_is_dry_by_default/1,
          seeding_creates_the_labels_and_the_first_issues/1,
          seeding_skips_an_issue_that_is_already_filed/1,
@@ -152,6 +155,9 @@ all() ->
      generated_tests_guard_the_behaviour_attribute,
      storeless_scaffold_names_no_store,
      store_scaffold_owns_its_store,
+     drift_reports_missing_differing_and_matching_files,
+     drift_classifies_how_a_service_starts_its_node,
+     drift_reads_the_default_branch_and_writes_nothing,
      seeding_is_dry_by_default,
      seeding_creates_the_labels_and_the_first_issues,
      seeding_skips_an_issue_that_is_already_filed,
@@ -1602,3 +1608,144 @@ seed_script() ->
 read(Root, Rel) ->
     {ok, Bin} = file:read_file(filename:join(Root, Rel)),
     Bin.
+
+%%%---------------------------------------------------------------------------
+%%% Drift against the template (mcl-om#56)
+%%%---------------------------------------------------------------------------
+
+%% A DIFFERENCE, NOT A JUDGEMENT. What the check must get right is which of
+%% three states a shared file is in, and that a file which matches says nothing:
+%% the sweep's output becomes one issue per finding, so a false line is an issue
+%% somebody has to close by arguing with it.
+%%
+%% The fixtures are real repositories with real commits, because the answer
+%% comes from git -- what the default branch holds -- and not from a directory
+%% being read as it happens to sit.
+drift_reports_missing_differing_and_matching_files(Config) ->
+    Dir = fixture_service(Config, "mcl-drift-a",
+                          [{"Containerfile", <<"FROM scratch\n">>},
+                           {".tool-versions", template_file("tool-versions")},
+                           {"scripts/is_newest_release.sh", <<"#!/bin/sh\necho old\n">>}]),
+    Rows = drift_rows(Config, Dir),
+    ?assert(lists:member({"mcl-drift-a", "missing", "scripts/promote_latest.sh"}, Rows)),
+    ?assert(lists:member({"mcl-drift-a", "differs", "scripts/is_newest_release.sh"}, Rows)),
+    %% MATCHING IS SILENT. A service up to date on a file produces no line for
+    %% it; a check that listed "ok" for every one of them would bury the
+    %% differences it exists to show.
+    ?assertEqual([], [D || {_S, _K, D} <- Rows, D =:= ".tool-versions"]).
+
+%% HOW A SERVICE STARTS ITS NODE DECIDES WHO CAN ATTACH TO IT (mcl-om#24): no
+%% listener at all, a listener on loopback, or one on every address with a
+%% cookie. Each fixture is one of those, PLUS the forms that once read as the
+%% safe one: an address the world can reach on an interface directive, flags
+%% that are indented, commented or CRLF, and a compose file that passes the
+%% cookie through rather than carrying it.
+%%
+%% {Name, vm.args, Containerfile, compose, form, image cookie?, compose cookie?}
+drift_classifies_how_a_service_starts_its_node(Config) ->
+    Fixtures = [
+        {"mcl-drift-open",
+         "-sname mcl_drift_open\n-setcookie C0OKIE\n",
+         "FROM scratch\nENV MCL_COOKIE=mcl_drift_open\n", "", "open", true, false},
+        {"mcl-drift-loopback",
+         "-name x@h\n-setcookie C0OKIE\n"
+         "-kernel inet_dist_use_interface {127,0,0,1}\n",
+         "FROM scratch\n", "", "loopback", false, false},
+        %% NO LONGER LOOPBACK. The directive is present, and the address it
+        %% names is every address: asking only whether the line exists reports
+        %% an exposed node as the safe form.
+        {"mcl-drift-bind-all",
+         "-name x@h\n-setcookie C0OKIE\n"
+         "-kernel inet_dist_use_interface {0,0,0,0}\n",
+         "FROM scratch\n", "", "open", false, false},
+        {"mcl-drift-bind-lan",
+         "-name x@h\n-setcookie C0OKIE\n"
+         "-kernel inet_dist_use_interface {192,168,1,10}\n",
+         "FROM scratch\n", "", "open", false, false},
+        {"mcl-drift-nodist",
+         "-sname mcl_drift_nodist\n-start_epmd false\n-dist_listen false\n",
+         "FROM scratch\n", "", "no-listener", false, false},
+        %% WHITESPACE IS NOT SEMANTICS. A tab before the name and spaces before
+        %% the two falses are the same file as the one above.
+        {"mcl-drift-indented",
+         "\t-sname mcl_drift_indented\n  -start_epmd false\n  -dist_listen false\n",
+         "FROM scratch\n", "", "no-listener", false, false},
+        %% ...and a trailing comment or a CR is not a different value either.
+        {"mcl-drift-commented",
+         "-sname mcl_drift_commented\r\n-start_epmd false  # no epmd\r\n"
+         "-dist_listen false\r\n",
+         "FROM scratch\n", "", "no-listener", false, false},
+        %% A PASSED-THROUGH COOKIE IS NOT A BAKED-IN ONE. The compose file
+        %% reads it from the box's environment, which is the house form.
+        {"mcl-drift-passthrough",
+         "-sname mcl_drift_passthrough\n-setcookie C0OKIE\n",
+         "FROM scratch\n", "      - MCL_COOKIE=${MCL_COOKIE:?set it}\n",
+         "open", false, false},
+        {"mcl-drift-literal-compose",
+         "-sname mcl_drift_literal\n-setcookie C0OKIE\n",
+         "FROM scratch\n", "      - MCL_COOKIE=hunter2\n", "open", false, true},
+        {"mcl-drift-lowercase-env",
+         "-sname mcl_drift_lower\n-setcookie C0OKIE\n",
+         "from scratch\nenv MCL_COOKIE=hunter2\n", "", "open", true, false}],
+    lists:foreach(
+      fun({Name, VmArgs, Container, Compose, Form, WantsImage, WantsCompose}) ->
+              Dir = fixture_service(Config, Name,
+                                    [{"Containerfile", list_to_binary(Container)},
+                                     {"config/vm.args.src", list_to_binary(VmArgs)},
+                                     {"deploy/docker-compose.yml", list_to_binary(Compose)}]),
+              Rows = drift_rows(Config, Dir),
+              Forms = [D || {S, K, D} <- Rows, S =:= Name, K =:= "distribution"],
+              ?assertEqual({Name, [Form]}, {Name, Forms}),
+              Said = fun(Kind) ->
+                             lists:any(fun({S, K, _}) -> S =:= Name andalso K =:= Kind end,
+                                       Rows)
+                     end,
+              ?assertEqual({Name, WantsImage}, {Name, Said("image-cookie")}),
+              ?assertEqual({Name, WantsCompose}, {Name, Said("compose-cookie")})
+      end, Fixtures).
+
+%% READ-ONLY, AND AT THE BRANCH PEOPLE DEPLOY. It reports origin/main when the
+%% repository has one, never the working tree, so a checkout left on a branch
+%% says what is deployed instead of what somebody is editing; and it writes
+%% nothing into the repository it looked at.
+drift_reads_the_default_branch_and_writes_nothing(Config) ->
+    Dir = fixture_service(Config, "mcl-drift-b",
+                          [{"Containerfile", <<"FROM scratch\n">>}]),
+    %% A commit on a branch that is not main, carrying a file the template has
+    %% and main does not: a working-tree reader would report it as present.
+    git(Dir, "checkout -q -b side"),
+    _ = commit(Dir, "scripts/promote_latest.sh", <<"#!/bin/sh\necho side\n">>),
+    git(Dir, "update-ref refs/remotes/origin/main HEAD~1"),
+    Rows = drift_rows(Config, Dir),
+    ?assert(lists:member({"mcl-drift-b", "missing", "scripts/promote_latest.sh"}, Rows)),
+    %% Nothing was written: not a file, not a checkout, not a ref.
+    ?assertEqual("", string:trim(git(Dir, "status --porcelain"))).
+
+%% ONE FIXTURE SERVICE: a repository with a commit per file, so `git show' has
+%% something to answer from.
+fixture_service(Config, Name, Files) ->
+    Dir = filename:join([?config(priv_dir, Config), "drift", Name]),
+    ok = filelib:ensure_path(Dir),
+    git(Dir, "init -q"),
+    _ = commit(Dir, "README.md", <<"# fixture\n">>),
+    [commit(Dir, Rel, Content) || {Rel, Content} <- Files],
+    Dir.
+
+%% The lines the check printed, as {service, kind, detail}. The header and any
+%% blank line are not rows.
+drift_rows(Config, Dir) ->
+    Sh = os:find_executable("sh"),
+    Out = run(Sh, [drift_script(), Dir], ?config(priv_dir, Config)),
+    [begin
+         [Service, _Ref, _Sha, Kind, Detail] = binary:split(Line, <<"\t">>, [global]),
+         {binary_to_list(Service), binary_to_list(Kind), binary_to_list(Detail)}
+     end || Line <- binary:split(Out, <<"\n">>, [global]),
+            Line =/= <<>>, binary:first(Line) =/= $#].
+
+drift_script() ->
+    filename:join([filename:dirname(?FILE), "..", "scripts", "check-service-drift.sh"]).
+
+%% A template file as it sits in this checkout, for a fixture that must match it.
+template_file(Name) ->
+    read(filename:join([filename:dirname(?FILE), "..", "priv", "templates",
+                        "mcl_service", Name])).

@@ -411,6 +411,41 @@ One thing it cannot do for you, and it has bitten: the registry package may be
 created **private**, and the pull then fails on the host with a bare
 `unauthorized` that names nothing. Check it after the first build.
 
+### Checking an existing service for drift
+
+The template moves; the services made from it do not move by themselves.
+`scripts/check-service-drift.sh` reports how each one differs, and how it starts
+its Erlang node, as one TSV line per finding — read-only, offline, and read at
+`origin/main` rather than from whatever a checkout happens to have:
+
+```bash
+scripts/check-service-drift.sh ~/work/github.com/macula-services        # every repo under it
+scripts/check-service-drift.sh ~/work/github.com/macula-services/mcl-jobs
+```
+
+```
+# service	ref	sha	kind	detail
+mcl-news	origin/main	517fe2e	missing       scripts/promote_latest.sh
+mcl-jobs	origin/main	4e6a664	differs       scripts/is_newest_release.sh
+mcl-jobs	origin/main	4e6a664	distribution  open
+mcl-jobs	origin/main	4e6a664	image-cookie  Containerfile
+```
+
+Only files the template ships **verbatim** are compared — the four release
+scripts and `.tool-versions`, derived from `mcl_service.template` rather than
+typed here — because the rest carry the service's own name, org and images, and
+a diff of those would report a substituted line as drift. The `distribution`
+line is the security row: `no-listener` is the template's form, `loopback`
+listens only on 127.0.0.1 (or `::1` — a `inet_dist_use_interface` naming any
+other address is `open`, because that directive is also how a node binds the
+world), `open` listens on every address with a cookie as its only defence, and
+`unknown` means the repository has no `config/vm.args.src` to read.
+`image-cookie` and `compose-cookie` report a cookie set to a literal value —
+one identical secret in every copy of a public image. A compose file reading
+`MCL_COOKIE=${MCL_COOKIE:?…}` is the house form and is not reported.
+
+The sweep is a report, not a gate: it exits 0 and files nothing.
+
 ### Deploying on the BEAM Campus fleet
 
 Ours, and deliberately not part of the scaffold. `deploy/docker-compose.yml` in

@@ -13,6 +13,9 @@ writes.
 Slice B of mcl-om#51: a scaffolded repository now arrives with its labels and
 its first issues named, instead of a list of jobs to discover.
 
+Slice C of mcl-om#51 adds the other half: a check that compares the services
+already built against that template, so the two cannot drift apart silently.
+
 ### Added
 
 - **`scripts/seed-repository.sh <org>/<repo>` seeds the repository the scaffold
@@ -42,6 +45,23 @@ its first issues named, instead of a list of jobs to discover.
   `scripts/promote_latest.sh` copies a digest's own manifest bytes under
   `:latest` rather than re-serialising one nothing signed. Its test runs in CI
   against a registry of its own on every change.
+- **`scripts/check-service-drift.sh` reports how a service differs from the
+  template, and how it starts its Erlang node** (mcl-om#56). Read-only,
+  offline, and read at `origin/main` rather than from the working tree, so a
+  checkout left on a branch says what people deploy. It compares only the files
+  the template ships verbatim — the four release scripts and `.tool-versions`,
+  derived from `mcl_service.template` rather than typed into the script —
+  because everything else carries the service's own name, org and images. Each
+  finding is one TSV line, so the sweep becomes one issue per service per
+  difference. The distribution line is #24's remaining half: `no-listener` is
+  the template's form, `loopback` binds 127.0.0.1 (or `::1`) and nothing else —
+  the directive naming any other address, `{0,0,0,0}` included, is `open`, since
+  it is also how a node binds the world — `open` listens on every address with a
+  cookie as its only defence, and `unknown` is a repository with no
+  `config/vm.args.src`. A cookie is reported only where it is set to a literal
+  value; the house's `${MCL_COOKIE:?…}` pass-through is not a cookie this
+  repository carries. It is a report and not a gate: it exits 0 and files
+  nothing.
 
 ### Changed
 
