@@ -1,0 +1,11 @@
+{{=<% %>=}}# Advisories this repository waives, one row each. No baseline: every row is a
+# decision with a reason, an owner and an expiry, and the scan fails on an
+# expired one.
+#
+# A row is FIVE FIELDS, in this order, separated by ' | ':
+#
+# advisory | package | why it cannot be fixed yet | owner | expires YYYY-MM-DD
+#
+# With no rows, nothing is waived: the first advisory this service inherits
+# turns its CI red, which is the point. Write a row only when you can say why
+# the advisory cannot reach this service, who owns it, and when it is reviewed.

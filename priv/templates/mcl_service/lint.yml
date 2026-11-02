@@ -51,6 +51,28 @@ jobs:
       - run: rebar3 lint
       - run: rebar3 eunit
       - run: rebar3 dialyzer
+      # THE RELEASE THE CONTAINERFILE BUILDS, assembled here on every change.
+      # relx refuses what lint, eunit and dialyzer never look at -- two apps
+      # registering one name stopped a service's first tagged image while every
+      # pull request was green. The command is the Containerfile's own, and
+      # mcl_om's template suite fails when the two disagree.
+      - run: rebar3 as prod release
+
+  # scripts/promote_latest.sh, the one step that moves :latest, is only ever run
+  # by a release. This runs it on every change, against a registry of its own,
+  # so a broken promotion shows here and not on a tag.
+  promote-latest-copies-the-digest:
+    runs-on: <%runs_on%>
+    services:
+      registry:
+        image: docker.io/library/registry:2@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373
+        ports:
+          - 5000:5000
+    steps:
+      - uses: actions/checkout@v4
+      - run: scripts/promote_latest_test.sh
+        env:
+          REGISTRY: localhost:5000
 
 <%#attest%>
   # A dependency the service ships with a published advisory fails its CI, and
@@ -59,11 +81,11 @@ jobs:
   # workflow is pinned by full commit; its scan reads the rebar.lock this
   # build resolves, since a rebar3 project commits none.
   #
-  # A new service starts with no .github/advisories-waivers.txt, so it goes red
-  # on the first advisory it inherits and stays red until the advisory is fixed
-  # or a dated, owned row is added. That is the point: the gate has no baselines.
-  # A row is five fields, '# advisory | package | why | owner | expires'; copy
-  # the shape from mcl_om's own file.
+  # .github/advisories-waivers.txt starts with no rows, so this goes red on the
+  # first advisory the service inherits and stays red until the advisory is
+  # fixed or a dated, owned row is added. That is the point: the gate has no
+  # baselines. A row is five fields, 'advisory | package | why | owner |
+  # expires YYYY-MM-DD', and the file's header says what each one is for.
   #
   # INSIDE THE HOUSE BLOCK because that workflow is macula-ci-images', the same
   # reason the release guard and the attest call in build-push.yml are: a

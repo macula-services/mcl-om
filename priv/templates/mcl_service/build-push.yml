@@ -1,21 +1,25 @@
 {{=<% %>=}}# Build the OCI image for <%repo%> and push to the registry.
 #
-# TWO CHANNELS, AND A TAG PUSH MUST NOT TOUCH THE DEPLOY ONE.
+# THREE CHANNELS, AND ONLY A RELEASE MOVES THE ONE PEOPLE PULL.
 #
-#   push to main : publishes :latest        <- the deploy channel
-#   push of v*   : publishes :<semver> ONLY <- the rollback archive
+#   push to main : publishes :main and :<sha>   <- the tip, for trying; nothing follows it
+#   push of v*   : publishes :<version>        <- the rollback archive
+#   the newest release (a plain vX.Y.Z): :latest, as a carbon copy of that tag's digest <- what a compose file runs
 #
-# The deployed compose tracks :latest under watchtower for zero-touch deploys,
-# and the semver tags stay published so a bad release can be pinned back to a
-# known one. A tag that also moved :latest would roll every box the moment a
-# release was cut, so cutting a release and deploying one are separate acts.
+# `:latest' is what anyone outside the fleet pulls and what
+# deploy/docker-compose.yml runs, so it names a release and never an unreviewed
+# tip of main. scripts/image_tags.sh decides the first two from the ref, and
+# scripts/promote_latest.sh moves :latest only to a digest that was just built
+# (and, in the house, after it was signed), only when it is the newest RELEASE
+# -- an rc is a rehearsal and never counts -- so a patch cut after a newer minor
+# cannot move it backwards.
 #
-# NO PATH FILTER, ON PURPOSE. A docs-only push should not rebuild :latest and
-# restart every box, but `paths-ignore' cannot be trusted with that: on the push
-# that CREATES a branch GitHub evaluates it on the head commit alone, so a first
-# push ending in a README edit silently built no image. scripts/is_image_push.sh
-# decides from the pushed range instead, and builds whenever it cannot tell.
-# If an image is ever missing anyway, run this workflow by hand.
+# NO PATH FILTER, ON PURPOSE. A docs-only push would rebuild, but
+# `paths-ignore' cannot be trusted with that: on the push that CREATES a branch
+# GitHub evaluates it on the head commit alone, so a first push ending in a
+# README edit silently built no image. scripts/is_image_push.sh decides from
+# the pushed range instead, and builds whenever it cannot tell. If an image is
+# ever missing anyway, run this workflow by hand.
 #
 # NOTE ON PUSHING THIS FILE. An HTTPS push that creates or updates anything under
 # .github/workflows/ needs a token carrying the `workflow' scope, and the error
@@ -95,11 +99,10 @@ jobs:
     permissions:
       contents: read
       packages: write
-<%#attest%>
-    # The digest the push produced: the one the attest job signs.
+    # The digest the push produced: promote-latest puts it under :latest, and
+    # in the house the signing job signs it.
     outputs:
       digest: ${{ steps.digest.outputs.digest }}
-<%/attest%>
 
     steps:
       # The whole history, so the gate below can diff the pushed range.
@@ -131,19 +134,14 @@ jobs:
           export DOCKER_CONFIG="$RUNNER_TEMP/docker-config" REGISTRY_AUTH_FILE="$RUNNER_TEMP/auth.json"
           echo "$TOKEN" | docker login <%registry%> -u "${{ github.actor }}" --password-stdin
 
-      # Emits the COMPLETE tag list, so the condition governs all of it. ONLY
-      # MAIN FEEDS :latest AND ONLY A v* TAG FEEDS THE ARCHIVE: the workflow can
-      # be run by hand from any branch, and a branch build must never overwrite
-      # the deploy channel, so any other ref is refused, naming it.
+      # THE COMPLETE TAG LIST COMES FROM scripts/image_tags.sh, so one case
+      # governs all of it: a v* tag publishes that version, main publishes
+      # :main and :<sha>, and any other ref is refused, naming it. None of them
+      # is :latest; promote-latest moves that, below.
       - name: Set tags
         if: steps.gate.outputs.build == 'true'
         id: tag
-        run: |
-          case "${GITHUB_REF}" in
-            refs/tags/v*)    echo "tags=<%registry%>/<%org%>/<%repo%>:${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT" ;;
-            refs/heads/main) echo "tags=<%registry%>/<%org%>/<%repo%>:latest" >> "$GITHUB_OUTPUT" ;;
-            *) echo "::error::only main publishes :latest and only a v* tag publishes a version; refusing $GITHUB_REF"; exit 1 ;;
-          esac
+        run: scripts/image_tags.sh >> "$GITHUB_OUTPUT"
 
       # BUILT UNDER A TAG UNIQUE TO THIS RUN, then tagged for the registry and
       # pushed. A shared image store sees every runner's builds, and the run id
@@ -166,12 +164,13 @@ jobs:
               docker tag "$LOCAL" "$tag"
               docker push "$tag"
           done
-<%#attest%>
 
       # THE DIGEST THE PUSH PRODUCED, read back from the registry by the tag
       # just pushed: the steps above are plain docker CLI (they must run on a
       # podman shim too), so no action reports it. The concurrency group keeps
       # another build of this ref from moving the tag in between.
+      # promote-latest puts this digest under :latest, and in the house the
+      # signing job signs it.
       - name: Resolve the pushed digest
         if: steps.gate.outputs.build == 'true'
         id: digest
@@ -182,13 +181,12 @@ jobs:
           tag="${TAGS%% *}"
           digest=$(curl -fsSI -H "Authorization: Bearer $(printf %s "$TOKEN" | base64 -w0)" \
               -H "Accept: application/vnd.docker.distribution.manifest.v2+json, application/vnd.oci.image.manifest.v1+json, application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json" \
-              "https://ghcr.io/v2/<%org%>/<%repo%>/manifests/${tag##*:}" \
+              "https://<%registry%>/v2/<%org%>/<%repo%>/manifests/${tag##*:}" \
             | tr -d '\r' | sed -n 's/^[Dd]ocker-[Cc]ontent-[Dd]igest: //p')
           case "$digest" in
             sha256:*) echo "digest=$digest" >> "$GITHUB_OUTPUT" ;;
             *) echo "::error::the registry named no digest for $tag"; exit 1 ;;
           esac
-<%/attest%>
 
       # BY NAME, NEVER BY WILDCARD: on a shared image store, a wildcard removal
       # takes other jobs' images mid-run. Keyed on the LOGIN, so the credentials go
@@ -221,7 +219,44 @@ jobs:
       id-token: write
     uses: macula-io/macula-ci-images/.github/workflows/attest-image.yml@b4c41abb404c32215a2823b7f19ac65b732e1dfe
     with:
-      image: ghcr.io/<%org%>/<%repo%>
+      image: <%registry%>/<%org%>/<%repo%>
       digest: ${{ needs.build-and-push.outputs.digest }}
       runs-on: '<%runs_on%>'
 <%/attest%>
+
+  # :LATEST IS A RELEASE, NEVER A TIP OF MAIN. It moves as a carbon copy of the
+  # digest a v* tag just pushed, and only when that tag is the newest RELEASE
+  # -- a plain vX.Y.Z, so an rc is a rehearsal and never moves it: two tags
+  # build in parallel, and a patch cut after a newer minor must not drag
+  # :latest backwards. Nothing is re-serialised here, so the bytes under
+  # :latest are the bytes that were built and, in the house, signed.
+  #
+  # It waits on the signing job as well, where there is one: a box that
+  # verifies signatures must never find an unsigned digest under the tag it
+  # pulls.
+  promote-latest:
+    needs: <%#attest%>[build-and-push, attest]<%/attest%><%^attest%>build-and-push<%/attest%>
+    if: startsWith(github.ref, 'refs/tags/v') && needs.build-and-push.outputs.digest != ''
+    runs-on: <%runs_on%>
+    concurrency:
+      group: promote-latest
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      # Every tag, so the newest one is known at the moment of promotion.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Is this the newest release?
+        id: newest
+        run: |
+          git fetch --force --tags origin
+          scripts/is_newest_release.sh "${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+      - name: Point :latest at the pushed digest
+        if: steps.newest.outputs.promote == 'true'
+        env:
+          REGISTRY_USER: ${{ github.actor }}
+          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: scripts/promote_latest.sh <%registry%>/<%org%>/<%repo%> "${{ needs.build-and-push.outputs.digest }}"

@@ -57,6 +57,8 @@
      "The runner CI jobs run on, as a JSON array (valid YAML after `runs-on:', and what attest-image.yml's runs-on input takes), e.g. [\"self-hosted\", \"msi00\", \"pq\"]. NEVER a self-hosted runner for a public repository: a pull request from anyone would run its code on that machine. scripts/scaffold-service.sh picks it from the org and MCL_VISIBILITY."},
     {c4, "",
      "EMPTY BY DEFAULT, 1 FOR THE HOUSE. Adds the c4-model job to lint.yml: the shared C4 check, which fails the service's CI until assets/ holds a context and a component diagram, each shown by README.md or architecture/README.md (macula-codebase-checks#10). Off for a scaffold outside our orgs, because the check is ours and pinning it to a stranger's CI names us. EXACTLY ONE CHARACTER, like `store` and `attest`: rebar3 passes template variables as strings and mustache iterates a string as a list, so a longer value repeats the job once per character. scripts/scaffold-service.sh sets it from the org."},
+    {house, "",
+     "EMPTY BY DEFAULT, 1 FOR THE HOUSE. Says only that this repository is one of ours: it puts OUR funding page in .github/FUNDING.yml instead of an empty list, and marks anything else that is ours and nobody else's. scripts/scaffold-service.sh sets it from the org, separately from `attest', because un-signing a service and un-funding it are not the same act. EXACTLY ONE CHARACTER, like `store'."},
     {c4_gate, "",
      "The shared C4 check c4-model calls, as its `uses:` value, PINNED BY FULL COMMIT SHA. Named here rather than in the workflow so moving the fleet's pin is one edit, as the two images are. Only read when `c4` is set."},
     {attest, "",
@@ -100,6 +102,37 @@
 {chmod,                                         "{{repo}}/scripts/health.sh", 8#755}.
 {template, "mcl_service/is_image_push.sh",    "{{repo}}/scripts/is_image_push.sh"}.
 {chmod,                                         "{{repo}}/scripts/is_image_push.sh", 8#755}.
+
+%% The release and promotion path. image_tags.sh is what build-push.yml asks
+%% for its tag list, so one case governs every channel; is_newest_release.sh
+%% keeps :latest from moving backwards when an older tag finishes last; and
+%% promote_latest.sh copies a signature's own digest bytes under :latest
+%% rather than re-serialising a manifest nothing signed. Its test runs in CI
+%% against a registry of its own, so a broken promotion shows on a pull
+%% request and not on a tag.
+{template, "mcl_service/image_tags.sh",         "{{repo}}/scripts/image_tags.sh"}.
+{chmod,                                          "{{repo}}/scripts/image_tags.sh", 8#755}.
+{template, "mcl_service/is_newest_release.sh",  "{{repo}}/scripts/is_newest_release.sh"}.
+{chmod,                                          "{{repo}}/scripts/is_newest_release.sh", 8#755}.
+{template, "mcl_service/promote_latest.sh",     "{{repo}}/scripts/promote_latest.sh"}.
+{chmod,                                          "{{repo}}/scripts/promote_latest.sh", 8#755}.
+{template, "mcl_service/promote_latest_test.sh", "{{repo}}/scripts/promote_latest_test.sh"}.
+{chmod,                                          "{{repo}}/scripts/promote_latest_test.sh", 8#755}.
+
+%% The service's own logo, parameterised by the repository name: two files,
+%% because a README shown on a dark page needs the dark one and a <picture>
+%% element cannot invert a colour. Drawn from the shared mesh icon, so a new
+%% service starts with a mark rather than a placeholder.
+{template, "mcl_service/logo-light.svg",        "{{repo}}/assets/macula-{{repo}}-full-light.svg"}.
+{template, "mcl_service/logo-dark.svg",         "{{repo}}/assets/macula-{{repo}}-full-dark.svg"}.
+
+%% The repository's own governance files, which the house requires of every
+%% service: a security policy a stranger can act on, the funding button, and
+%% the advisory waivers the dependency scan reads (empty of rows, so nothing
+%% is waived by default).
+{template, "mcl_service/security.md",            "{{repo}}/SECURITY.md"}.
+{template, "mcl_service/funding.yml",            "{{repo}}/.github/FUNDING.yml"}.
+{template, "mcl_service/advisories-waivers.txt", "{{repo}}/.github/advisories-waivers.txt"}.
 
 %% The service's own architecture: the C4 model the gate in lint.yml asks for.
 %% The scaffold writes what is true of a service that does nothing yet, and

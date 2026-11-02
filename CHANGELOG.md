@@ -3,6 +3,71 @@
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [SemVer](https://semver.org/).
 
+## [Unreleased]
+
+Slice A of mcl-om#51: the scaffold now generates a repository that meets the
+house rules on its first commit, instead of collecting the gaps one review at a
+time. The library's API is unchanged; what moves is what `rebar3 new mcl_service`
+writes.
+
+### Added
+
+- **A generated service carries its own logo and README head** (mcl-om#51): two
+  parameterised SVGs in `assets/` — the shared mesh icon with this service's name
+  under it, light and dark — and a README that shows them, with a badge row.
+  A mark of its own from the first commit rather than a placeholder.
+- **`SECURITY.md`, `.github/FUNDING.yml` and `.github/advisories-waivers.txt`**:
+  the security policy a stranger can act on, the funding button (ours only when
+  the org is one of ours), and the waivers file the dependency scan reads, with
+  no rows, so nothing is waived by default.
+- **The release and promotion path**: `scripts/image_tags.sh` decides every
+  channel from `GITHUB_REF` in one place, `scripts/is_newest_release.sh` keeps
+  `:latest` from moving backwards when an older tag finishes last, and
+  `scripts/promote_latest.sh` copies a digest's own manifest bytes under
+  `:latest` rather than re-serialising one nothing signed. Its test runs in CI
+  against a registry of its own on every change.
+
+### Changed
+
+- **A generated service publishes three channels, and only a release moves
+  `:latest`.** A push to `main` publishes `:main` and `:<sha>`, which nothing
+  follows; a `v*` tag publishes its version; and `:latest` moves to that tag's
+  digest once it is built — and, in the house, signed. Before this, a push to
+  `main` published `:latest`, so the tag people pull was whatever main was last
+  built from.
+- **The generated lint workflow assembles the release too** (mcl-om#52): it runs
+  the Containerfile's own `rebar3 as prod release`, in the same digest-pinned
+  builder image, so a release relx refuses fails on a pull request instead of on
+  the tag that needed it. mcl_om's template suite fails when the two disagree.
+
+### Removed
+
+- **No Erlang distribution listener, no epmd on a public interface, no image
+  cookie default** (mcl-om#24, subsumed). The generated `config/vm.args.src`
+  starts the node with `-sname`, `-start_epmd false` and `-dist_listen false`
+  and sets no cookie; the Containerfile bakes no default `MCL_COOKIE` and the
+  compose file sets neither a node name nor a cookie. A box that can reach a
+  node's distribution port can attach a process holding the service's keys, and
+  a per-box cookie was the only thing in front of it. The generated service's
+  own tests pin the three flags, so the property survives after the scaffold has
+  moved on.
+
+### Fixed
+
+- **A prerelease never moves `:latest`, and never counts as the newest
+  release.** `scripts/is_newest_release.sh` sorted with git's
+  `--sort=-v:refname`, which puts `v1.1.0-rc1` ABOVE `v1.1.0`: git reads the
+  `rc1` as text after the empty suffix a plain release has, where SemVer sorts a
+  prerelease before the release it precedes. So cutting an rc moved `:latest` to
+  a rehearsal, and the release cut after it — reading as not-newest against the
+  rc — never reached `:latest` at all. Only plain `vX.Y.Z` tags are releases
+  now. `only_a_plain_release_moves_latest` cuts both rows for real in a
+  throwaway repository and reads the answer from the script, and the promotion
+  step's own `if:` and the house's `needs: [build-and-push, attest]` are pinned
+  too, so neither can be dropped under a green suite. Found in the review of
+  #54; the same script on main in mcl-tenders and mcl-jobs is filed there
+  (mcl-tenders#17, mcl-jobs#14).
+
 ## [1.7.0] - 2026-11-01
 
 A subscription can now be under a sealed group (mcl-om#49). The publish side

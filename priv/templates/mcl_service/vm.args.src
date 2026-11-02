@@ -1,6 +1,16 @@
-{{=<% %>=}}## Node identity and runtime flags for <%name%>.
--name ${MCL_NODE_NAME}@${MCL_NODE_HOST}
--setcookie ${MCL_COOKIE}
+{{=<% %>=}}## Runtime flags for <%name%>.
+
+## NO ERLANG DISTRIBUTION LISTENER. The service talks to the mesh, never to
+## another Erlang node, and answers /health on a Unix socket. relx's start
+## script demands a node name, so the node has a short one, but it starts no
+## epmd and never listens for a node connection, and it has no cookie: no
+## remote shell or dist-eval can reach the process that holds this service's
+## keys (mcl-om#24). A service that genuinely needs distribution adds `-name',
+## a cookie from the environment and `-kernel inet_dist_use_interface
+## {127,0,0,1}' -- and says why in its README.
+-sname <%name%>
+-start_epmd false
+-dist_listen false
 
 +K true
 
