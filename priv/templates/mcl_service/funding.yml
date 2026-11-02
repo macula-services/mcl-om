@@ -1,0 +1,4 @@
+{{=<% %>=}}# The funding button on the repository page and the Sponsors badge in the
+# README. A scaffold for another org gets an empty list rather than ours: a
+# stranger's service is not ours to raise money on.
+github: [<%#house%>rgfaber<%/house%>]

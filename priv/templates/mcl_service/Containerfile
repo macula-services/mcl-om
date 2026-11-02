@@ -67,9 +67,14 @@ COPY --from=builder /build/_build/prod/rel/<%name%> ./
 ENV HOME=/app
 ENV RELX_REPLACE_OS_VARS=true
 
-ENV MCL_NODE_NAME=<%name%>
-ENV MCL_NODE_HOST=127.0.0.1
-ENV MCL_COOKIE=<%name%>
+# NO ERLANG DISTRIBUTION LISTENER, and no cookie: `config/vm.args.src' starts
+# the node with `-sname', `-start_epmd false' and `-dist_listen false', so
+# nothing here accepts a node connection and there is no baked default cookie
+# for every copy of this image to share (mcl-om#24). Nothing sets a node name
+# or a cookie in the environment either, because nothing reads one. The
+# release's own `remote_console' and `eval' therefore do not reach this node,
+# by design: a box that could attach a process holding the service's keys is
+# the exposure this removes.
 
 VOLUME ["/etc/mcl/secrets"]
 

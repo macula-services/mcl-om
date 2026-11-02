@@ -212,9 +212,33 @@ ci_builds_in_the_builder_and_both_images_are_digest_pinned_test() ->
     ?assertMatch(<<_/binary>>, pinned("Containerfile", "^FROM (\\S+" ++ Digest ++ ")$")),
     ?assertEqual(Builder, pinned(".github/workflows/lint.yml", "^\\s+image: (\\S+)$")).
 
+%% NO DISTRIBUTION LISTENER AND NO COOKIE (mcl-om#24). This service talks to
+%% the mesh, never to another Erlang node, so the release starts with `-sname',
+%% no epmd and no dist listener, and the image bakes no cookie for every copy of
+%% it to share. A box that can reach the node's distribution port can attach a
+%% process holding this service's keys, and a per-box cookie is the only thing
+%% in front of it.
+%%
+%% Reads the files, because a missing flag is not something any amount of
+%% exercising the code can notice: without the listener there is no failure to
+%% observe, which is the point.
+the_release_opens_no_distribution_listener_test() ->
+    {ok, VmArgs} = file:read_file(alongside("config/vm.args.src")),
+    lists:foreach(
+      fun(Forbidden) ->
+              ?assertEqual(nomatch, binary:match(VmArgs, Forbidden), {present, Forbidden})
+      end,
+      [<<"-setcookie">>, <<"-name ">>]),
+    lists:foreach(
+      fun(Required) ->
+              ?assertNotEqual(nomatch, binary:match(VmArgs, Required), {missing, Required})
+      end,
+      [<<"-sname ">>, <<"-start_epmd false">>, <<"-dist_listen false">>]),
+    {ok, Container} = file:read_file(alongside("Containerfile")),
+    ?assertEqual(nomatch, binary:match(Container, <<"MCL_COOKIE">>)).
+
 %% The full release, 28.4.3 and not 28: `otp_release' names only the major.
-running_otp() ->
-    {ok, Version} = file:read_file(filename:join([code:root_dir(), "releases",
+running_otp() ->    {ok, Version} = file:read_file(filename:join([code:root_dir(), "releases",
                                                   erlang:system_info(otp_release),
                                                   "OTP_VERSION"])),
     string:trim(Version).

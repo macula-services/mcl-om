@@ -64,9 +64,10 @@ services:
       # that dial could never connect anyway.
       - MACULA_STATION_SEEDS=${MACULA_STATION_SEEDS:?set MACULA_STATION_SEEDS to "host[:port][,host[:port]...]"}
       - MACULA_STATION_NODE_IDS=${MACULA_STATION_NODE_IDS:?set MACULA_STATION_NODE_IDS to the matching 64-hex node ids, comma-separated}
-      - MCL_NODE_NAME=<%name%>
-      - MCL_NODE_HOST=127.0.0.1
-      - MCL_COOKIE=<%name%>
+      # NO NODE NAME, NO HOST, NO COOKIE. The release starts with `-sname',
+      # `-start_epmd false' and `-dist_listen false' (config/vm.args.src) and
+      # reads none of them, so there is nothing here to set and no cookie to
+      # share between boxes. See mcl-om#24.
       # Labels on the claim this service sends the realm at boot, which the
       # realm's operator sees on the pending row: what is asking, and from
       # which box. MCL_BOX comes from the host that deploys it.
