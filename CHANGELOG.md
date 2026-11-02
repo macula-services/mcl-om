@@ -10,8 +10,24 @@ house rules on its first commit, instead of collecting the gaps one review at a
 time. The library's API is unchanged; what moves is what `rebar3 new mcl_service`
 writes.
 
+Slice B of mcl-om#51: a scaffolded repository now arrives with its labels and
+its first issues named, instead of a list of jobs to discover.
+
 ### Added
 
+- **`scripts/seed-repository.sh <org>/<repo>` seeds the repository the scaffold
+  cannot create** (mcl-om#55). It prints the plan and, with `--file`, creates
+  the five workflow labels the org uses, a `crew:<member>` label for each member
+  named with `--crew` or `MCL_CREW` (never guessed, since members come and go),
+  and four issues: the C4 model before there is code, the README with the
+  service's own logo, the walking skeleton (CI, a digest-pinned deployment
+  entry, the first two desks) and `v0.1.0` — each opening with the
+  `Purpose (kind):` line the house requires. Dry by default, because what gets
+  created should be readable before it is created, and because a plan rather
+  than a side effect is what `mcl_service_template_SUITE` can assert: it runs
+  the script with a stand-in `gh` on PATH and checks every call, every Purpose
+  line, and that no body carries a box name, a home path or a repository of
+  ours. `scaffold-service.sh` now names the command in its next steps.
 - **A generated service carries its own logo and README head** (mcl-om#51): two
   parameterised SVGs in `assets/` — the shared mesh icon with this service's name
   under it, light and dark — and a README that shows them, with a badge row.
