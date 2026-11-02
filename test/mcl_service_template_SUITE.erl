@@ -74,7 +74,9 @@
          storeless_scaffold_names_no_store/1,
          store_scaffold_owns_its_store/1,
          seeding_is_dry_by_default/1,
-         seeding_creates_the_labels_and_the_first_issues/1]).
+         seeding_creates_the_labels_and_the_first_issues/1,
+         seeding_skips_an_issue_that_is_already_filed/1,
+         scaffold_names_the_seed_command_by_its_absolute_path/1]).
 
 -define(REPO, "mcl-probe-svc").
 -define(APP,  "mcl_probe_svc").
@@ -151,7 +153,9 @@ all() ->
      storeless_scaffold_names_no_store,
      store_scaffold_owns_its_store,
      seeding_is_dry_by_default,
-     seeding_creates_the_labels_and_the_first_issues].
+     seeding_creates_the_labels_and_the_first_issues,
+     seeding_skips_an_issue_that_is_already_filed,
+     scaffold_names_the_seed_command_by_its_absolute_path].
 
 %%%---------------------------------------------------------------------------
 %%% Generate once, compile once, then assert
@@ -1485,6 +1489,9 @@ seeding_creates_the_labels_and_the_first_issues(Config) ->
     [?assertNotEqual(nomatch, binary:match(Args, <<"--force">>)) || Args <- Labels],
     Issues = [{Args, Body} || {<<"issue create ", Args/binary>>, Body} <- Calls],
     ?assertEqual(4, length(Issues)),
+    %% Every issue carries `plan': a backlog of four unlabelled issues is a
+    %% backlog nobody can filter, and the label is the org's first filter.
+    [?assertNotEqual(nomatch, binary:match(Args, <<"--label plan">>)) || {Args, _} <- Issues],
     %% Every body opens with its Purpose line: that is what the house requires
     %% of an issue, and it is the first thing a reader sees in the list.
     [begin
@@ -1495,17 +1502,60 @@ seeding_creates_the_labels_and_the_first_issues(Config) ->
      end || {_Args, Body} <- Issues],
     %% A body lands in a repository that may be public: no box, no path, no
     %% node id, no repository of ours by name.
+    %% The names, and then the SHAPE that names none of them: a node id is 64
+    %% hex characters, and one pasted into a body names a host as surely as
+    %% "host00" does without containing a word this list could hold.
     Forbidden = [<<"macula-services">>, <<"macula-fleet">>, <<"macula-io">>,
-                 <<"beam0">>, <<"msi00">>, <<"/home/">>, <<"Lefever">>, <<"self-hosted">>],
+                 <<"beam0">>, <<"msi00">>, <<"host00">>, <<".lab">>,
+                 <<"/home/">>, <<"Lefever">>, <<"self-hosted">>],
     ?assertEqual([], [{F, binary:part(Body, binary:match(Body, F), byte_size(F))}
                       || {_Args, Body} <- Issues, F <- Forbidden,
                          binary:match(Body, F) =/= nomatch]),
+    %% CAPTURED AS THE MATCH AND NOT AS OFFSETS: re:run answers {Start, Len}
+    %% pairs by default, so a `{match, [Id]}' pattern against it never matches
+    %% and the assertion passes over every body without looking at one.
+    ?assertEqual([], [{Body, Id}
+                      || {_Args, Body} <- Issues,
+                         {match, [Id]} <- [re:run(Body, "([0-9a-fA-F]{64})",
+                                                  [{capture, all_but_first, binary}])]]),
     %% Each issue is addressed at the repository it seeds.
     [?assertNotEqual(nomatch, binary:match(Args, <<"--repo acme-widgets/mcl-seed-probe">>))
      || {Args, _Body} <- Calls].
 
+%% A RUN THAT STOPPED HALFWAY IS FINISHED BY RUNNING IT AGAIN, and the two
+%% issues it already filed are not filed twice: their titles are read back
+%% first, and a skipped one says so rather than passing for a created one.
+seeding_skips_an_issue_that_is_already_filed(Config) ->
+    Priv = ?config(priv_dir, Config),
+    Logs = filename:join(Priv, "gh-rerun"),
+    ok = filelib:ensure_path(Logs),
+    Stub = stub_gh(Priv),
+    Already = "Release v0.1.0",
+    Out = run(sh(), [seed_script(), "acme-widgets/mcl-seed-probe", "--file"], Priv,
+              [{"PATH", Stub ++ ":" ++ os:getenv("PATH")}, {"GH_LOG_DIR", Logs},
+               {"GH_EXISTING", Already}]),
+    Created = [Args || {<<"issue create ", Args/binary>>, _} <- gh_calls(Logs)],
+    ?assertEqual(3, length(Created)),
+    ?assertEqual(nomatch, binary:match(iolist_to_binary(Created), list_to_binary(Already))),
+    ?assertNotEqual(nomatch, binary:match(Out, <<"skip   Release v0.1.0">>)).
+
+%% THE PRINTED STEP HAS TO BE ONE THAT RUNS. `seed-repository.sh` lives in this
+%% checkout, and the next steps have just cd'd into the new repository, so a
+%% bare `scripts/seed-repository.sh' there names a file that does not exist.
+scaffold_names_the_seed_command_by_its_absolute_path(Config) ->
+    Out = ?config(house_out, Config),
+    Path = case re:run(Out, "(/[^ \n]*/scripts/seed-repository\\.sh) macula-services/"
+                            ?HOUSE_REPO,
+                       [{capture, all_but_first, list}]) of
+               {match, [Named]} -> Named;
+               Other            -> ct:fail({seed_command_is_not_absolute, Other})
+           end,
+    %% ...and the file it names is the one that is there.
+    ?assert(filelib:is_regular(Path)).
+
 %% A stand-in `gh', first on PATH: it records the argv of every call and the
-%% body it was given, and creates nothing.
+%% body it was given, and creates nothing. `GH_EXISTING' is what `issue list'
+%% answers, so a rerun can be exercised without a repository.
 stub_gh(Priv) ->
     Bin = filename:join(Priv, "stub-bin"),
     ok = filelib:ensure_path(Bin),
@@ -1520,6 +1570,7 @@ stub_gh(Priv) ->
                "printf '%s\\n' \"$*\" > \"$GH_LOG_DIR/$n.call\"\n"
                "case \"$*\" in\n"
                "    *--body-file\\ -) cat >> \"$GH_LOG_DIR/$n.call\" ;;\n"
+               "    issue\\ list*) [ -z \"${GH_EXISTING:-}\" ] || printf '%s\\n' \"$GH_EXISTING\" ;;\n"
                "esac\n"
                "exit 0\n">>,
     ok = file:write_file(Gh, Script),

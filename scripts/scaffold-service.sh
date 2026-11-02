@@ -187,13 +187,14 @@ Next, and none of these can be generated:
   gh repo create ${ORG}/${REPO_NAME} --${MCL_VISIBILITY} --source=. --remote=origin
   git remote set-url origin git@github.com:${ORG}/${REPO_NAME}.git
 
-Once that repository exists, seed it from this checkout: the house labels, one
-crew:<member> label per member you name, and the first four issues (the C4
-model, the README, the walking skeleton, v0.1.0). It prints the plan and
-creates nothing unless asked, so read it first.
+Once that repository exists, seed it: the house labels, one crew:<member> label
+per member you name, and the first four issues (the C4 model, the README, the
+walking skeleton, v0.1.0). It prints the plan and creates nothing unless asked,
+so read it first. The path is absolute on purpose: the commands above have just
+cd'd into the new repository, which does not carry this script.
 
-  scripts/seed-repository.sh ${ORG}/${REPO_NAME}
-  scripts/seed-repository.sh ${ORG}/${REPO_NAME} --file --crew=<member>
+  ${HERE}/seed-repository.sh ${ORG}/${REPO_NAME}
+  ${HERE}/seed-repository.sh ${ORG}/${REPO_NAME} --file --crew=<member>
 
 The remote must be SSH, or the token must carry the 'workflow' scope: an HTTPS
 push that creates .github/workflows/ without it is refused, and the error names

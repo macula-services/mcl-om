@@ -102,12 +102,30 @@ crew_labels() {
 issue() {
     title="$1"; body="$2"
     if [ "$FILE" = 1 ]; then
-        "$body" | gh issue create --repo "$REPO" --title "$title" --body-file - >/dev/null
+        # A RERUN MUST NOT FILE EVERYTHING TWICE. A run that stopped on the
+        # third issue -- a network blip, a rate limit -- is finished by running
+        # this again, and the two already created are not duplicated: their
+        # titles are read back first and skipped, out loud, so a short run is
+        # never mistaken for one that changed nothing.
+        if printf '%s\n' "$EXISTING" | grep -Fxq "$title"; then
+            echo "skip   $title — already filed in $REPO"
+            return 0
+        fi
+        "$body" | gh issue create --repo "$REPO" --title "$title" --label plan \
+            --body-file - >/dev/null
     else
-        emit "issue  $title"
+        emit "issue  $title  [plan]"
         "$body" | sed 's/^/       | /'
         emit ""
     fi
+}
+
+# One listing rather than a search per issue: the titles are read once, before
+# anything is created, and an empty answer is not a failure -- a repository
+# with no issues has none to skip.
+existing_titles() {
+    gh issue list --repo "$REPO" --state all --limit 200 --json title \
+        --jq '.[].title' </dev/null 2>/dev/null || true
 }
 
 # WHY (capability) AND NOT (upkeep): the reader this is written for is whoever
@@ -119,13 +137,13 @@ Purpose (capability): whoever picks this service up can see what it talks to and
 what it is made of before there is code to read, so the boundary is a decision
 someone wrote down rather than something discovered from the source.
 
-`architecture/README.md` describes the context and the containers. It owes two
-diagrams in `assets/`, a context one and a component one, drawn from this
-service's own design rather than from the template.
+`architecture/README.md` describes the service's context and its components. It
+owes two diagrams in `assets/`, a context one and a components one, drawn from
+this service's own design rather than from the template.
 
 Nothing in the model is implementation detail: the context diagram names the
 other services and systems this one talks to and what it asks them for, and the
-containers diagram names the pieces inside it and what each holds.
+components diagram names the pieces inside it and what each holds.
 
 Done when `assets/c4-context.svg` and `assets/c4-components.svg` exist and both
 `README.md` and `architecture/README.md` show them.
@@ -211,6 +229,11 @@ done
 crew_labels
 
 [ "$FILE" = 1 ] || emit ""
+
+EXISTING=""
+if [ "$FILE" = 1 ]; then
+    EXISTING=$(existing_titles)
+fi
 
 issue "Model the service in C4 before writing it" body_c4
 issue "Bring the README up to the house template, with the service's own logo" body_readme
