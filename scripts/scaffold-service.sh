@@ -103,6 +103,9 @@ fi
 # with macula-ci-images' c4-model.yml: a context and a component diagram in
 # assets/, shown by a README. Same condition and same reason as attest: the
 # check is ours, pinned to our commit, and a stranger's scaffold names neither.
+# Its Design gate (macula-sponsors#113), c4-design-gate.yml from the same commit,
+# answers gate:design on a plan issue: no Context and Container model, and the
+# issue gets a comment and a failing check. One pin moves both.
 #
 # HOUSE says only that the repository is one of ours: it is what puts OUR
 # funding page in .github/FUNDING.yml instead of an empty list. Separate from
@@ -112,12 +115,15 @@ case "${ORG}" in
         ATTEST=1
         C4=1
         HOUSE=1
-        C4_GATE="macula-io/macula-ci-images/.github/workflows/c4-model.yml@40c349dfdd8063321f6d8de571d6fc6ee165729d" ;;
+        C4_PIN=b268b87644ae0256a20e259bd7e286e8c98b303c
+        C4_GATE="macula-io/macula-ci-images/.github/workflows/c4-model.yml@${C4_PIN}"
+        C4_DESIGN_GATE="macula-io/macula-ci-images/.github/workflows/c4-design-gate.yml@${C4_PIN}" ;;
     *)
         ATTEST=
         C4=
         HOUSE=
-        C4_GATE= ;;
+        C4_GATE=
+        C4_DESIGN_GATE= ;;
 esac
 
 HOLDER_ARGS=()
@@ -165,8 +171,16 @@ rebar3 new mcl_service \
     c4="${C4}" \
     house="${HOUSE}" \
     c4_gate="${C4_GATE}" \
+    c4_design_gate="${C4_DESIGN_GATE}" \
     ${HOLDER_ARGS[@]+"${HOLDER_ARGS[@]}"} \
     ${IMAGE_ARGS[@]+"${IMAGE_ARGS[@]}"}
+
+# A rebar3 template cannot skip a file, so outside the house the Design gate
+# renders empty; an empty workflow would only fail to parse, so it goes.
+DESIGN_GATE="${REPO_NAME}/.github/workflows/c4-design-gate.yml"
+if [ -z "${C4_DESIGN_GATE}" ] && [ -z "$(tr -d '[:space:]' < "${DESIGN_GATE}")" ]; then
+    rm -f -- "${DESIGN_GATE}"
+fi
 
 if [ "${MCL_VISIBILITY}" = private ]; then
     PACKAGE_NOTE="The image package is private like the repository: whatever pulls it needs

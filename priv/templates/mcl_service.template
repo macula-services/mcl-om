@@ -61,6 +61,8 @@
      "EMPTY BY DEFAULT, 1 FOR THE HOUSE. Says only that this repository is one of ours: it puts OUR funding page in .github/FUNDING.yml instead of an empty list, and marks anything else that is ours and nobody else's. scripts/scaffold-service.sh sets it from the org, separately from `attest', because un-signing a service and un-funding it are not the same act. EXACTLY ONE CHARACTER, like `store'."},
     {c4_gate, "",
      "The shared C4 check c4-model calls, as its `uses:` value, PINNED BY FULL COMMIT SHA. Named here rather than in the workflow so moving the fleet's pin is one edit, as the two images are. Only read when `c4` is set."},
+    {c4_design_gate, "",
+     "The shared Design gate .github/workflows/c4-design-gate.yml calls, as its `uses:` value, PINNED BY FULL COMMIT SHA and to the same commit as c4_gate (macula-sponsors#113): gate:design on a plan issue fails a check, and comments, until assets/ holds the Context and Container diagrams. Only read when `c4` is set; without it the workflow renders empty, and scripts/scaffold-service.sh removes the empty file."},
     {attest, "",
      "EMPTY BY DEFAULT, 1 FOR THE HOUSE. Signs every pushed image by digest (keyless, SBOM and provenance attested) with macula-ci-images' attest-image.yml, pinned by full commit sha. That workflow is macula-io's, so only scripts/scaffold-service.sh sets this, for the macula-services, macula-internal and macula-io orgs. EXACTLY ONE CHARACTER, like `store'."},
     {store, "",
@@ -95,6 +97,10 @@
 {template, "mcl_service/Containerfile",      "{{repo}}/Containerfile"}.
 {template, "mcl_service/build-push.yml",     "{{repo}}/.github/workflows/build-push.yml"}.
 {template, "mcl_service/lint.yml",           "{{repo}}/.github/workflows/lint.yml"}.
+%% The Design gate (macula-sponsors#113). A rebar3 template renders every file,
+%% so outside the house this one renders empty and scripts/scaffold-service.sh
+%% removes it.
+{template, "mcl_service/c4-design-gate.yml", "{{repo}}/.github/workflows/c4-design-gate.yml"}.
 {template, "mcl_service/compose.yml",        "{{repo}}/deploy/docker-compose.yml"}.
 
 %% Scripts

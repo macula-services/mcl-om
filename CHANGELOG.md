@@ -3,6 +3,27 @@
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [SemVer](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **The house's Design gate** (mcl-om#67, macula-sponsors#113). A house
+  scaffold now carries `.github/workflows/c4-design-gate.yml`, which answers
+  `gate:design` on a plan issue with macula-ci-images' shared gate: without the
+  C4 Context and Container diagrams in `assets/`, the issue gets a comment and a
+  failing check. The label is never removed. The template default stays off, so
+  a stranger's scaffold carries no such file (`scripts/scaffold-service.sh`
+  removes the empty render).
+- `architecture/README.md` in the scaffold now has a Level 2 containers table
+  and names `assets/c4-containers.svg` beside the context and component
+  diagrams.
+
+### Changed
+
+- The house's C4 pin moves from macula-ci-images `40c349d` to `b268b87`, the
+  commit with the Container rule and the Design gate. `c4-model` and
+  `c4-design-gate` share the one pin in `scripts/scaffold-service.sh`.
+
 ## [1.8.0] - 2026-11-02
 
 Slice A of mcl-om#51: the scaffold now generates a repository that meets the

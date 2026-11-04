@@ -1,0 +1,30 @@
+{{=<% %>=}}<%#c4%># The Design gate of <%repo%> fails a check until its C4 Context and Container model exists.
+#
+# This exists so <%repo%> cannot pass gate:design, and then get its first code,
+# without the model the code is meant to follow (macula-sponsors#113).
+#
+# The owner applies gate:design to the plan issue. This workflow answers that
+# label with macula-ci-images' c4-design-gate.yml: when assets/ holds no Context
+# or no Container diagram, or no README shows it, the issue gets a comment naming
+# what is missing and the check fails. It never takes the label away: the label is
+# the owner's act, and the failing check beside it is the record that the model
+# was not there. Any other label skips the job.
+#
+# Pinned by full commit sha, to the same commit as the c4-model job in
+# build-push.yml, so moving the house's C4 pin moves both.
+
+name: c4 design gate
+
+on:
+  issues:
+    types: [labeled]
+
+jobs:
+  c4-design-gate:
+    permissions:
+      contents: read
+      issues: write
+    uses: <%c4_design_gate%>
+    with:
+      runs-on: '<%runs_on%>'
+<%/c4%>

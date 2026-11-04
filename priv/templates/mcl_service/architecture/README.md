@@ -20,7 +20,16 @@ state, and it grows with the service.
 | macula stations, mesh DHT | Macula infrastructure | The service dials out to two pinned stations; nothing dials in. What the service publishes lands in the DHT |
 | What it serves | External | Nothing yet: a scaffold advertises no capability |
 
-## Level 2: containers and components
+## Level 2: containers
+
+![<%repo%> containers](../assets/c4-containers.svg)
+
+| Container | Technology | Responsibility |
+| --- | --- | --- |
+| <%repo%> | OTP release in one OCI image | The service itself: boots `mcl_om`, joins the mesh, serves `/health` |
+| Identity key | named volume, `/etc/mcl/secrets` | The node id the realm endorses; it never leaves the box |
+
+## Level 3: components
 
 ![<%repo%> components](../assets/c4-components.svg)
 
@@ -33,9 +42,10 @@ state, and it grows with the service.
 
 ## Drawing them
 
-`assets/c4-context.svg` and `assets/c4-components.svg` are the two diagrams. The
-front page shows the context one, and this file shows both; a diagram is a model
-only if a reader can reach it.
+`assets/c4-context.svg`, `assets/c4-containers.svg` and `assets/c4-components.svg`
+are the three diagrams. The front page shows the context one, and this file shows
+all three; a diagram is a model only if a reader can reach it. The Context and
+Container diagrams come first, before any code: the service is planned from them.
 
 They are drawn from the code, never from this page: the routes in `Containerfile`,
 the callbacks in `<%name%>_service.erl`, the dependencies in `rebar.config`, the
@@ -49,8 +59,11 @@ everywhere they are read (GitHub, an IDE, `rsvg-convert`):
 
 <%#c4%>
 The check that keeps them here is the `c4-model` job in
-`.github/workflows/build-push.yml`. It is red until both files exist and are
-shown, and it stays red if either one goes missing.
+`.github/workflows/build-push.yml`. It is red until the files exist and are
+shown, and it stays red if one goes missing. Before that, the Design gate in
+`.github/workflows/c4-design-gate.yml` answers `gate:design` on the plan issue:
+without the Context and Container diagrams the issue gets a comment and a
+failing check. The label stays; the red check is the record.
 <%/c4%>
 A worked reference, generator included, is the fovea service's own `assets/` and
 `architecture/` directory, in the same organisation as this repository.
