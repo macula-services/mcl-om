@@ -26,6 +26,7 @@
 -export([all/0, init_per_suite/1, end_per_suite/1]).
 -export([generates_every_expected_file/1,
          the_c4_model_is_asked_for_and_not_faked/1,
+         the_house_design_gate_fails_without_the_model/1,
          health_script_is_executable/1,
          health_is_a_unix_socket_not_a_port/1,
          sys_config_configures_a_stable_identity/1,
@@ -108,6 +109,7 @@
 all() ->
     [generates_every_expected_file,
      the_c4_model_is_asked_for_and_not_faked,
+     the_house_design_gate_fails_without_the_model,
      health_script_is_executable,
      health_is_a_unix_socket_not_a_port,
      sys_config_configures_a_stable_identity,
@@ -396,6 +398,9 @@ the_c4_model_is_asked_for_and_not_faked(Config) ->
     ?assertNotEqual(nomatch, binary:match(Architecture, <<?APP>>)),
     ?assertNotEqual(nomatch, binary:match(Architecture, <<"assets/c4-context.svg">>)),
     ?assertNotEqual(nomatch, binary:match(Architecture, <<"assets/c4-components.svg">>)),
+    %% A service is planned from its Context and Container model
+    %% (macula-sponsors#113), so the model names the Container diagram too.
+    ?assertNotEqual(nomatch, binary:match(Architecture, <<"assets/c4-containers.svg">>)),
     %% Neither diagram is drawn for the service: a diagram from a template is a
     %% placeholder, and the gate is what says so. The logo in assets/ is not a
     %% model and is not counted here.
@@ -422,6 +427,49 @@ the_c4_model_is_asked_for_and_not_faked(Config) ->
     %% No needs: line anywhere in build-push.yml mentions c4-model, whether it
     %% stands alone or sits in a list.
     ?assertEqual(nomatch, re:run(House, "^[ \\t]+needs:.*c4-model", [multiline])).
+
+%% THE DESIGN GATE FAILS A CHECK WITHOUT THE MODEL (macula-sponsors#113). A house
+%% service answers gate:design on its plan issue with macula-ci-images'
+%% c4-design-gate.yml: no Context and Container model on the default branch, and
+%% the issue gets a comment and a red check. The label is never removed. The
+%% gate is pinned to the same commit as the c4-model job, so one pin moves both,
+%% and that commit is past the one without the Container rule. A stranger's
+%% scaffold names neither: a rebar3 template renders every file, so the
+%% workflow renders empty there and scripts/scaffold-service.sh removes it.
+the_house_design_gate_fails_without_the_model(Config) ->
+    Gate = read(filename:join([?config(house_root, Config), ".github", "workflows",
+                               "c4-design-gate.yml"])),
+    ?assertMatch({match, _}, re:run(Gate, "^on:\\s*\\n\\s+issues:\\s*\\n\\s+types:\\s*\\[labeled\\]",
+                                    [multiline])),
+    ?assertMatch({match, _}, re:run(Gate, "issues: write", [])),
+    {match, [GatePin]} = re:run(Gate, "uses: macula-io/macula-ci-images/\\.github/workflows/"
+                                      "c4-design-gate\\.yml@([0-9a-f]{40})",
+                                [{capture, all_but_first, binary}]),
+    Build = read(filename:join([?config(house_root, Config), ".github", "workflows",
+                                "build-push.yml"])),
+    {match, [ModelPin]} = re:run(Build, "uses: macula-io/macula-ci-images/\\.github/workflows/"
+                                        "c4-model\\.yml@([0-9a-f]{40})",
+                                 [{capture, all_but_first, binary}]),
+    ?assertEqual(ModelPin, GatePin),
+    %% 40c349d is the shared gate before the Container rule and the design gate.
+    ?assertNotEqual(<<"40c349dfdd8063321f6d8de571d6fc6ee165729d">>, ModelPin),
+    %% Nothing in the workflow takes the owner's label away.
+    ?assertEqual(nomatch, re:run(Gate, "remove-label|removeLabel|/labels/", [caseless])),
+    %% The stranger's direct render is empty, so it names nothing of ours...
+    Stranger = filename:join([?config(root, Config), ".github", "workflows",
+                              "c4-design-gate.yml"]),
+    ?assertEqual(<<>>, string:trim(read(Stranger))),
+    %% ...and a stranger's scaffold carries no such file at all.
+    Dir = filename:join(?config(priv_dir, Config), "stranger"),
+    ok = filelib:ensure_path(Dir),
+    Out = run(scaffold_script(), ["mcl-stranger-probe", "A stranger probe"], Dir,
+              [{"MCL_VISIBILITY", "public"}, {"MCL_ORG", "someone-else"}
+               | lists:keydelete("MCL_ORG", 1, cleared_overrides())]),
+    ct:pal("scaffold-service.sh (stranger) said:~n~s", [Out]),
+    ?assertNot(filelib:is_file(filename:join([Dir, "mcl-stranger-probe", ".github", "workflows",
+                                              "c4-design-gate.yml"]))),
+    ?assert(filelib:is_file(filename:join([Dir, "mcl-stranger-probe", ".github", "workflows",
+                                           "build-push.yml"]))).
 
 %% Forgetting the chmod entry produces a script that looks right and cannot run,
 %% and it is a recorded recurring mistake in this estate.
