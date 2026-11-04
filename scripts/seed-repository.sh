@@ -137,16 +137,24 @@ Purpose (capability): whoever picks this service up can see what it talks to and
 what it is made of before there is code to read, so the boundary is a decision
 someone wrote down rather than something discovered from the source.
 
-`architecture/README.md` describes the service's context and its components. It
-owes two diagrams in `assets/`, a context one and a components one, drawn from
-this service's own design rather than from the template.
+`architecture/README.md` describes the service's context, its containers and
+its components. It owes three diagrams in `assets/`, drawn from this service's
+own design rather than from the template: a context one and a containers one
+before any code is written, because the service is planned from them, and a
+components one that comes with the code.
 
 Nothing in the model is implementation detail: the context diagram names the
-other services and systems this one talks to and what it asks them for, and the
-components diagram names the pieces inside it and what each holds.
+other services and systems this one talks to and what it asks them for, the
+containers diagram names what runs and what holds data, and the components
+diagram names the pieces inside it and what each holds.
 
-Done when `assets/c4-context.svg` and `assets/c4-components.svg` exist and both
-`README.md` and `architecture/README.md` show them.
+This is the issue `gate:design` is applied to. The Design gate fails a check
+here, and comments, until `assets/c4-context.svg` and `assets/c4-containers.svg`
+exist and a README shows them.
+
+Done when `assets/c4-context.svg`, `assets/c4-containers.svg` and
+`assets/c4-components.svg` exist and both `README.md` and
+`architecture/README.md` show them.
 BODY
 }
 

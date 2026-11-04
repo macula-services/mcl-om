@@ -54,8 +54,9 @@ jobs:
 <%#c4%>
 
   # THE SERVICE'S C4 MODEL: what it talks to, and what it is made of
-  # (macula-codebase-checks#10). Two diagrams in assets/, a context one and a
-  # component one, each shown by README.md or architecture/README.md, and this
+  # (macula-codebase-checks#10). Three diagrams in assets/, a context, a
+  # containers and a component one, each shown by README.md or
+  # architecture/README.md, and this
   # job red until they are there. architecture/README.md says what goes in them,
   # and the scaffold does not draw them, because a diagram generated from a
   # template is a placeholder with a nicer shape.

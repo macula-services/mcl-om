@@ -100,8 +100,8 @@ fi
 # attest-image.yml; anyone else's scaffold has no such job.
 #
 # THE HOUSE ALSO HOLDS EVERY SERVICE TO A C4 MODEL (macula-codebase-checks#10),
-# with macula-ci-images' c4-model.yml: a context and a component diagram in
-# assets/, shown by a README. Same condition and same reason as attest: the
+# with macula-ci-images' c4-model.yml: a context, a containers and a component
+# diagram in assets/, shown by a README. Same condition and same reason as attest: the
 # check is ours, pinned to our commit, and a stranger's scaffold names neither.
 # Its Design gate (macula-sponsors#113), c4-design-gate.yml from the same commit,
 # answers gate:design on a plan issue: no Context and Container model, and the

@@ -388,7 +388,7 @@ generates_every_expected_file(Config) ->
 
 %% THE SERVICE OWES ITS READERS A MODEL, AND THE TEMPLATE HANDS IT THE GATE
 %% (macula-codebase-checks#10). The architecture README names this service and
-%% the two diagrams the gate asks for, and lint.yml calls the shared check
+%% the three diagrams the gates ask for, and build-push.yml calls the shared check
 %% pinned by a full commit sha. The scaffold draws neither diagram: a diagram
 %% generated from a template is a placeholder with a nicer shape, so the job
 %% is red until the service draws its own.
@@ -1548,6 +1548,14 @@ seeding_creates_the_labels_and_the_first_issues(Config) ->
     [?assertNotEqual(nomatch, binary:match(Args, <<"--force">>)) || Args <- Labels],
     Issues = [{Args, Body} || {<<"issue create ", Args/binary>>, Body} <- Calls],
     ?assertEqual(4, length(Issues)),
+    %% The C4 issue is the one gate:design is applied to, so its Done state is
+    %% the one the Design gate passes: Context and Container before the code
+    %% (macula-sponsors#113), components with it.
+    [C4Body] = [Body || {Args, Body} <- Issues,
+                        binary:match(Args, <<"Model the service in C4">>) =/= nomatch],
+    [?assertNotEqual(nomatch, binary:match(C4Body, Svg))
+     || Svg <- [<<"assets/c4-context.svg">>, <<"assets/c4-containers.svg">>,
+                <<"assets/c4-components.svg">>]],
     %% Every issue carries `plan': a backlog of four unlabelled issues is a
     %% backlog nobody can filter, and the label is the org's first filter.
     [?assertNotEqual(nomatch, binary:match(Args, <<"--label plan">>)) || {Args, _} <- Issues],
